@@ -1,5 +1,54 @@
-<!--index.wxml-->
 <view class="container">
-  <text class="title">QuizWiz</text>
-  <text class="hint">在 pages/index 下开始开发</text>
+  <view class="header">
+    <text class="title">QuizWiz 小程序联调</text>
+    <button class="refresh-btn" size="mini" bindtap="loadQuestions" loading="{{loading}}">换一批题</button>
+  </view>
+
+  <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+
+  <view wx:if="{{questions.length === 0 && !loading}}" class="empty">
+    暂无已发布题目，请先在后台把题目状态改为 published
+  </view>
+
+  <block wx:for="{{questions}}" wx:key="id">
+    <view class="card">
+      <text class="stem">{{index + 1}}. {{item.stem}}</text>
+      <text class="meta">题型：{{item.questionType === 'single' ? '单选' : '多选'}}</text>
+
+      <block wx:for="{{item.options}}" wx:key="letter">
+        <view
+          class="option {{(answers[item.id] || []).indexOf(item.letter) !== -1 ? 'option-selected' : ''}}"
+          data-question-id="{{item.id}}"
+          data-letter="{{item.letter}}"
+          bindtap="onSelectOption"
+        >
+          <text class="option-letter">{{item.letter}}.</text>
+          <text class="option-text">{{item.text}}</text>
+        </view>
+      </block>
+    </view>
+  </block>
+
+  <button
+    class="submit-btn"
+    type="primary"
+    loading="{{submitting}}"
+    disabled="{{questions.length === 0 || submitting}}"
+    bindtap="onSubmit"
+  >
+    提交并判分
+  </button>
+
+  <view wx:if="{{result}}" class="result">
+    <text class="result-title">得分：{{result.correct}} / {{result.total}}</text>
+    <block wx:for="{{result.details}}" wx:key="questionId">
+      <view class="result-item {{item.isCorrect ? 'ok' : 'bad'}}">
+        <text>第{{index + 1}}题：{{item.isCorrect ? '正确' : '错误'}}</text>
+        <text wx:if="{{!item.isCorrect}}">
+          你的答案：{{item.selectedLetters.join(',') || '未作答'}}；正确答案：{{item.correctLetters.join(',')}}
+        </text>
+        <text wx:if="{{item.analysis}}">解析：{{item.analysis}}</text>
+      </view>
+    </block>
+  </view>
 </view>

@@ -8,6 +8,7 @@ import authRouter from './routes/auth.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { requireRole } from './middleware/requireRole.js';
 import usersRouter from './routes/users.js';
+import wxRouter from './routes/wx.js';
 import { pool } from './db.js';
 
 const app = express();
@@ -26,6 +27,7 @@ app.get('/health', (req, res) => {
 app.use('/admin/auth', authRouter);
 app.use('/admin/questions', requireAuth, questionsRouter);
 app.use('/admin/users', requireAuth, requireRole('admin'), usersRouter);
+app.use('/wx', wxRouter);
 
 app.get('/admin/templates/question-import', requireAuth, async (req, res) => {
   const filePath = path.resolve(__dirname, '../templates/question_import_template.xlsx');
