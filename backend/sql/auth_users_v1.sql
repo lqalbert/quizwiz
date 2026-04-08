@@ -1,0 +1,13 @@
+-- 登录鉴权：用户表（在已有 quizwiz 库上执行）
+USE quizwiz;
+
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('admin', 'teacher') NOT NULL DEFAULT 'teacher',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_users_email (email)
+);

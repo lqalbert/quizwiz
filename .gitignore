@@ -16,7 +16,7 @@ backend/.env.*
 !backend/.env.example
 !backend/deploy/.env.production.example
 
-# 常见敏感文件
+# Certificates / keys / credentials
 *.pem
 *.key
 *.crt
@@ -24,9 +24,8 @@ backend/.env.*
 *.pfx
 id_rsa
 id_rsa.pub
-*.kdbx
-secrets.*
 credentials.*
+secrets.*
 token.*
 *.secret
 
@@ -38,8 +37,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-backend/logs/
 logs/
+backend/logs/
 
 # =========================
 # Runtime / temp / cache
@@ -51,6 +50,9 @@ coverage/
 .nyc_output/
 *.tmp
 *.swp
+*.swo
+.pids/
+*.pid
 
 # =========================
 # Build / package artifacts
@@ -62,23 +64,21 @@ out/
 *.tar.gz
 *.zip
 
-# 备份与导出
-backups/
-backup/
-*.sql
+# =========================
+# Database dumps / backups
+# =========================
+# 注意：保留项目迁移/建表 SQL，不忽略 backend/sql/*.sql
 *.sql.gz
 *.dump
 *.bak
-*.csv
+backups/
+backup/
 
 # =========================
 # PM2 / deploy runtime artifacts
 # =========================
-.pids/
-*.pid
-pm2.log
 backend/.pm2/
-backend/deploy/*.local
+pm2.log
 
 # =========================
 # OS / Editor
@@ -90,7 +90,7 @@ Thumbs.db
 *.iml
 
 # =========================
-# WeChat Mini Program local-only files
+# WeChat Mini Program local-only
 # =========================
 project.private.config.json
 
@@ -99,3 +99,10 @@ project.private.config.json
 # =========================
 backend/test-output/
 backend/.artifacts/
+
+# =========================
+# Keep required SQL schema files
+# =========================
+!backend/sql/
+!backend/sql/*.sql
+!backend/sql/**/*.sql
