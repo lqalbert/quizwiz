@@ -1,0 +1,5 @@
+<!--index.wxml-->
+<view class="container">
+  <text class="title">QuizWiz</text>
+  <text class="hint">在 pages/index 下开始开发</text>
+</view>

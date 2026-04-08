@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QuizWiz 用户管理</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #222; }
+      .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+      h1 { margin: 0; }
+      .panel { border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 16px; background: #fafafa; }
+      .panel h3 { margin: 0 0 10px; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      input, select, button { padding: 8px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; }
+      th { background: #f8f8f8; text-align: left; }
+      .muted { color: #666; margin-top: 8px; }
+      .error { color: #cf1322; }
+      .ok { color: #0a7a2f; }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <div>
+        <a href="/admin-ui/index.html">← 返回任务列表</a>
+      </div>
+      <button id="logoutBtn" type="button">退出登录</button>
+    </div>
+    <h1>用户管理</h1>
+
+    <div class="panel">
+      <h3>创建用户</h3>
+      <div class="row">
+        <input id="newUsername" type="text" placeholder="用户名（支持汉字/字母/数字）" />
+        <input id="newPassword" type="password" placeholder="初始密码（至少6位）" />
+        <select id="newRole">
+          <option value="teacher">teacher</option>
+          <option value="admin">admin</option>
+        </select>
+        <button id="createBtn" type="button">创建</button>
+      </div>
+      <div id="createMsg" class="muted"></div>
+    </div>
+
+    <div class="panel">
+      <h3>查询</h3>
+      <div class="row">
+        <input id="keyword" type="text" placeholder="用户名关键字" />
+        <select id="filterRole">
+          <option value="">全部角色</option>
+          <option value="teacher">teacher</option>
+          <option value="admin">admin</option>
+        </select>
+        <select id="filterActive">
+          <option value="">全部状态</option>
+          <option value="1">启用</option>
+          <option value="0">禁用</option>
+        </select>
+        <button id="searchBtn" type="button">查询</button>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>用户名</th>
+          <th>角色</th>
+          <th>状态</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <p class="muted" id="pagination"></p>
+
+    <script src="auth.js"></script>
+    <script>
+      (function () {
+        if (!QuizWizAuth.getToken()) {
+          location.href = '/admin-ui/login.html';
+          return;
+        }
+        document.getElementById('logoutBtn').addEventListener('click', function () {
+          QuizWizAuth.logout();
+        });
+
+        const tbody = document.getElementById('tbody');
+        const pagination = document.getElementById('pagination');
+        const keywordEl = document.getElementById('keyword');
+        const filterRoleEl = document.getElementById('filterRole');
+        const filterActiveEl = document.getElementById('filterActive');
+        const searchBtn = document.getElementById('searchBtn');
+        const createBtn = document.getElementById('createBtn');
+        const createMsg = document.getElementById('createMsg');
+
+        async function api(url, options) {
+          const res = await fetch(url, {
+            ...(options || {}),
+            headers: {
+              ...(options && options.headers ? options.headers : {}),
+              ...QuizWizAuth.getAuthHeaders(),
+            },
+          });
+          const okRes = QuizWizAuth.handleResponse(res);
+          if (!okRes) return null;
+          const data = await okRes.json();
+          return { res: okRes, data };
+        }
+
+        async function loadUsers(page = 1) {
+          const params = new URLSearchParams({ page: String(page), pageSize: '20' });
+          if (keywordEl.value.trim()) params.set('keyword', keywordEl.value.trim());
+          if (filterRoleEl.value) params.set('role', filterRoleEl.value);
+          if (filterActiveEl.value !== '') params.set('isActive', filterActiveEl.value);
+
+          const ret = await api(`/admin/users?${params.toString()}`);
+          if (!ret) return;
+          const json = ret.data;
+
+          tbody.innerHTML = '';
+          (json.data || []).forEach((u) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${u.id}</td>
+              <td>${u.email}</td>
+              <td>${u.role}</td>
+              <td>${u.isActive ? '启用' : '禁用'}</td>
+              <td>${u.createdAt || ''}</td>
+              <td>
+                <button data-act="toggleRole" data-id="${u.id}" data-role="${u.role}">
+                  ${u.role === 'admin' ? '设为teacher' : '设为admin'}
+                </button>
+                <button data-act="toggle" data-id="${u.id}" data-active="${u.isActive ? 1 : 0}">
+                  ${u.isActive ? '禁用' : '启用'}
+                </button>
+                <button data-act="resetPwd" data-id="${u.id}">重置密码</button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+          pagination.textContent = `共 ${json.total || 0} 条，当前第 ${json.page || 1} 页`;
+        }
+
+        async function createUser() {
+          const username = document.getElementById('newUsername').value.trim();
+          const password = document.getElementById('newPassword').value;
+          const role = document.getElementById('newRole').value;
+          const usernameRegex = /^[A-Za-z0-9\u4e00-\u9fff]+$/;
+          createMsg.className = 'muted';
+          if (!username) {
+            createMsg.className = 'muted error';
+            createMsg.textContent = '用户名不能为空';
+            return;
+          }
+          if (username.length < 2 || username.length > 20) {
+            createMsg.className = 'muted error';
+            createMsg.textContent = '用户名长度需为 2-20 位';
+            return;
+          }
+          if (!usernameRegex.test(username)) {
+            createMsg.className = 'muted error';
+            createMsg.textContent = '用户名仅支持汉字、字母、数字';
+            return;
+          }
+          createMsg.textContent = '创建中...';
+          const ret = await api('/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, role }),
+          });
+          if (!ret) return;
+          if (!ret.res.ok) {
+            createMsg.className = 'muted error';
+            createMsg.textContent = ret.data.message || '创建失败';
+            return;
+          }
+          createMsg.className = 'muted ok';
+          createMsg.textContent = `创建成功：${ret.data.username || username}`;
+          document.getElementById('newPassword').value = '';
+          await loadUsers(1);
+        }
+
+        async function toggleStatus(userId, currentActive) {
+          const nextActive = currentActive ? false : true;
+          if (!nextActive) {
+            const ok = confirm('确认要禁用该用户吗？');
+            if (!ok) return;
+          }
+          const ret = await api(`/admin/users/${userId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isActive: nextActive }),
+          });
+          if (!ret) return;
+          if (!ret.res.ok) {
+            alert(ret.data.message || '更新状态失败');
+            return;
+          }
+          await loadUsers(1);
+        }
+
+        async function resetPassword(userId) {
+          const pwd = prompt('请输入新密码（至少6位）');
+          if (!pwd) return;
+          const ret = await api(`/admin/users/${userId}/password`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pwd }),
+          });
+          if (!ret) return;
+          if (!ret.res.ok) {
+            alert(ret.data.message || '重置密码失败');
+            return;
+          }
+          alert('密码已重置');
+        }
+
+        async function toggleRole(userId, currentRole) {
+          const nextRole = currentRole === 'admin' ? 'teacher' : 'admin';
+          const ok = confirm(`确认将该用户角色改为 ${nextRole} 吗？`);
+          if (!ok) return;
+          const ret = await api(`/admin/users/${userId}/role`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: nextRole }),
+          });
+          if (!ret) return;
+          if (!ret.res.ok) {
+            alert(ret.data.message || '更新角色失败');
+            return;
+          }
+          await loadUsers(1);
+        }
+
+        createBtn.addEventListener('click', createUser);
+        searchBtn.addEventListener('click', () => loadUsers(1));
+        tbody.addEventListener('click', (e) => {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          const id = Number(btn.dataset.id);
+          const act = btn.dataset.act;
+          if (act === 'toggle') {
+            const active = Number(btn.dataset.active) === 1;
+            toggleStatus(id, active);
+          } else if (act === 'toggleRole') {
+            toggleRole(id, btn.dataset.role);
+          } else if (act === 'resetPwd') {
+            resetPassword(id);
+          }
+        });
+
+        loadUsers(1);
+      })();
+    </script>
+  </body>
+</html>

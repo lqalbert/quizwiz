@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QuizWiz 导入任务详情</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #222; }
+      .cards { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin: 12px 0 20px; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background: #fafafa; }
+      .toolbar { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; vertical-align: top; }
+      th { background: #f8f8f8; text-align: left; }
+      ul { margin: 0; padding-left: 20px; }
+      pre { white-space: pre-wrap; margin: 0; font-size: 12px; }
+      a { color: #0366d6; }
+    </style>
+  </head>
+  <body>
+    <p>
+      <a href="/admin-ui/index.html">← 返回任务列表</a>
+      <button type="button" id="logoutBtn" style="margin-left:12px;padding:6px 12px">退出登录</button>
+    </p>
+    <h1>导入任务详情</h1>
+    <div class="cards">
+      <div class="card"><strong>任务ID</strong><div id="jobId">-</div></div>
+      <div class="card"><strong>总行数</strong><div id="totalRows">-</div></div>
+      <div class="card"><strong>成功行</strong><div id="successRows">-</div></div>
+      <div class="card"><strong>失败行</strong><div id="failedRows">-</div></div>
+    </div>
+
+    <h3>失败原因统计</h3>
+    <ul id="reasonStats"></ul>
+
+    <div class="toolbar">
+      <label><input id="failedOnly" type="checkbox" /> 仅看失败行</label>
+      <button id="refreshBtn">刷新明细</button>
+      <button id="exportBtn" type="button">导出当前明细CSV</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>行号</th>
+          <th>状态</th>
+          <th>原因</th>
+          <th>消息</th>
+          <th>原始数据</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <script src="auth.js"></script>
+    <script>
+      (function () {
+        if (!QuizWizAuth.getToken()) {
+          location.href = '/admin-ui/login.html';
+          return;
+        }
+        document.getElementById('logoutBtn').addEventListener('click', function () {
+          QuizWizAuth.logout();
+        });
+        const id = new URLSearchParams(location.search).get('id');
+        if (!id) {
+          document.body.innerHTML = '<p>缺少任务 id</p>';
+          return;
+        }
+      const tbody = document.getElementById('tbody');
+      const reasonStats = document.getElementById('reasonStats');
+      const failedOnlyEl = document.getElementById('failedOnly');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const exportBtn = document.getElementById('exportBtn');
+
+      async function loadSummary() {
+        const res = await fetch(`/admin/questions/import/jobs/${id}/summary`, {
+          headers: QuizWizAuth.getAuthHeaders(),
+        });
+        const okRes = QuizWizAuth.handleResponse(res);
+        if (!okRes) return;
+        const json = await okRes.json();
+        document.getElementById('jobId').textContent = json.job?.id ?? '-';
+        document.getElementById('totalRows').textContent = json.job?.totalRows ?? '-';
+        document.getElementById('successRows').textContent = json.job?.successRowCount ?? '-';
+        document.getElementById('failedRows').textContent = json.job?.failedRowCount ?? '-';
+        reasonStats.innerHTML = '';
+        (json.failureReasonStats || []).forEach((x) => {
+          const li = document.createElement('li');
+          li.textContent = `${x.reason}: ${x.count}`;
+          reasonStats.appendChild(li);
+        });
+      }
+
+      async function loadRows() {
+        const params = new URLSearchParams({ page: '1', pageSize: '50' });
+        if (failedOnlyEl.checked) params.set('failedOnly', 'true');
+        const res = await fetch(`/admin/questions/import/jobs/${id}/rows?${params.toString()}`, {
+          headers: QuizWizAuth.getAuthHeaders(),
+        });
+        const okRes = QuizWizAuth.handleResponse(res);
+        if (!okRes) return;
+        const json = await okRes.json();
+        tbody.innerHTML = '';
+        (json.data || []).forEach((row) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${row.rowNumber}</td>
+            <td>${row.status}</td>
+            <td>${row.reason || ''}</td>
+            <td>${row.message || ''}</td>
+            <td><pre>${JSON.stringify(row.payloadJson || {}, null, 2)}</pre></td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      refreshBtn.addEventListener('click', loadRows);
+      failedOnlyEl.addEventListener('change', loadRows);
+      exportBtn.addEventListener('click', async function () {
+        try {
+          const params = new URLSearchParams();
+          if (failedOnlyEl.checked) params.set('failedOnly', 'true');
+          const res = await fetch(`/admin/questions/import/jobs/${id}/rows/export?${params.toString()}`, {
+            headers: QuizWizAuth.getAuthHeaders(),
+          });
+          const okRes = QuizWizAuth.handleResponse(res);
+          if (!okRes) return;
+          if (!okRes.ok) {
+            const json = await okRes.json();
+            alert(json.message || '导出失败');
+            return;
+          }
+          const blob = await okRes.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `import_job_${id}_rows.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          alert(e.message || '导出失败');
+        }
+      });
+
+      loadSummary();
+      loadRows();
+      })();
+    </script>
+  </body>
+</html>
