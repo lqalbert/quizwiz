@@ -205,14 +205,27 @@
       importBtn.addEventListener('click', () => uploadExcel('/admin/questions/import'));
       downloadTplBtn.addEventListener('click', async function () {
         try {
+          uploadResult.textContent = '模板下载中...';
           const res = await fetch('/admin/templates/question-import', {
             headers: QuizWizAuth.getAuthHeaders(),
           });
           const okRes = QuizWizAuth.handleResponse(res);
           if (!okRes) return;
           if (!okRes.ok) {
-            const json = await okRes.json();
-            uploadResult.textContent = `下载失败：${json.message || '请求失败'}`;
+            let message = `HTTP ${okRes.status}`;
+            const contentType = okRes.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              try {
+                const json = await okRes.json();
+                message = json.message || message;
+              } catch {}
+            } else {
+              try {
+                const text = await okRes.text();
+                if (text) message = text.slice(0, 120);
+              } catch {}
+            }
+            uploadResult.innerHTML = `下载失败：${message}。可尝试 <a href="/templates/question_import_template.xlsx" target="_blank">静态模板链接</a>`;
             return;
           }
           const blob = await okRes.blob();
@@ -224,8 +237,9 @@
           a.click();
           a.remove();
           URL.revokeObjectURL(url);
+          uploadResult.textContent = '模板下载成功。';
         } catch (err) {
-          uploadResult.textContent = `下载失败：${err.message}`;
+          uploadResult.innerHTML = `下载失败：${err.message}。可尝试 <a href="/templates/question_import_template.xlsx" target="_blank">静态模板链接</a>`;
         }
       });
       syncDateBounds();
