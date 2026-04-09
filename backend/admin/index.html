@@ -203,44 +203,15 @@
       });
       previewBtn.addEventListener('click', () => uploadExcel('/admin/questions/import/preview'));
       importBtn.addEventListener('click', () => uploadExcel('/admin/questions/import'));
-      downloadTplBtn.addEventListener('click', async function () {
-        try {
-          uploadResult.textContent = '模板下载中...';
-          const res = await fetch('/admin/templates/question-import', {
-            headers: QuizWizAuth.getAuthHeaders(),
-          });
-          const okRes = QuizWizAuth.handleResponse(res);
-          if (!okRes) return;
-          if (!okRes.ok) {
-            let message = `HTTP ${okRes.status}`;
-            const contentType = okRes.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              try {
-                const json = await okRes.json();
-                message = json.message || message;
-              } catch {}
-            } else {
-              try {
-                const text = await okRes.text();
-                if (text) message = text.slice(0, 120);
-              } catch {}
-            }
-            uploadResult.innerHTML = `下载失败：${message}。可尝试 <a href="/templates/question_import_template.xlsx" target="_blank">静态模板链接</a>`;
-            return;
-          }
-          const blob = await okRes.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'question_import_template.xlsx';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          uploadResult.textContent = '模板下载成功。';
-        } catch (err) {
-          uploadResult.innerHTML = `下载失败：${err.message}。可尝试 <a href="/templates/question_import_template.xlsx" target="_blank">静态模板链接</a>`;
-        }
+      downloadTplBtn.addEventListener('click', function () {
+        // 避免某些浏览器/下载插件对 blob URL 的兼容问题，直接下载静态模板兜底链接
+        const a = document.createElement('a');
+        a.href = `/templates/question_import_template.xlsx?t=${Date.now()}`;
+        a.download = 'question_import_template.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        uploadResult.textContent = '已触发模板下载。';
       });
       syncDateBounds();
       loadJobs(1);
