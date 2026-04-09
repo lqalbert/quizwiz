@@ -9,6 +9,7 @@ export const ImportErrorCode = {
   invalidOptionSet: 'INVALID_OPTION_SET',
   invalidQuestionType: 'INVALID_QUESTION_TYPE',
   invalidDifficulty: 'INVALID_DIFFICULTY',
+  missingSubject: 'MISSING_SUBJECT',
 };
 
 const validStatus = new Set(['draft', 'published', 'archived']);
@@ -90,16 +91,17 @@ export function parseExcelBuffer(fileBuffer) {
     payload: {
       questionType: normalizeQuestionType(row['题型']),
       stem: String(row['题干'] || '').trim(),
-      optionA: String(row['选项A'] || '').trim(),
-      optionB: String(row['选项B'] || '').trim(),
-      optionC: String(row['选项C'] || '').trim(),
-      optionD: String(row['选项D'] || '').trim(),
+      optionA: String(row['选项A'] || row['A选项'] || '').trim(),
+      optionB: String(row['选项B'] || row['B选项'] || '').trim(),
+      optionC: String(row['选项C'] || row['C选项'] || '').trim(),
+      optionD: String(row['选项D'] || row['D选项'] || '').trim(),
       answerLetters: String(row['答案'] || '').trim(),
       analysis: String(row['解析'] || '').trim(),
       knowledgePoints: parseKnowledgePoints(row['知识点']),
       difficulty: normalizeDifficulty(row['难度']),
       chapter: String(row['章节'] || '').trim() || null,
       status: normalizeStatus(row['状态']),
+      subjectName: String(row['学科'] || '').trim(),
     },
   }));
 }
@@ -129,6 +131,10 @@ export function validateQuestionPayload(payload) {
   }
   if (Number.isNaN(payload.difficulty)) {
     return { ok: false, reason: ImportErrorCode.invalidDifficulty };
+  }
+  // 仅要求有学科字段，便于 V2 按学科练习；API 手动创建可传空字符串绕过
+  if (payload.subjectName !== undefined && !String(payload.subjectName || '').trim()) {
+    return { ok: false, reason: ImportErrorCode.missingSubject };
   }
 
   const answers = normalizeAnswerLetters(payload.answerLetters);

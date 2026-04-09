@@ -67,6 +67,8 @@ Node + MySQL backend for question bank management.
 
 - Standard template file:
   - `templates/question_import_template.xlsx`
+- 导入支持 `学科` 列（用于自动关联 `question_subject_rel`）。
+- 选项列兼容两种表头：`选项A/选项B/选项C/选项D` 或 `A选项/B选项/C选项/D选项`。
 
 ## 5. Remaining tasks
 

@@ -95,6 +95,35 @@ async function getOrCreateKnowledgePoint(conn, name) {
   return result.insertId;
 }
 
+async function getOrCreateSubject(conn, name) {
+  const normalized = String(name || '').trim();
+  if (!normalized) return null;
+  const [rows] = await conn.query('SELECT id FROM subjects WHERE name = ? LIMIT 1', [normalized]);
+  if (rows.length > 0) return rows[0].id;
+  const [result] = await conn.query('INSERT INTO subjects (name, sort_order, is_active) VALUES (?, 0, 1)', [
+    normalized,
+  ]);
+  return result.insertId;
+}
+
+async function bindQuestionSubject(conn, questionId, subjectName) {
+  try {
+    const subjectId = await getOrCreateSubject(conn, subjectName);
+    if (!subjectId) return;
+    await conn.query(
+      'INSERT IGNORE INTO question_subject_rel (question_id, subject_id) VALUES (?, ?)',
+      [questionId, subjectId]
+    );
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE' || String(error?.message || '').includes("doesn't exist")) {
+      // eslint-disable-next-line no-console
+      console.warn('[subject] table missing, skip subject binding');
+      return;
+    }
+    throw error;
+  }
+}
+
 async function writeAuditLog(executor, action, objectType, objectId, changeSummary, conn = null) {
   try {
     const runner = conn || pool;
@@ -474,6 +503,7 @@ router.post('/', async (req, res) => {
     difficulty: req.body.difficulty === undefined || req.body.difficulty === null || req.body.difficulty === '' ? null : Number(req.body.difficulty),
     chapter: req.body.chapter || null,
     status: req.body.status || 'draft',
+    subjectName: String(req.body.subjectName || '').trim(),
   };
 
   const validation = validateQuestionPayload(payload);
@@ -546,6 +576,7 @@ router.post('/', async (req, res) => {
         [questionId, kpId]
       );
     }
+    await bindQuestionSubject(conn, questionId, prepared.subjectName);
 
     await writeAuditLog(req.user, 'CREATE_QUESTION', 'question', questionId, { source: 'api' }, conn);
 
@@ -583,6 +614,7 @@ router.put('/:id', async (req, res) => {
     difficulty: req.body.difficulty === undefined || req.body.difficulty === null || req.body.difficulty === '' ? null : Number(req.body.difficulty),
     chapter: req.body.chapter || null,
     status: req.body.status || 'draft',
+    subjectName: String(req.body.subjectName || '').trim(),
   };
 
   const validation = validateQuestionPayload(payload);
@@ -674,6 +706,8 @@ router.put('/:id', async (req, res) => {
         [questionId, kpId]
       );
     }
+    await conn.query('DELETE FROM question_subject_rel WHERE question_id = ?', [questionId]);
+    await bindQuestionSubject(conn, questionId, prepared.subjectName);
 
     await writeAuditLog(req.user, 'UPDATE_QUESTION', 'question', questionId, { version: nextVersion }, conn);
 
@@ -867,6 +901,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
           [questionId, kpId]
         );
       }
+      await bindQuestionSubject(conn, questionId, prepared.subjectName);
 
       await writeAuditLog(req.user, 'IMPORT_CREATE', 'question', questionId, { jobId, rowNumber }, conn);
 

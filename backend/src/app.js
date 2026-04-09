@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import xlsx from 'xlsx';
 import questionsRouter from './routes/questions.js';
 import authRouter from './routes/auth.js';
 import { requireAuth } from './middleware/requireAuth.js';
@@ -33,10 +34,6 @@ app.use('/wx', wxRouter);
 
 app.get('/admin/templates/question-import', requireAuth, async (req, res) => {
   const filePath = path.resolve(__dirname, '../templates/question_import_template.xlsx');
-  if (!fs.existsSync(filePath)) {
-    res.status(404).json({ message: 'template file not found' });
-    return;
-  }
   try {
     await pool.query(
       `INSERT INTO audit_logs (actor_id, actor_role, action, object_type, object_id, change_summary)
@@ -54,7 +51,54 @@ app.get('/admin/templates/question-import', requireAuth, async (req, res) => {
     // eslint-disable-next-line no-console
     console.warn('[audit] template download write failed:', error.message);
   }
-  res.download(filePath, 'question_import_template.xlsx');
+
+  // 优先使用静态模板；若文件缺失则动态生成，避免下载功能失效
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, 'question_import_template.xlsx');
+    return;
+  }
+
+  const headers = [
+    '题型',
+    '题干',
+    'A选项',
+    'B选项',
+    'C选项',
+    'D选项',
+    '答案',
+    '解析',
+    '知识点',
+    '难度',
+    '章节',
+    '状态',
+    '学科',
+  ];
+  const sampleRows = [
+    headers,
+    [
+      '单选',
+      '下列哪一个是 JavaScript 运行时环境？',
+      'Node.js',
+      'MySQL',
+      'Nginx',
+      'Redis',
+      'A',
+      'Node.js 是 JavaScript 运行时环境。',
+      '编程基础,JavaScript',
+      '2',
+      '第1章',
+      'published',
+      '英语',
+    ],
+  ];
+  const worksheet = xlsx.utils.aoa_to_sheet(sampleRows);
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, worksheet, '题目导入模板');
+  const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="question_import_template.xlsx"');
+  res.send(buffer);
 });
 
 export default app;
