@@ -545,4 +545,125 @@ router.post('/quiz/submit', async (req, res) => {
   }
 });
 
+router.get('/wrong-questions', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize || 20)));
+    const offset = (page - 1) * pageSize;
+
+    const where = ['wq.student_id = ?'];
+    const values = [req.student.id];
+
+    const subjectIdRaw = String(req.query.subjectId || '').trim();
+    let needJoinSubject = false;
+    if (subjectIdRaw) {
+      const subjectId = Number(subjectIdRaw);
+      if (!Number.isInteger(subjectId) || subjectId <= 0) {
+        res.status(400).json({ message: 'subjectId 必须为正整数' });
+        return;
+      }
+      needJoinSubject = true;
+      where.push('qsr.subject_id = ?');
+      values.push(subjectId);
+    }
+
+    const chapter = String(req.query.chapter || '').trim();
+    if (chapter) {
+      where.push('q.chapter = ?');
+      values.push(chapter);
+    }
+
+    const masteredRaw = String(req.query.mastered || '').trim();
+    if (masteredRaw === 'true' || masteredRaw === 'false') {
+      where.push('wq.mastered = ?');
+      values.push(masteredRaw === 'true' ? 1 : 0);
+    }
+
+    const joinSubject = needJoinSubject
+      ? 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id LEFT JOIN subjects s ON s.id = qsr.subject_id'
+      : 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id LEFT JOIN subjects s ON s.id = qsr.subject_id';
+
+    const [rows] = await pool.query(
+      `SELECT DISTINCT wq.id, wq.question_id AS questionId, wq.wrong_count AS wrongCount, wq.mastered,
+              wq.last_wrong_at AS lastWrongAt, q.stem, q.chapter, q.question_type AS questionType, q.analysis,
+              q.answer_letters AS answerLetters,
+              GROUP_CONCAT(DISTINCT s.name ORDER BY s.sort_order ASC SEPARATOR ',') AS subjects
+       FROM wrong_questions wq
+       JOIN questions q ON q.id = wq.question_id
+       ${joinSubject}
+       WHERE ${where.join(' AND ')}
+       GROUP BY wq.id
+       ORDER BY wq.last_wrong_at DESC
+       LIMIT ? OFFSET ?`,
+      [...values, pageSize, offset]
+    );
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM wrong_questions wq
+       JOIN questions q ON q.id = wq.question_id
+       ${needJoinSubject ? 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id' : ''}
+       WHERE ${where.join(' AND ')}`,
+      values
+    );
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      questionId: r.questionId,
+      stem: r.stem,
+      chapter: r.chapter,
+      questionType: r.questionType,
+      answerLetters: parseAnswerLetters(r.answerLetters),
+      analysis: r.analysis || '',
+      wrongCount: Number(r.wrongCount || 0),
+      mastered: Number(r.mastered || 0) === 1,
+      lastWrongAt: r.lastWrongAt,
+      subjects: String(r.subjects || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+    }));
+
+    res.json({
+      data,
+      page,
+      pageSize,
+      total: Number(countRows[0]?.total || 0),
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'wrong_questions 或 subjects 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载错题本失败' });
+  }
+});
+
+router.post('/wrong-questions/:id/mastered', async (req, res) => {
+  const wrongId = Number(req.params.id);
+  if (!wrongId) {
+    res.status(400).json({ message: 'invalid wrong question id' });
+    return;
+  }
+  const mastered = req.body?.mastered === undefined ? true : Boolean(req.body.mastered);
+
+  try {
+    const [result] = await pool.query(
+      'UPDATE wrong_questions SET mastered = ?, updated_at = NOW() WHERE id = ? AND student_id = ? LIMIT 1',
+      [mastered ? 1 : 0, wrongId, req.student.id]
+    );
+    if (result.affectedRows === 0) {
+      res.status(404).json({ message: '错题记录不存在' });
+      return;
+    }
+    res.json({ ok: true, id: wrongId, mastered });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'wrong_questions 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '更新错题状态失败' });
+  }
+});
+
 export default router;

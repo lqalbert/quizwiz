@@ -123,6 +123,10 @@ Page({
     this.setData({ limit: Math.max(1, Math.min(50, next)) });
   },
 
+  goWrongBook() {
+    wx.navigateTo({ url: '/pages/wrong/wrong' });
+  },
+
   onSelectOption(e) {
     const questionId = Number(e.currentTarget.dataset.questionId);
     const letter = String(e.currentTarget.dataset.letter || '');

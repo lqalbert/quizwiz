@@ -1,0 +1,56 @@
+.container {
+  min-height: 100vh;
+  background: #f5f7fb;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
+.error {
+  color: #c22;
+  margin-bottom: 12rpx;
+}
+
+.empty {
+  color: #777;
+  margin-top: 24rpx;
+}
+
+.card {
+  background: #fff;
+  border-radius: 14rpx;
+  padding: 16rpx;
+  margin-bottom: 14rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.05);
+}
+
+.stem {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.meta,
+.analysis {
+  display: block;
+  color: #555;
+  font-size: 24rpx;
+  margin-bottom: 6rpx;
+}
+
+.mark-btn {
+  margin-top: 8rpx;
+}

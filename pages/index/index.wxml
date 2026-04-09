@@ -26,7 +26,10 @@ module.exports.formatSelected = formatSelected;
 <view class="container">
   <view class="header">
     <text class="title">QuizWiz 练习模式</text>
-    <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
+    <view class="header-actions">
+      <button class="wrong-btn" size="mini" bindtap="goWrongBook">错题本</button>
+      <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
+    </view>
   </view>
 
   <view class="filters">
@@ -89,6 +92,7 @@ module.exports.formatSelected = formatSelected;
 
   <view wx:if="{{result}}" class="result">
     <text class="result-title">得分：{{result.correct}} / {{result.total}}</text>
+    <button class="go-wrong-btn" size="mini" bindtap="goWrongBook">查看错题本</button>
     <block wx:for="{{result.details}}" wx:key="questionId">
       <view class="result-item {{item.isCorrect ? 'ok' : 'bad'}}">
         <text>第{{index + 1}}题：{{item.isCorrect ? '正确' : '错误'}}</text>
