@@ -1,0 +1,18 @@
+<view class="wrap">
+  <text class="brand">QuizWiz</text>
+  <text class="sub">使用微信账号登录后开始练习</text>
+
+  <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+
+  <button
+    class="login-btn"
+    type="primary"
+    loading="{{loading}}"
+    disabled="{{loading}}"
+    bindtap="onLoginTap"
+  >
+    微信一键登录
+  </button>
+
+  <text class="hint">登录即表示授权获取微信标识，用于账号识别</text>
+</view>

@@ -8,57 +8,20 @@ Page({
     answers: {},
     result: null,
     errorText: '',
-    loginOk: false,
   },
 
-  async onLoad() {
-    const ok = await this.ensureStudentLogin();
-    this.setData({ loginOk: ok });
-    if (ok) {
-      this.loadQuestions();
+  onLoad() {
+    if (!wx.getStorageSync('token')) {
+      wx.reLaunch({ url: '/pages/login/login' });
+      return;
     }
-  },
-
-  /** 微信登录：code -> 服务端换 JWT */
-  ensureStudentLogin() {
-    return new Promise((resolve) => {
-      wx.login({
-        success: async (loginRes) => {
-          if (!loginRes.code) {
-            this.setData({ errorText: 'wx.login 未返回 code' });
-            resolve(false);
-            return;
-          }
-          try {
-            const data = await request({
-              url: '/wx/auth/login',
-              method: 'POST',
-              data: { code: loginRes.code },
-            });
-            if (data.token) {
-              wx.setStorageSync('token', data.token);
-            }
-            resolve(true);
-          } catch (error) {
-            this.setData({
-              errorText: error.message || '登录失败，请检查服务端 WX_APP_ID / WX_APP_SECRET 与网络',
-            });
-            resolve(false);
-          }
-        },
-        fail: () => {
-          this.setData({ errorText: 'wx.login 调用失败' });
-          resolve(false);
-        },
-      });
-    });
+    this.loadQuestions();
   },
 
   async loadQuestions() {
-    if (!this.data.loginOk) {
-      const ok = await this.ensureStudentLogin();
-      this.setData({ loginOk: ok });
-      if (!ok) return;
+    if (!wx.getStorageSync('token')) {
+      wx.reLaunch({ url: '/pages/login/login' });
+      return;
     }
     this.setData({
       loading: true,
@@ -76,11 +39,8 @@ Page({
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
         wx.removeStorageSync('token');
-        const ok = await this.ensureStudentLogin();
-        this.setData({ loginOk: ok });
-        if (ok) {
-          return this.loadQuestions();
-        }
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
       }
       this.setData({
         errorText: error.message || '拉取题目失败',
@@ -132,6 +92,11 @@ Page({
       });
       this.setData({ result: res });
     } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        wx.removeStorageSync('token');
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
       this.setData({
         errorText: error.message || '提交失败',
       });

@@ -1,0 +1,47 @@
+.wrap {
+  min-height: 100vh;
+  padding: 80rpx 48rpx;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #eef4ff 0%, #f5f7fb 35%, #f5f7fb 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.brand {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 16rpx;
+}
+
+.sub {
+  font-size: 28rpx;
+  color: #5c6478;
+  margin-bottom: 64rpx;
+  line-height: 1.5;
+}
+
+.error {
+  background: #fff1f0;
+  color: #b42318;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  margin-bottom: 32rpx;
+}
+
+.login-btn {
+  margin-top: 24rpx;
+}
+
+.login-btn::after {
+  border: none;
+}
+
+.hint {
+  margin-top: 48rpx;
+  font-size: 22rpx;
+  color: #8f96a8;
+  line-height: 1.6;
+}
