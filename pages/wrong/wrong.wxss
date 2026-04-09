@@ -12,6 +12,48 @@
   margin-bottom: 16rpx;
 }
 
+.filters {
+  background: #fff;
+  border-radius: 14rpx;
+  padding: 16rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.05);
+}
+
+.filter-item {
+  margin-bottom: 12rpx;
+}
+
+.row {
+  display: flex;
+  gap: 12rpx;
+}
+
+.half {
+  flex: 1;
+}
+
+.label {
+  display: block;
+  color: #666;
+  font-size: 24rpx;
+  margin-bottom: 8rpx;
+}
+
+.picker-view,
+.input {
+  background: #f7f9fd;
+  border: 1rpx solid #dce2ef;
+  border-radius: 10rpx;
+  min-height: 70rpx;
+  display: flex;
+  align-items: center;
+  padding: 0 16rpx;
+  font-size: 26rpx;
+  color: #222;
+  box-sizing: border-box;
+}
+
 .title {
   font-size: 34rpx;
   font-weight: 600;

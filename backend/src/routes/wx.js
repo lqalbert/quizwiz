@@ -56,13 +56,29 @@ function isTableMissing(error) {
   return error?.code === 'ER_NO_SUCH_TABLE' || String(error?.message || '').includes("doesn't exist");
 }
 
-async function loadQuestionsForPractice({ subjectId = null, chapters = [], difficulty = null, limit = 10 }) {
+async function loadQuestionsForPractice({
+  studentId = null,
+  mode = 'random',
+  subjectId = null,
+  chapters = [],
+  difficulty = null,
+  limit = 10,
+}) {
   const where = ['q.is_deleted = 0', "q.status = 'published'"];
   const values = [];
 
   let joinClause = '';
+  if (mode === 'wrong') {
+    if (!studentId) {
+      throw new Error('studentId is required for wrong mode');
+    }
+    joinClause += ' JOIN wrong_questions wq ON wq.question_id = q.id ';
+    where.push('wq.student_id = ?');
+    values.push(studentId);
+    where.push('wq.mastered = 0');
+  }
   if (subjectId) {
-    joinClause = 'JOIN question_subject_rel qsr ON qsr.question_id = q.id';
+    joinClause += ' JOIN question_subject_rel qsr ON qsr.question_id = q.id ';
     where.push('qsr.subject_id = ?');
     values.push(subjectId);
   }
@@ -361,6 +377,8 @@ router.post('/practice/start', async (req, res) => {
     const chapters = normalizeChapters(req.body?.chapters);
 
     const questions = await loadQuestionsForPractice({
+      studentId: req.student.id,
+      mode,
       subjectId,
       chapters,
       difficulty,

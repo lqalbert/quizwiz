@@ -15,15 +15,40 @@ Page({
     chapterInput: '',
     difficulty: '',
     limit: 5,
+    practiceMode: 'random',
   },
 
-  async onLoad() {
+  async onLoad(options) {
     if (!wx.getStorageSync('token')) {
       wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
     await this.loadSubjects();
+    this.applyRouteOptions(options || {});
     await this.startPractice();
+  },
+
+  applyRouteOptions(options) {
+    const patch = {};
+    const mode = String(options.mode || '').trim();
+    if (mode === 'wrong') {
+      patch.practiceMode = 'wrong';
+    }
+    const chapter = String(options.chapter || '').trim();
+    if (chapter) patch.chapterInput = chapter;
+    const limitRaw = Number(options.limit || 0);
+    if (Number.isInteger(limitRaw) && limitRaw > 0) {
+      patch.limit = Math.max(1, Math.min(50, limitRaw));
+    }
+    const difficultyRaw = String(options.difficulty || '').trim();
+    if (difficultyRaw) patch.difficulty = difficultyRaw;
+
+    const subjectIdRaw = Number(options.subjectId || 0);
+    if (subjectIdRaw > 0 && Array.isArray(this.data.subjects)) {
+      const idx = this.data.subjects.findIndex((x) => Number(x.id) === subjectIdRaw);
+      if (idx >= 0) patch.subjectIndex = idx;
+    }
+    this.setData(patch);
   },
 
   async loadSubjects() {
@@ -63,7 +88,7 @@ Page({
     const difficultyText = String(this.data.difficulty || '').trim();
     const difficulty = difficultyText ? Number(difficultyText) : null;
     return {
-      mode: 'random',
+      mode: this.data.practiceMode || 'random',
       subjectId: this.getSelectedSubjectId(),
       chapters,
       difficulty: Number.isInteger(difficulty) ? difficulty : null,

@@ -13,7 +13,33 @@ module.exports.join = join;
 <view class="container">
   <view class="header">
     <text class="title">错题本</text>
-    <button size="mini" bindtap="loadWrongQuestions" loading="{{loading}}">刷新</button>
+    <button size="mini" bindtap="onStartWrongPractice">错题重练</button>
+  </view>
+
+  <view class="filters">
+    <view class="filter-item">
+      <text class="label">学科</text>
+      <picker mode="selector" range="{{subjects}}" range-key="name" value="{{subjectIndex}}" bindchange="onSubjectChange">
+        <view class="picker-view">{{subjects.length > 0 ? subjects[subjectIndex].name : '加载中...'}}</view>
+      </picker>
+    </view>
+    <view class="filter-item">
+      <text class="label">章节</text>
+      <input class="input" placeholder="可选章节筛选" value="{{chapterInput}}" bindinput="onChapterInput" />
+    </view>
+    <view class="row">
+      <view class="filter-item half">
+        <text class="label">状态</text>
+        <picker mode="selector" range="{{masteredOptions}}" value="{{masteredIndex}}" bindchange="onMasteredChange">
+          <view class="picker-view">{{masteredOptions[masteredIndex]}}</view>
+        </picker>
+      </view>
+      <view class="filter-item half">
+        <text class="label">重练题量</text>
+        <slider min="1" max="20" step="1" show-value value="{{limit}}" bindchange="onLimitChange" />
+      </view>
+    </view>
+    <button size="mini" bindtap="onApplyFilter" loading="{{loading}}">应用筛选</button>
   </view>
 
   <view wx:if="{{errorText}}" class="error">{{errorText}}</view>

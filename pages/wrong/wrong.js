@@ -5,20 +5,57 @@ Page({
     loading: false,
     list: [],
     errorText: '',
+    subjects: [],
+    subjectIndex: 0,
+    chapterInput: '',
+    masteredOptions: ['未掌握', '已掌握', '全部'],
+    masteredIndex: 0,
+    limit: 10,
   },
 
-  onLoad() {
+  async onLoad() {
     if (!wx.getStorageSync('token')) {
       wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
-    this.loadWrongQuestions();
+    await this.loadSubjects();
+    await this.loadWrongQuestions();
+  },
+
+  async loadSubjects() {
+    try {
+      const res = await request({ url: '/wx/subjects' });
+      const subjects = Array.isArray(res.data) ? res.data : [];
+      this.setData({
+        subjects: [{ id: 0, name: '全部学科' }, ...subjects],
+        subjectIndex: 0,
+      });
+    } catch (error) {
+      this.setData({ errorText: error.message || '加载学科失败' });
+    }
+  },
+
+  buildQuery() {
+    const params = new URLSearchParams();
+    params.set('page', '1');
+    params.set('pageSize', '50');
+    const masteredIndex = Number(this.data.masteredIndex || 0);
+    if (masteredIndex === 0) params.set('mastered', 'false');
+    if (masteredIndex === 1) params.set('mastered', 'true');
+
+    const subject = this.data.subjects?.[Number(this.data.subjectIndex || 0)];
+    if (subject && Number(subject.id) > 0) {
+      params.set('subjectId', String(subject.id));
+    }
+    const chapter = String(this.data.chapterInput || '').trim();
+    if (chapter) params.set('chapter', chapter);
+    return params.toString();
   },
 
   async loadWrongQuestions() {
     this.setData({ loading: true, errorText: '' });
     try {
-      const res = await request({ url: '/wx/wrong-questions?page=1&pageSize=50&mastered=false' });
+      const res = await request({ url: `/wx/wrong-questions?${this.buildQuery()}` });
       this.setData({
         list: Array.isArray(res.data) ? res.data : [],
       });
@@ -32,6 +69,35 @@ Page({
     } finally {
       this.setData({ loading: false });
     }
+  },
+
+  onSubjectChange(e) {
+    this.setData({ subjectIndex: Number(e.detail.value || 0) });
+  },
+
+  onChapterInput(e) {
+    this.setData({ chapterInput: String(e.detail.value || '') });
+  },
+
+  onMasteredChange(e) {
+    this.setData({ masteredIndex: Number(e.detail.value || 0) });
+  },
+
+  onLimitChange(e) {
+    const limit = Number(e.detail.value || 10);
+    this.setData({ limit: Math.max(1, Math.min(50, limit)) });
+  },
+
+  onApplyFilter() {
+    this.loadWrongQuestions();
+  },
+
+  onStartWrongPractice() {
+    const subject = this.data.subjects?.[Number(this.data.subjectIndex || 0)];
+    const subjectId = subject && Number(subject.id) > 0 ? Number(subject.id) : 0;
+    const chapter = encodeURIComponent(String(this.data.chapterInput || '').trim());
+    const url = `/pages/index/index?mode=wrong&subjectId=${subjectId}&chapter=${chapter}&limit=${this.data.limit}`;
+    wx.navigateTo({ url });
   },
 
   async onMarkMastered(e) {
