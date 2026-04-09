@@ -117,6 +117,24 @@ router.get('/auth/me', requireStudentAuth, async (req, res) => {
 
 router.use(requireStudentAuth);
 
+router.get('/subjects', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, sort_order AS sortOrder
+       FROM subjects
+       WHERE is_active = 1
+       ORDER BY sort_order ASC, id ASC`
+    );
+    res.json({ data: rows });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE') {
+      res.status(503).json({ message: 'subjects 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载学科失败' });
+  }
+});
+
 router.get('/questions', async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 10);

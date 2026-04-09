@@ -52,6 +52,11 @@ Node + MySQL backend for question bank management.
 - `PATCH /admin/users/:id/password` (admin only)
 - `PATCH /admin/users/:id/status` (admin only)
 - `PATCH /admin/users/:id/role` (admin only)
+- `GET /admin/subjects` (admin only)
+- `POST /admin/subjects` (admin only)
+- `PATCH /admin/subjects/:id` (admin only)
+- `PATCH /admin/subjects/:id/status` (admin only)
+- `GET /wx/subjects` (student token required)
 
 ## 4. Excel template
 

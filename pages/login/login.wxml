@@ -2,6 +2,8 @@
   <text class="brand">QuizWiz</text>
   <text class="sub">使用微信账号登录后开始练习</text>
 
+  <text class="explain">小程序学生登录无需扫码：首次点击登录后，后续可自动进入首页。</text>
+
   <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
 
   <button
@@ -14,5 +16,5 @@
     微信一键登录
   </button>
 
-  <text class="hint">登录即表示授权获取微信标识，用于账号识别</text>
+  <text class="hint">登录即表示授权服务端识别你的微信账号（openid），用于学习记录</text>
 </view>

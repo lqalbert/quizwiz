@@ -18,8 +18,15 @@
 .sub {
   font-size: 28rpx;
   color: #5c6478;
-  margin-bottom: 64rpx;
+  margin-bottom: 24rpx;
   line-height: 1.5;
+}
+
+.explain {
+  font-size: 24rpx;
+  color: #6b7280;
+  margin-bottom: 40rpx;
+  line-height: 1.55;
 }
 
 .error {
@@ -33,6 +40,17 @@
 
 .login-btn {
   margin-top: 24rpx;
+}
+
+.secondary-btn {
+  margin-top: 24rpx;
+  background: #fff;
+  color: #2f78ff;
+  border: 1rpx solid #c7d7ff;
+}
+
+.secondary-btn::after {
+  border: none;
 }
 
 .login-btn::after {
