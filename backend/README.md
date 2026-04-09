@@ -12,6 +12,7 @@ Node + MySQL backend for question bank management.
 4. Initialize schema:
    - Run `sql/schema_v1.sql` in MySQL (新库).
    - 若库已存在、仅补用户表：执行 `sql/auth_users_v1.sql`.
+   - 若启用学生端 V2（学科/练习会话/错题本）：执行 `sql/schema_v2.sql`.
 5. Start server:
    - `npm run dev`
 
@@ -57,6 +58,8 @@ Node + MySQL backend for question bank management.
 - `PATCH /admin/subjects/:id` (admin only)
 - `PATCH /admin/subjects/:id/status` (admin only)
 - `GET /wx/subjects` (student token required)
+- `POST /wx/practice/start` (student token required)
+- `POST /wx/practice/submit` (student token required)
 
 ## 4. Excel template
 

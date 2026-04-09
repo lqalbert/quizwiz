@@ -31,6 +31,126 @@ function sameLetterSet(a, b) {
   return true;
 }
 
+function normalizeChapters(input) {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.map((x) => String(x || '').trim()).filter(Boolean))];
+}
+
+function buildQuestionDto(row) {
+  return {
+    id: row.id,
+    questionType: row.questionType,
+    stem: row.stem,
+    chapter: row.chapter,
+    difficulty: row.difficulty,
+    options: [
+      { letter: 'A', text: row.optionA },
+      { letter: 'B', text: row.optionB },
+      row.optionC ? { letter: 'C', text: row.optionC } : null,
+      row.optionD ? { letter: 'D', text: row.optionD } : null,
+    ].filter(Boolean),
+  };
+}
+
+function isTableMissing(error) {
+  return error?.code === 'ER_NO_SUCH_TABLE' || String(error?.message || '').includes("doesn't exist");
+}
+
+async function loadQuestionsForPractice({ subjectId = null, chapters = [], difficulty = null, limit = 10 }) {
+  const where = ['q.is_deleted = 0', "q.status = 'published'"];
+  const values = [];
+
+  let joinClause = '';
+  if (subjectId) {
+    joinClause = 'JOIN question_subject_rel qsr ON qsr.question_id = q.id';
+    where.push('qsr.subject_id = ?');
+    values.push(subjectId);
+  }
+  if (chapters.length > 0) {
+    where.push(`q.chapter IN (${chapters.map(() => '?').join(',')})`);
+    values.push(...chapters);
+  }
+  if (difficulty !== null) {
+    where.push('q.difficulty = ?');
+    values.push(difficulty);
+  }
+
+  const [rows] = await pool.query(
+    `SELECT DISTINCT q.id, q.question_type AS questionType, q.stem, q.option_a AS optionA, q.option_b AS optionB,
+            q.option_c AS optionC, q.option_d AS optionD, q.chapter, q.difficulty
+     FROM questions q
+     ${joinClause}
+     WHERE ${where.join(' AND ')}
+     ORDER BY RAND()
+     LIMIT ?`,
+    [...values, limit]
+  );
+
+  return rows.map(buildQuestionDto);
+}
+
+async function evaluateAnswers(answers) {
+  const questionIds = [];
+  const answerMap = new Map();
+  for (const item of answers) {
+    const questionId = Number(item?.questionId);
+    if (!questionId) continue;
+    if (!answerMap.has(questionId)) {
+      questionIds.push(questionId);
+    }
+    answerMap.set(questionId, normalizeSelectedLetters(item?.selectedLetters));
+  }
+  if (questionIds.length === 0) {
+    return {
+      questionIds: [],
+      details: [],
+      score: 0,
+    };
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, question_type AS questionType, stem, answer_letters AS answerLetters, analysis
+     FROM questions
+     WHERE is_deleted = 0 AND status = 'published' AND id IN (?)`,
+    [questionIds]
+  );
+
+  const resultById = new Map(rows.map((row) => [Number(row.id), row]));
+  const details = [];
+  let score = 0;
+
+  for (const questionId of questionIds) {
+    const question = resultById.get(questionId);
+    if (!question) {
+      details.push({
+        questionId,
+        isCorrect: false,
+        reason: 'QUESTION_NOT_FOUND_OR_UNPUBLISHED',
+      });
+      continue;
+    }
+    const selectedLetters = answerMap.get(questionId) || [];
+    const correctLetters = parseAnswerLetters(question.answerLetters);
+    const isCorrect = sameLetterSet(selectedLetters, correctLetters);
+    if (isCorrect) score += 1;
+    details.push({
+      questionId,
+      questionType: question.questionType,
+      stem: question.stem,
+      selectedLetters,
+      correctLetters,
+      isCorrect,
+      analysis: question.analysis || '',
+    });
+  }
+
+  return {
+    questionIds,
+    details,
+    score,
+  };
+}
+
 async function upsertWxStudent(openid, unionid) {
   const [existing] = await pool.query(
     'SELECT id FROM wx_students WHERE openid = ? LIMIT 1',
@@ -149,6 +269,17 @@ router.get('/questions', async (req, res) => {
       values.push(chapter);
     }
 
+    const subjectIdRaw = String(req.query.subjectId || '').trim();
+    if (subjectIdRaw) {
+      const subjectId = Number(subjectIdRaw);
+      if (!Number.isInteger(subjectId) || subjectId <= 0) {
+        res.status(400).json({ message: 'subjectId must be positive integer' });
+        return;
+      }
+      where.push('qsr.subject_id = ?');
+      values.push(subjectId);
+    }
+
     const difficultyRaw = String(req.query.difficulty || '').trim();
     if (difficultyRaw) {
       const difficulty = Number(difficultyRaw);
@@ -174,6 +305,7 @@ router.get('/questions', async (req, res) => {
       `SELECT DISTINCT q.id, q.question_type AS questionType, q.stem, q.option_a AS optionA, q.option_b AS optionB,
               q.option_c AS optionC, q.option_d AS optionD, q.chapter, q.difficulty
        FROM questions q
+       ${subjectIdRaw ? 'JOIN question_subject_rel qsr ON qsr.question_id = q.id' : ''}
        ${joinClause}
        WHERE ${where.join(' AND ')}
        ORDER BY RAND()
@@ -181,26 +313,215 @@ router.get('/questions', async (req, res) => {
       [...values, limit]
     );
 
-    const data = rows.map((row) => ({
-      id: row.id,
-      questionType: row.questionType,
-      stem: row.stem,
-      chapter: row.chapter,
-      difficulty: row.difficulty,
-      options: [
-        { letter: 'A', text: row.optionA },
-        { letter: 'B', text: row.optionB },
-        row.optionC ? { letter: 'C', text: row.optionC } : null,
-        row.optionD ? { letter: 'D', text: row.optionD } : null,
-      ].filter(Boolean),
-    }));
+    const data = rows.map(buildQuestionDto);
 
     res.json({ data, total: data.length });
   } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: '相关表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
     res.status(500).json({ message: error.message || 'failed to load questions' });
   }
 });
 
+router.post('/practice/start', async (req, res) => {
+  try {
+    const limitRaw = Number(req.body?.limit ?? 10);
+    const limit = Number.isInteger(limitRaw) ? Math.min(100, Math.max(1, limitRaw)) : NaN;
+    if (!Number.isInteger(limit)) {
+      res.status(400).json({ message: 'limit 必须是 1-100 的整数' });
+      return;
+    }
+
+    const mode = String(req.body?.mode || 'random');
+    if (!['random', 'sequential', 'wrong'].includes(mode)) {
+      res.status(400).json({ message: 'mode 仅支持 random / sequential / wrong' });
+      return;
+    }
+
+    const subjectIdRaw = req.body?.subjectId;
+    const subjectId = subjectIdRaw === undefined || subjectIdRaw === null || subjectIdRaw === ''
+      ? null
+      : Number(subjectIdRaw);
+    if (subjectId !== null && (!Number.isInteger(subjectId) || subjectId <= 0)) {
+      res.status(400).json({ message: 'subjectId 必须是正整数或为空' });
+      return;
+    }
+
+    const difficultyRaw = req.body?.difficulty;
+    const difficulty = difficultyRaw === undefined || difficultyRaw === null || difficultyRaw === ''
+      ? null
+      : Number(difficultyRaw);
+    if (difficulty !== null && (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5)) {
+      res.status(400).json({ message: 'difficulty 必须是 1-5 的整数或为空' });
+      return;
+    }
+
+    const chapters = normalizeChapters(req.body?.chapters);
+
+    const questions = await loadQuestionsForPractice({
+      subjectId,
+      chapters,
+      difficulty,
+      limit,
+    });
+
+    const [result] = await pool.query(
+      `INSERT INTO practice_sessions
+        (student_id, mode, subject_id, chapter_json, difficulty, question_count, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'in_progress')`,
+      [
+        req.student.id,
+        mode,
+        subjectId,
+        chapters.length > 0 ? JSON.stringify(chapters) : null,
+        difficulty,
+        questions.length,
+      ]
+    );
+
+    res.json({
+      sessionId: result.insertId,
+      mode,
+      filters: {
+        subjectId,
+        chapters,
+        difficulty,
+      },
+      total: questions.length,
+      questions,
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'practice 相关表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || 'failed to start practice' });
+  }
+});
+
+router.post('/practice/submit', async (req, res) => {
+  const sessionId = Number(req.body?.sessionId);
+  if (!sessionId) {
+    res.status(400).json({ message: 'sessionId 必填且必须为正整数' });
+    return;
+  }
+  const answers = Array.isArray(req.body?.answers) ? req.body.answers : null;
+  if (!answers || answers.length === 0) {
+    res.status(400).json({ message: 'answers is required' });
+    return;
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [sessionRows] = await conn.query(
+      `SELECT id, student_id AS studentId, question_count AS questionCount, status
+       FROM practice_sessions
+       WHERE id = ? LIMIT 1`,
+      [sessionId]
+    );
+    if (sessionRows.length === 0) {
+      await conn.rollback();
+      res.status(404).json({ message: 'practice session not found' });
+      return;
+    }
+    const session = sessionRows[0];
+    if (Number(session.studentId) !== Number(req.student.id)) {
+      await conn.rollback();
+      res.status(403).json({ message: '无权提交该练习会话' });
+      return;
+    }
+    if (session.status !== 'in_progress') {
+      await conn.rollback();
+      res.status(409).json({ message: '该练习会话已提交或不可用' });
+      return;
+    }
+
+    const evaluated = await evaluateAnswers(answers);
+    if (evaluated.questionIds.length === 0) {
+      await conn.rollback();
+      res.status(400).json({ message: 'no valid questionId found in answers' });
+      return;
+    }
+
+    for (const d of evaluated.details) {
+      if (!d.questionId || !Array.isArray(d.correctLetters)) {
+        continue;
+      }
+
+      await conn.query(
+        `INSERT INTO practice_answers
+          (session_id, student_id, question_id, selected_letters, correct_letters, is_correct)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           selected_letters = VALUES(selected_letters),
+           correct_letters = VALUES(correct_letters),
+           is_correct = VALUES(is_correct)`,
+        [
+          sessionId,
+          req.student.id,
+          d.questionId,
+          d.selectedLetters.join(','),
+          d.correctLetters.join(','),
+          d.isCorrect ? 1 : 0,
+        ]
+      );
+
+      if (d.isCorrect) {
+        await conn.query(
+          `UPDATE wrong_questions
+           SET consecutive_correct = consecutive_correct + 1, updated_at = NOW()
+           WHERE student_id = ? AND question_id = ?`,
+          [req.student.id, d.questionId]
+        );
+      } else {
+        await conn.query(
+          `INSERT INTO wrong_questions
+            (student_id, question_id, first_wrong_at, last_wrong_at, wrong_count, consecutive_correct, mastered)
+           VALUES (?, ?, NOW(), NOW(), 1, 0, 0)
+           ON DUPLICATE KEY UPDATE
+             last_wrong_at = NOW(),
+             wrong_count = wrong_count + 1,
+             consecutive_correct = 0,
+             mastered = 0,
+             updated_at = NOW()`,
+          [req.student.id, d.questionId]
+        );
+      }
+    }
+
+    await conn.query(
+      `UPDATE practice_sessions
+       SET submitted_count = ?, correct_count = ?, score = ?, status = 'done', submitted_at = NOW(), updated_at = NOW()
+       WHERE id = ?`,
+      [evaluated.questionIds.length, evaluated.score, evaluated.score, sessionId]
+    );
+
+    await conn.commit();
+    res.json({
+      sessionId,
+      total: evaluated.questionIds.length,
+      plannedQuestionCount: Number(session.questionCount || 0),
+      correct: evaluated.score,
+      score: evaluated.score,
+      details: evaluated.details,
+    });
+  } catch (error) {
+    await conn.rollback();
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'practice 相关表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || 'failed to submit answers' });
+  } finally {
+    conn.release();
+  }
+});
+
+// 兼容旧接口：映射到新提交流程（无 session）
 router.post('/quiz/submit', async (req, res) => {
   try {
     const answers = Array.isArray(req.body?.answers) ? req.body.answers : null;
@@ -208,63 +529,16 @@ router.post('/quiz/submit', async (req, res) => {
       res.status(400).json({ message: 'answers is required' });
       return;
     }
-
-    const questionIds = [];
-    const answerMap = new Map();
-    for (const item of answers) {
-      const questionId = Number(item?.questionId);
-      if (!questionId) continue;
-      if (!answerMap.has(questionId)) {
-        questionIds.push(questionId);
-      }
-      answerMap.set(questionId, normalizeSelectedLetters(item?.selectedLetters));
-    }
-    if (questionIds.length === 0) {
+    const evaluated = await evaluateAnswers(answers);
+    if (evaluated.questionIds.length === 0) {
       res.status(400).json({ message: 'no valid questionId found in answers' });
       return;
     }
-
-    const [rows] = await pool.query(
-      `SELECT id, question_type AS questionType, stem, answer_letters AS answerLetters, analysis
-       FROM questions
-       WHERE is_deleted = 0 AND status = 'published' AND id IN (?)`,
-      [questionIds]
-    );
-
-    const resultById = new Map(rows.map((row) => [Number(row.id), row]));
-    const details = [];
-    let score = 0;
-
-    for (const questionId of questionIds) {
-      const question = resultById.get(questionId);
-      if (!question) {
-        details.push({
-          questionId,
-          isCorrect: false,
-          reason: 'QUESTION_NOT_FOUND_OR_UNPUBLISHED',
-        });
-        continue;
-      }
-      const selectedLetters = answerMap.get(questionId) || [];
-      const correctLetters = parseAnswerLetters(question.answerLetters);
-      const isCorrect = sameLetterSet(selectedLetters, correctLetters);
-      if (isCorrect) score += 1;
-      details.push({
-        questionId,
-        questionType: question.questionType,
-        stem: question.stem,
-        selectedLetters,
-        correctLetters,
-        isCorrect,
-        analysis: question.analysis || '',
-      });
-    }
-
     res.json({
-      total: questionIds.length,
-      correct: score,
-      score,
-      details,
+      total: evaluated.questionIds.length,
+      correct: evaluated.score,
+      score: evaluated.score,
+      details: evaluated.details,
     });
   } catch (error) {
     res.status(500).json({ message: error.message || 'failed to submit answers' });
