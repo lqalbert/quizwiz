@@ -602,7 +602,7 @@ router.get('/wrong-questions', async (req, res) => {
       : 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id LEFT JOIN subjects s ON s.id = qsr.subject_id';
 
     const [rows] = await pool.query(
-      `SELECT DISTINCT wq.id, wq.question_id AS questionId, wq.wrong_count AS wrongCount, wq.mastered,
+      `SELECT DISTINCT wq.id, wq.question_id AS questionId, wq.wrong_count AS wrongCount, wq.mastered, wq.is_priority AS is_priority,
               wq.last_wrong_at AS lastWrongAt, q.stem, q.chapter, q.question_type AS questionType, q.analysis,
               q.answer_letters AS answerLetters,
               GROUP_CONCAT(DISTINCT s.name ORDER BY s.sort_order ASC SEPARATOR ',') AS subjects
@@ -635,6 +635,7 @@ router.get('/wrong-questions', async (req, res) => {
       analysis: r.analysis || '',
       wrongCount: Number(r.wrongCount || 0),
       mastered: Number(r.mastered || 0) === 1,
+      isPriority: Number(r.is_priority || 0) === 1,
       lastWrongAt: r.lastWrongAt,
       subjects: String(r.subjects || '')
         .split(',')
@@ -684,6 +685,33 @@ router.post('/wrong-questions/:id/mastered', async (req, res) => {
   }
 });
 
+router.post('/wrong-questions/:id/priority', async (req, res) => {
+  const wrongId = Number(req.params.id);
+  if (!wrongId) {
+    res.status(400).json({ message: 'invalid wrong question id' });
+    return;
+  }
+  const isPriority = req.body?.isPriority === undefined ? true : Boolean(req.body.isPriority);
+
+  try {
+    const [result] = await pool.query(
+      'UPDATE wrong_questions SET is_priority = ?, updated_at = NOW() WHERE id = ? AND student_id = ? LIMIT 1',
+      [isPriority ? 1 : 0, wrongId, req.student.id]
+    );
+    if (result.affectedRows === 0) {
+      res.status(404).json({ message: '错题记录不存在' });
+      return;
+    }
+    res.json({ ok: true, id: wrongId, isPriority });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'wrong_questions 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '更新重点复习状态失败' });
+  }
+});
+
 router.get('/practice/sessions', async (req, res) => {
   try {
     const limitRaw = Number(req.query.limit || 20);
@@ -725,6 +753,78 @@ router.get('/practice/sessions', async (req, res) => {
       return;
     }
     res.status(500).json({ message: error.message || '加载练习历史失败' });
+  }
+});
+
+router.get('/practice/sessions/:id', async (req, res) => {
+  try {
+    const sessionId = Number(req.params.id);
+    if (!sessionId) {
+      res.status(400).json({ message: 'invalid session id' });
+      return;
+    }
+
+    const [sessionRows] = await pool.query(
+      `SELECT ps.id, ps.mode, ps.question_count AS questionCount, ps.submitted_count AS submittedCount,
+              ps.correct_count AS correctCount, ps.score, ps.status, ps.started_at AS startedAt, ps.submitted_at AS submittedAt,
+              s.name AS subjectName
+       FROM practice_sessions ps
+       LEFT JOIN subjects s ON s.id = ps.subject_id
+       WHERE ps.id = ? AND ps.student_id = ?
+       LIMIT 1`,
+      [sessionId, req.student.id]
+    );
+    if (sessionRows.length === 0) {
+      res.status(404).json({ message: 'practice session not found' });
+      return;
+    }
+    const session = sessionRows[0];
+
+    const [answerRows] = await pool.query(
+      `SELECT pa.question_id AS questionId, pa.selected_letters AS selectedLetters, pa.correct_letters AS correctLetters,
+              pa.is_correct AS isCorrect, q.stem, q.analysis, q.question_type AS questionType,
+              wq.id AS wrongId, wq.is_priority AS isPriority
+       FROM practice_answers pa
+       JOIN questions q ON q.id = pa.question_id
+       LEFT JOIN wrong_questions wq ON wq.student_id = pa.student_id AND wq.question_id = pa.question_id
+       WHERE pa.session_id = ? AND pa.student_id = ?
+       ORDER BY pa.id ASC`,
+      [sessionId, req.student.id]
+    );
+
+    const details = answerRows.map((r) => ({
+      questionId: r.questionId,
+      questionType: r.questionType,
+      stem: r.stem,
+      selectedLetters: parseAnswerLetters(r.selectedLetters),
+      correctLetters: parseAnswerLetters(r.correctLetters),
+      isCorrect: Number(r.isCorrect || 0) === 1,
+      analysis: r.analysis || '',
+      wrongId: r.wrongId ? Number(r.wrongId) : null,
+      isPriority: Number(r.isPriority || 0) === 1,
+    }));
+
+    res.json({
+      session: {
+        id: session.id,
+        mode: session.mode,
+        subjectName: session.subjectName || '',
+        questionCount: Number(session.questionCount || 0),
+        submittedCount: Number(session.submittedCount || 0),
+        correctCount: Number(session.correctCount || 0),
+        score: Number(session.score || 0),
+        status: session.status,
+        startedAt: session.startedAt,
+        submittedAt: session.submittedAt,
+      },
+      details,
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'practice 相关表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载练习详情失败' });
   }
 });
 

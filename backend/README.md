@@ -13,6 +13,7 @@ Node + MySQL backend for question bank management.
    - Run `sql/schema_v1.sql` in MySQL (新库).
    - 若库已存在、仅补用户表：执行 `sql/auth_users_v1.sql`.
    - 若启用学生端 V2（学科/练习会话/错题本）：执行 `sql/schema_v2.sql`.
+   - 若已有 `schema_v2.sql` 老库，需要补“重点复习”字段：执行 `sql/wrong_questions_priority_v1.sql`.
 5. Start server:
    - `npm run dev`
 
@@ -62,7 +63,9 @@ Node + MySQL backend for question bank management.
 - `POST /wx/practice/submit` (student token required)
 - `GET /wx/wrong-questions` (student token required)
 - `POST /wx/wrong-questions/:id/mastered` (student token required)
+- `POST /wx/wrong-questions/:id/priority` (student token required)
 - `GET /wx/practice/sessions` (student token required)
+- `GET /wx/practice/sessions/:id` (student token required)
 
 ## 4. Excel template
 

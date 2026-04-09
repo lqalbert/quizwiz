@@ -46,3 +46,37 @@
 .label {
   color: #666;
 }
+
+.detail-btn {
+  margin-top: 8rpx;
+}
+
+.priority-btn {
+  margin-top: 6rpx;
+}
+
+.details {
+  margin-top: 10rpx;
+  border-top: 1rpx solid #eef0f4;
+  padding-top: 10rpx;
+}
+
+.detail-item {
+  border-radius: 10rpx;
+  padding: 10rpx;
+  margin-bottom: 8rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  font-size: 22rpx;
+}
+
+.ok {
+  background: #edf9f1;
+  color: #1f7a3e;
+}
+
+.bad {
+  background: #fff1f0;
+  color: #b42318;
+}

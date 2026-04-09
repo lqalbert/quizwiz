@@ -72,10 +72,12 @@ CREATE TABLE IF NOT EXISTS wrong_questions (
   wrong_count INT UNSIGNED NOT NULL DEFAULT 1,
   consecutive_correct INT UNSIGNED NOT NULL DEFAULT 0,
   mastered TINYINT(1) NOT NULL DEFAULT 0,
+  is_priority TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_wq_student_question (student_id, question_id),
   KEY idx_wq_student_mastered (student_id, mastered),
+  KEY idx_wq_student_priority (student_id, is_priority),
   KEY idx_wq_student_last_wrong (student_id, last_wrong_at),
   CONSTRAINT fk_wq_student_id FOREIGN KEY (student_id) REFERENCES wx_students(id),
   CONSTRAINT fk_wq_question_id FOREIGN KEY (question_id) REFERENCES questions(id)
