@@ -23,6 +23,14 @@ Node + MySQL backend for question bank management.
 - 除 `GET /health` 与 `/admin/auth/*` 外，**`/admin/questions/*` 均需 Bearer 令牌**
 - 配置 `.env`：`JWT_SECRET`、`BOOTSTRAP_ADMIN_EMAIL`、`BOOTSTRAP_ADMIN_PASSWORD`（其中 `BOOTSTRAP_ADMIN_EMAIL` 作为“用户名”使用；首次启动自动创建 admin，若用户名已存在则跳过）
 
+### 微信小程序学生登录
+
+- 在 `.env` 配置：`WX_APP_ID`、`WX_APP_SECRET`（微信公众平台 → 开发 → 开发管理 → 开发设置 → AppID / AppSecret）
+- 数据库执行 `sql/wx_students_v1.sql`（或已包含该表的完整 `schema_v1.sql`）
+- `POST /wx/auth/login` — body：`{ "code" }`（由小程序 `wx.login` 取得），返回 `{ token, user: { id, role: "student" } }`
+- `GET /wx/auth/me` — 请求头 `Authorization: Bearer <token>`
+- `GET /wx/questions`、`POST /wx/quiz/submit` — 均需同上学生 token（与教师后台共用 `JWT_SECRET`，JWT 内 `role` 为 `student`）
+
 ## 3. Current endpoints
 
 - `GET /health`

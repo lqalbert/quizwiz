@@ -111,3 +111,13 @@ CREATE TABLE IF NOT EXISTS import_job_rows (
   KEY idx_import_rows_status (`status`),
   CONSTRAINT fk_import_rows_job_id FOREIGN KEY (job_id) REFERENCES import_jobs(id)
 );
+
+CREATE TABLE IF NOT EXISTS wx_students (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  openid VARCHAR(64) NOT NULL,
+  unionid VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_login_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_wx_students_openid (openid),
+  KEY idx_wx_students_unionid (unionid)
+);

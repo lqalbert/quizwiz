@@ -12,6 +12,10 @@ export const config = {
     adminEmail: process.env.BOOTSTRAP_ADMIN_EMAIL || '',
     adminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || '',
   },
+  wx: {
+    appId: process.env.WX_APP_ID || '',
+    appSecret: process.env.WX_APP_SECRET || '',
+  },
   db: {
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT || 3306),

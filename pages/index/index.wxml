@@ -1,3 +1,28 @@
+<wxs module="util">
+function hasLetter(selected, letter) {
+  if (!selected || selected.length === 0) return false;
+  for (var i = 0; i < selected.length; i++) {
+    if (selected[i] === letter) return true;
+  }
+  return false;
+}
+function joinLetters(arr, sep) {
+  if (!arr || arr.length === 0) return '';
+  var s = arr[0];
+  for (var i = 1; i < arr.length; i++) {
+    s = s + sep + arr[i];
+  }
+  return s;
+}
+function formatSelected(arr) {
+  var j = joinLetters(arr, ',');
+  return j ? j : '未作答';
+}
+module.exports.hasLetter = hasLetter;
+module.exports.joinLetters = joinLetters;
+module.exports.formatSelected = formatSelected;
+</wxs>
+
 <view class="container">
   <view class="header">
     <text class="title">QuizWiz 小程序联调</text>
@@ -15,15 +40,15 @@
       <text class="stem">{{index + 1}}. {{item.stem}}</text>
       <text class="meta">题型：{{item.questionType === 'single' ? '单选' : '多选'}}</text>
 
-      <block wx:for="{{item.options}}" wx:key="letter">
+      <block wx:for="{{item.options}}" wx:for-item="opt" wx:key="letter">
         <view
-          class="option {{(answers[item.id] || []).indexOf(item.letter) !== -1 ? 'option-selected' : ''}}"
+          class="option {{util.hasLetter(answers[item.id], opt.letter) ? 'option-selected' : ''}}"
           data-question-id="{{item.id}}"
-          data-letter="{{item.letter}}"
+          data-letter="{{opt.letter}}"
           bindtap="onSelectOption"
         >
-          <text class="option-letter">{{item.letter}}.</text>
-          <text class="option-text">{{item.text}}</text>
+          <text class="option-letter">{{opt.letter}}.</text>
+          <text class="option-text">{{opt.text}}</text>
         </view>
       </block>
     </view>
@@ -45,7 +70,7 @@
       <view class="result-item {{item.isCorrect ? 'ok' : 'bad'}}">
         <text>第{{index + 1}}题：{{item.isCorrect ? '正确' : '错误'}}</text>
         <text wx:if="{{!item.isCorrect}}">
-          你的答案：{{item.selectedLetters.join(',') || '未作答'}}；正确答案：{{item.correctLetters.join(',')}}
+          你的答案：{{util.formatSelected(item.selectedLetters)}}；正确答案：{{util.joinLetters(item.correctLetters, ',')}}
         </text>
         <text wx:if="{{item.analysis}}">解析：{{item.analysis}}</text>
       </view>

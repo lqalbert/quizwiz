@@ -1,5 +1,9 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
+import { config } from '../config.js';
+import { codeToSession } from '../services/wxMiniAuth.js';
+import { requireStudentAuth } from '../middleware/requireStudentAuth.js';
 
 const router = express.Router();
 
@@ -26,6 +30,92 @@ function sameLetterSet(a, b) {
   }
   return true;
 }
+
+async function upsertWxStudent(openid, unionid) {
+  const [existing] = await pool.query(
+    'SELECT id FROM wx_students WHERE openid = ? LIMIT 1',
+    [openid]
+  );
+  if (existing.length > 0) {
+    const id = existing[0].id;
+    await pool.query(
+      `UPDATE wx_students SET last_login_at = NOW(), unionid = COALESCE(?, unionid) WHERE id = ?`,
+      [unionid || null, id]
+    );
+    return id;
+  }
+  const [result] = await pool.query(
+    'INSERT INTO wx_students (openid, unionid) VALUES (?, ?)',
+    [openid, unionid || null]
+  );
+  return result.insertId;
+}
+
+/** POST /wx/auth/login { code } */
+router.post('/auth/login', async (req, res) => {
+  const code = String(req.body?.code || '').trim();
+  if (!code) {
+    res.status(400).json({ message: '缺少 code，请先 wx.login' });
+    return;
+  }
+  try {
+    const session = await codeToSession(code);
+    let studentId;
+    try {
+      studentId = await upsertWxStudent(session.openid, session.unionid);
+    } catch (dbErr) {
+      if (String(dbErr.message || '').includes("doesn't exist") || dbErr.code === 'ER_NO_SUCH_TABLE') {
+        res.status(503).json({
+          message: '数据库未初始化 wx_students 表，请在服务器执行 sql/wx_students_v1.sql',
+        });
+        return;
+      }
+      throw dbErr;
+    }
+
+    const token = jwt.sign({ sub: studentId, role: 'student' }, config.jwt.secret, {
+      expiresIn: config.jwt.expiresIn,
+    });
+
+    res.json({
+      token,
+      user: {
+        id: studentId,
+        role: 'student',
+      },
+    });
+  } catch (error) {
+    const msg = error.message || '登录失败';
+    const status = error.code === 'ENOTFOUND' || error.code === 'ECONNRESET' ? 502 : 401;
+    res.status(status).json({ message: msg });
+  }
+});
+
+/** GET /wx/auth/me */
+router.get('/auth/me', requireStudentAuth, async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT id, openid, created_at AS createdAt, last_login_at AS lastLoginAt FROM wx_students WHERE id = ? LIMIT 1',
+    [req.student.id]
+  );
+  if (rows.length === 0) {
+    res.status(401).json({ message: '用户不存在' });
+    return;
+  }
+  const row = rows[0];
+  const openid = String(row.openid || '');
+  const masked = openid.length > 8 ? `${openid.slice(0, 6)}***${openid.slice(-4)}` : '***';
+  res.json({
+    user: {
+      id: row.id,
+      role: 'student',
+      openidMasked: masked,
+      createdAt: row.createdAt,
+      lastLoginAt: row.lastLoginAt,
+    },
+  });
+});
+
+router.use(requireStudentAuth);
 
 router.get('/questions', async (req, res) => {
   try {
