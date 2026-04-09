@@ -62,6 +62,7 @@ Node + MySQL backend for question bank management.
 - `POST /wx/practice/submit` (student token required)
 - `GET /wx/wrong-questions` (student token required)
 - `POST /wx/wrong-questions/:id/mastered` (student token required)
+- `GET /wx/practice/sessions` (student token required)
 
 ## 4. Excel template
 

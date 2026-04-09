@@ -1,0 +1,19 @@
+<view class="container">
+  <view class="header">
+    <text class="title">练习历史</text>
+    <button size="mini" bindtap="loadHistory" loading="{{loading}}">刷新</button>
+  </view>
+
+  <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
+  <view wx:if="{{!loading && list.length === 0}}" class="empty">暂无历史记录，先去做几题吧。</view>
+
+  <block wx:for="{{list}}" wx:key="id">
+    <view class="card">
+      <text class="row"><text class="label">时间：</text>{{item.submittedAt || item.startedAt}}</text>
+      <text class="row"><text class="label">模式：</text>{{item.mode}} ｜ <text class="label">学科：</text>{{item.subjectName || '未指定'}}</text>
+      <text class="row"><text class="label">题量：</text>{{item.submittedCount}}/{{item.questionCount}}</text>
+      <text class="row"><text class="label">得分：</text>{{item.correctCount}}/{{item.submittedCount}}（{{item.accuracy}}%）</text>
+      <text class="row"><text class="label">状态：</text>{{item.status}}</text>
+    </view>
+  </block>
+</view>

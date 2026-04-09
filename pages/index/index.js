@@ -152,6 +152,10 @@ Page({
     wx.navigateTo({ url: '/pages/wrong/wrong' });
   },
 
+  goHistory() {
+    wx.navigateTo({ url: '/pages/history/history' });
+  },
+
   onSelectOption(e) {
     const questionId = Number(e.currentTarget.dataset.questionId);
     const letter = String(e.currentTarget.dataset.letter || '');

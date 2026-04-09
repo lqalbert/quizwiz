@@ -25,6 +25,10 @@
   margin: 0;
 }
 
+.history-btn {
+  margin: 0;
+}
+
 .filters {
   background: #fff;
   border-radius: 14rpx;

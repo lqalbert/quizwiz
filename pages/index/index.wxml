@@ -27,6 +27,7 @@ module.exports.formatSelected = formatSelected;
   <view class="header">
     <text class="title">QuizWiz 练习模式</text>
     <view class="header-actions">
+      <button class="history-btn" size="mini" bindtap="goHistory">练习历史</button>
       <button class="wrong-btn" size="mini" bindtap="goWrongBook">错题本</button>
       <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
     </view>

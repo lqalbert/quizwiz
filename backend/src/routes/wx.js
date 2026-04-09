@@ -684,4 +684,48 @@ router.post('/wrong-questions/:id/mastered', async (req, res) => {
   }
 });
 
+router.get('/practice/sessions', async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit || 20);
+    const limit = Math.min(100, Math.max(1, Number.isInteger(limitRaw) ? limitRaw : 20));
+
+    const [rows] = await pool.query(
+      `SELECT ps.id, ps.mode, ps.question_count AS questionCount, ps.submitted_count AS submittedCount,
+              ps.correct_count AS correctCount, ps.score, ps.status, ps.started_at AS startedAt, ps.submitted_at AS submittedAt,
+              s.name AS subjectName
+       FROM practice_sessions ps
+       LEFT JOIN subjects s ON s.id = ps.subject_id
+       WHERE ps.student_id = ?
+       ORDER BY ps.id DESC
+       LIMIT ?`,
+      [req.student.id, limit]
+    );
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      mode: r.mode,
+      subjectName: r.subjectName || '',
+      questionCount: Number(r.questionCount || 0),
+      submittedCount: Number(r.submittedCount || 0),
+      correctCount: Number(r.correctCount || 0),
+      score: Number(r.score || 0),
+      status: r.status,
+      startedAt: r.startedAt,
+      submittedAt: r.submittedAt,
+      accuracy:
+        Number(r.submittedCount || 0) > 0
+          ? Number(((Number(r.correctCount || 0) / Number(r.submittedCount || 1)) * 100).toFixed(1))
+          : 0,
+    }));
+
+    res.json({ data, total: data.length });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'practice_sessions 或 subjects 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载练习历史失败' });
+  }
+});
+
 export default router;

@@ -2,7 +2,8 @@
   "pages": [
     "pages/login/login",
     "pages/index/index",
-    "pages/wrong/wrong"
+    "pages/wrong/wrong",
+    "pages/history/history"
   ],
   "window": {
     "navigationBarTitleText": "QuizWiz",
