@@ -25,14 +25,37 @@ module.exports.formatSelected = formatSelected;
 
 <view class="container">
   <view class="header">
-    <text class="title">QuizWiz 小程序联调</text>
-    <button class="refresh-btn" size="mini" bindtap="loadQuestions" loading="{{loading}}">换一批题</button>
+    <text class="title">QuizWiz 练习模式</text>
+    <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
+  </view>
+
+  <view class="filters">
+    <view class="filter-item">
+      <text class="filter-label">学科</text>
+      <picker mode="selector" range="{{subjects}}" range-key="name" value="{{subjectIndex}}" bindchange="onSubjectChange">
+        <view class="picker-view">{{subjects.length > 0 ? subjects[subjectIndex].name : '暂无学科'}}</view>
+      </picker>
+    </view>
+    <view class="filter-item">
+      <text class="filter-label">章节</text>
+      <input class="input" placeholder="可选，多个用逗号分隔" value="{{chapterInput}}" bindinput="onChapterInput" />
+    </view>
+    <view class="filter-row">
+      <view class="filter-item half">
+        <text class="filter-label">难度(1-5)</text>
+        <input class="input" type="number" value="{{difficulty}}" bindinput="onDifficultyInput" />
+      </view>
+      <view class="filter-item half">
+        <text class="filter-label">题量</text>
+        <slider min="1" max="20" step="1" value="{{limit}}" show-value bindchange="onLimitChange" />
+      </view>
+    </view>
   </view>
 
   <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
 
   <view wx:if="{{questions.length === 0 && !loading}}" class="empty">
-    暂无已发布题目，请先在后台把题目状态改为 published
+    暂无可练习题目，请检查学科映射或筛选条件
   </view>
 
   <block wx:for="{{questions}}" wx:key="id">
@@ -58,7 +81,7 @@ module.exports.formatSelected = formatSelected;
     class="submit-btn"
     type="primary"
     loading="{{submitting}}"
-    disabled="{{questions.length === 0 || submitting}}"
+    disabled="{{questions.length === 0 || submitting || !sessionId}}"
     bindtap="onSubmit"
   >
     提交并判分

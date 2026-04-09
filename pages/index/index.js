@@ -4,38 +4,94 @@ Page({
   data: {
     loading: false,
     submitting: false,
+    starting: false,
     questions: [],
     answers: {},
     result: null,
     errorText: '',
+    sessionId: null,
+    subjects: [],
+    subjectIndex: 0,
+    chapterInput: '',
+    difficulty: '',
+    limit: 5,
   },
 
-  onLoad() {
+  async onLoad() {
     if (!wx.getStorageSync('token')) {
       wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
-    this.loadQuestions();
+    await this.loadSubjects();
+    await this.startPractice();
   },
 
-  async loadQuestions() {
+  async loadSubjects() {
+    try {
+      const res = await request({ url: '/wx/subjects' });
+      const subjects = Array.isArray(res.data) ? res.data : [];
+      this.setData({
+        subjects,
+        subjectIndex: subjects.length > 0 ? 0 : -1,
+      });
+    } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        wx.removeStorageSync('token');
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
+      this.setData({
+        errorText: error.message || '加载学科失败',
+      });
+    }
+  },
+
+  getSelectedSubjectId() {
+    const idx = Number(this.data.subjectIndex);
+    if (!Array.isArray(this.data.subjects) || this.data.subjects.length === 0 || idx < 0) return null;
+    return this.data.subjects[idx]?.id || null;
+  },
+
+  buildStartPayload() {
+    const chapterText = String(this.data.chapterInput || '').trim();
+    const chapters = chapterText
+      ? chapterText
+          .split(/[，,]/)
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [];
+    const difficultyText = String(this.data.difficulty || '').trim();
+    const difficulty = difficultyText ? Number(difficultyText) : null;
+    return {
+      mode: 'random',
+      subjectId: this.getSelectedSubjectId(),
+      chapters,
+      difficulty: Number.isInteger(difficulty) ? difficulty : null,
+      limit: Number(this.data.limit) || 5,
+    };
+  },
+
+  async startPractice() {
     if (!wx.getStorageSync('token')) {
       wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
     this.setData({
       loading: true,
+      starting: true,
       errorText: '',
       result: null,
       answers: {},
     });
     try {
-      const res = await request({
-        url: '/wx/questions?limit=5',
-      });
+      const res = await request({ url: '/wx/practice/start', method: 'POST', data: this.buildStartPayload() });
       this.setData({
+        sessionId: res.sessionId || null,
         questions: Array.isArray(res.data) ? res.data : [],
       });
+      if (Array.isArray(res.questions)) {
+        this.setData({ questions: res.questions });
+      }
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
         wx.removeStorageSync('token');
@@ -46,8 +102,25 @@ Page({
         errorText: error.message || '拉取题目失败',
       });
     } finally {
-      this.setData({ loading: false });
+      this.setData({ loading: false, starting: false });
     }
+  },
+
+  onSubjectChange(e) {
+    this.setData({ subjectIndex: Number(e.detail.value || 0) });
+  },
+
+  onChapterInput(e) {
+    this.setData({ chapterInput: String(e.detail.value || '') });
+  },
+
+  onDifficultyInput(e) {
+    this.setData({ difficulty: String(e.detail.value || '') });
+  },
+
+  onLimitChange(e) {
+    const next = Number(e.detail.value || 5);
+    this.setData({ limit: Math.max(1, Math.min(50, next)) });
   },
 
   onSelectOption(e) {
@@ -76,17 +149,18 @@ Page({
   },
 
   async onSubmit() {
-    if (this.data.submitting || this.data.questions.length === 0) return;
+    if (this.data.submitting || this.data.questions.length === 0 || !this.data.sessionId) return;
     this.setData({ submitting: true, errorText: '' });
     try {
       const payload = {
+        sessionId: this.data.sessionId,
         answers: this.data.questions.map((q) => ({
           questionId: q.id,
           selectedLetters: this.data.answers[q.id] || [],
         })),
       };
       const res = await request({
-        url: '/wx/quiz/submit',
+        url: '/wx/practice/submit',
         method: 'POST',
         data: payload,
       });
