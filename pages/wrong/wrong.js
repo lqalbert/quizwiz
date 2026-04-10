@@ -36,20 +36,24 @@ Page({
   },
 
   buildQuery() {
-    const params = new URLSearchParams();
-    params.set('page', '1');
-    params.set('pageSize', '50');
+    // 小程序 JS 环境未必提供 URLSearchParams，用手动拼接避免运行时报错
+    const pairs = [
+      ['page', '1'],
+      ['pageSize', '50'],
+    ];
     const masteredIndex = Number(this.data.masteredIndex || 0);
-    if (masteredIndex === 0) params.set('mastered', 'false');
-    if (masteredIndex === 1) params.set('mastered', 'true');
+    if (masteredIndex === 0) pairs.push(['mastered', 'false']);
+    if (masteredIndex === 1) pairs.push(['mastered', 'true']);
 
     const subject = this.data.subjects?.[Number(this.data.subjectIndex || 0)];
     if (subject && Number(subject.id) > 0) {
-      params.set('subjectId', String(subject.id));
+      pairs.push(['subjectId', String(subject.id)]);
     }
     const chapter = String(this.data.chapterInput || '').trim();
-    if (chapter) params.set('chapter', chapter);
-    return params.toString();
+    if (chapter) pairs.push(['chapter', chapter]);
+    return pairs
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
   },
 
   async loadWrongQuestions() {
