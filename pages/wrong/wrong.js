@@ -128,4 +128,25 @@ Page({
       this.setData({ errorText: error.message || '操作失败' });
     }
   },
+
+  async onTogglePriority(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!id) return;
+    const wasPriority = Number(e.currentTarget.dataset.priority || 0) === 1;
+    const next = !wasPriority;
+    try {
+      await request({
+        url: `/wx/wrong-questions/${id}/priority`,
+        method: 'POST',
+        data: { isPriority: next },
+      });
+      const list = this.data.list.map((row) =>
+        Number(row.id) === id ? { ...row, isPriority: next } : row
+      );
+      this.setData({ list });
+      wx.showToast({ title: next ? '已标为重点' : '已取消重点', icon: 'success' });
+    } catch (error) {
+      this.setData({ errorText: error.message || '更新重点状态失败' });
+    }
+  },
 });

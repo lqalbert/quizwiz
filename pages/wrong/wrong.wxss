@@ -120,6 +120,15 @@
   margin-bottom: 6rpx;
 }
 
-.mark-btn {
-  margin-top: 8rpx;
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+  align-items: center;
+}
+
+.mark-btn,
+.priority-toggle-btn {
+  margin-top: 0;
 }

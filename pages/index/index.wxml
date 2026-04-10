@@ -59,7 +59,7 @@ module.exports.formatSelected = formatSelected;
   <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
 
   <view wx:if="{{questions.length === 0 && !loading}}" class="empty">
-    暂无可练习题目，请检查学科映射或筛选条件
+    {{emptyHint || '暂无可练习题目，请检查学科映射或筛选条件'}}
   </view>
 
   <block wx:for="{{questions}}" wx:key="id">

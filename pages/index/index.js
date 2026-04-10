@@ -17,6 +17,7 @@ Page({
     limit: 5,
     practiceMode: 'random',
     wrongPriorityOnly: false,
+    emptyHint: '',
   },
 
   async onLoad(options) {
@@ -114,16 +115,31 @@ Page({
       errorText: '',
       result: null,
       answers: {},
+      emptyHint: '',
     });
     try {
       const res = await request({ url: '/wx/practice/start', method: 'POST', data: this.buildStartPayload() });
+      const questions = Array.isArray(res.questions)
+        ? res.questions
+        : Array.isArray(res.data)
+          ? res.data
+          : [];
+      let emptyHint = '';
+      if (questions.length === 0) {
+        const mode = this.data.practiceMode || 'random';
+        if (mode === 'wrong') {
+          emptyHint = this.data.wrongPriorityOnly
+            ? '当前筛选下没有「重点」错题。可在错题本标为重点，或关闭「仅重点复习」后再试。'
+            : '当前没有符合条件的未掌握错题。可调整学科/章节，或先去随机练习产生错题。';
+        } else {
+          emptyHint = '暂无可练习题目。请确认该学科已在后台关联题目，或放宽章节、难度筛选。';
+        }
+      }
       this.setData({
         sessionId: res.sessionId || null,
-        questions: Array.isArray(res.data) ? res.data : [],
+        questions,
+        emptyHint,
       });
-      if (Array.isArray(res.questions)) {
-        this.setData({ questions: res.questions });
-      }
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
         wx.removeStorageSync('token');
