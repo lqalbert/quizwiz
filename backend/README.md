@@ -14,6 +14,7 @@ Node + MySQL backend for question bank management.
    - 若库已存在、仅补用户表：执行 `sql/auth_users_v1.sql`.
    - 若启用学生端 V2（学科/练习会话/错题本）：执行 `sql/schema_v2.sql`.
    - 若已有 `schema_v2.sql` 老库，需要补“重点复习”字段：执行 `sql/wrong_questions_priority_v1.sql`.
+   - 题目收藏：执行 `sql/question_favorites_v1.sql`.
 5. Start server:
    - `npm run dev`
 
@@ -59,8 +60,11 @@ Node + MySQL backend for question bank management.
 - `PATCH /admin/subjects/:id` (admin only)
 - `PATCH /admin/subjects/:id/status` (admin only)
 - `GET /wx/subjects` (student token required)
-- `GET /wx/stats/practice` (student token required；返回 `today` / `last7Days` / `all`：做题数 `attempted`、答对 `correct`、会话数 `sessions`、正确率 `accuracy`)
-- `POST /wx/practice/start` (student token required；`mode=wrong` 时可传 `priorityOnly: true` 仅抽取重点错题)
+- `GET /wx/stats/practice` (student token required；含汇总 `today` / `last7Days` / `all`，以及按学科 `bySubjectToday` / `bySubjectLast7Days` / `bySubjectAll`，每项含 `subjectId`/`subjectName`/`attempted`/`correct`/`sessions`/`accuracy`)
+- `GET /wx/favorites` (student token；可选 `subjectId`、`page`、`pageSize`)
+- `POST /wx/favorites` (student token；body `{ "questionId" }`)
+- `DELETE /wx/favorites/:questionId` (student token)
+- `POST /wx/practice/start` (student token required；`mode=wrong` 时可传 `priorityOnly: true`；`mode=favorite` 从收藏抽题；返回题目带 `isFavorite`)
 - `POST /wx/practice/submit` (student token required)
 - `GET /wx/wrong-questions` (student token required；查询参数 `priorityOnly=true` 仅列出标记为「重点复习」的错题)
 - `POST /wx/wrong-questions/:id/mastered` (student token required)

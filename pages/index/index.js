@@ -22,6 +22,9 @@ Page({
       today: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
       last7Days: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
       all: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+      bySubjectToday: [],
+      bySubjectLast7Days: [],
+      bySubjectAll: [],
     },
   },
 
@@ -49,6 +52,9 @@ Page({
           today: res.today || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
           last7Days: res.last7Days || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
           all: res.all || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+          bySubjectToday: Array.isArray(res.bySubjectToday) ? res.bySubjectToday : [],
+          bySubjectLast7Days: Array.isArray(res.bySubjectLast7Days) ? res.bySubjectLast7Days : [],
+          bySubjectAll: Array.isArray(res.bySubjectAll) ? res.bySubjectAll : [],
         },
       });
     } catch (error) {
@@ -159,6 +165,8 @@ Page({
           emptyHint = this.data.wrongPriorityOnly
             ? '当前筛选下没有「重点」错题。可在错题本标为重点，或关闭「仅重点复习」后再试。'
             : '当前没有符合条件的未掌握错题。可调整学科/章节，或先去随机练习产生错题。';
+        } else if (mode === 'favorite') {
+          emptyHint = '暂无收藏题目。练习时点击题旁的星标即可收藏。';
         } else {
           emptyHint = '暂无可练习题目。请确认该学科已在后台关联题目，或放宽章节、难度筛选。';
         }
@@ -205,6 +213,38 @@ Page({
 
   goHistory() {
     wx.navigateTo({ url: '/pages/history/history' });
+  },
+
+  goFavorite() {
+    wx.navigateTo({ url: '/pages/favorite/favorite' });
+  },
+
+  async onToggleFavorite(e) {
+    const questionId = Number(e.currentTarget.dataset.id);
+    if (!questionId) return;
+    const q = this.data.questions.find((x) => Number(x.id) === questionId);
+    if (!q) return;
+    const was = Boolean(q.isFavorite);
+    const next = !was;
+    try {
+      if (next) {
+        await request({ url: '/wx/favorites', method: 'POST', data: { questionId } });
+      } else {
+        await request({ url: `/wx/favorites/${questionId}`, method: 'DELETE' });
+      }
+      const questions = this.data.questions.map((row) =>
+        Number(row.id) === questionId ? { ...row, isFavorite: next } : row
+      );
+      this.setData({ questions });
+      wx.showToast({ title: next ? '已收藏' : '已取消', icon: 'none' });
+    } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        wx.removeStorageSync('token');
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
+      this.setData({ errorText: error.message || '收藏操作失败' });
+    }
   },
 
   onSelectOption(e) {

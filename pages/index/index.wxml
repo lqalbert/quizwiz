@@ -29,6 +29,7 @@ module.exports.formatSelected = formatSelected;
     <view class="header-actions">
       <button class="history-btn" size="mini" bindtap="goHistory">练习历史</button>
       <button class="wrong-btn" size="mini" bindtap="goWrongBook">错题本</button>
+      <button class="fav-nav-btn" size="mini" bindtap="goFavorite">收藏</button>
       <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
     </view>
   </view>
@@ -51,6 +52,33 @@ module.exports.formatSelected = formatSelected;
         <text class="stats-main">{{stats.all.attempted}} 题</text>
         <text class="stats-sub">对 {{stats.all.correct}} · {{stats.all.accuracy}}%</text>
       </view>
+    </view>
+    <view class="stats-by-block" wx:if="{{stats.bySubjectToday.length > 0}}">
+      <text class="stats-by-title">今日 · 按学科</text>
+      <block wx:for="{{stats.bySubjectToday}}" wx:key="statsKey">
+        <view class="stats-by-row">
+          <text class="stats-by-name">{{item.subjectName}}</text>
+          <text class="stats-by-num">{{item.attempted}}题 · {{item.accuracy}}%</text>
+        </view>
+      </block>
+    </view>
+    <view class="stats-by-block" wx:if="{{stats.bySubjectLast7Days.length > 0}}">
+      <text class="stats-by-title">近7日 · 按学科</text>
+      <block wx:for="{{stats.bySubjectLast7Days}}" wx:key="statsKey">
+        <view class="stats-by-row">
+          <text class="stats-by-name">{{item.subjectName}}</text>
+          <text class="stats-by-num">{{item.attempted}}题 · {{item.accuracy}}%</text>
+        </view>
+      </block>
+    </view>
+    <view class="stats-by-block" wx:if="{{stats.bySubjectAll.length > 0}}">
+      <text class="stats-by-title">累计 · 按学科</text>
+      <block wx:for="{{stats.bySubjectAll}}" wx:key="statsKey">
+        <view class="stats-by-row">
+          <text class="stats-by-name">{{item.subjectName}}</text>
+          <text class="stats-by-num">{{item.attempted}}题 · {{item.accuracy}}%</text>
+        </view>
+      </block>
     </view>
   </view>
 
@@ -85,7 +113,12 @@ module.exports.formatSelected = formatSelected;
 
   <block wx:for="{{questions}}" wx:key="id">
     <view class="card">
-      <text class="stem">{{index + 1}}. {{item.stem}}</text>
+      <view class="card-head">
+        <text class="stem-text stem-in-card">{{index + 1}}. {{item.stem}}</text>
+        <view class="fav-tap" data-id="{{item.id}}" catchtap="onToggleFavorite">
+          <text class="fav-icon">{{item.isFavorite ? '★' : '☆'}}</text>
+        </view>
+      </view>
       <text class="meta">题型：{{item.questionType === 'single' ? '单选' : '多选'}}</text>
 
       <block wx:for="{{item.options}}" wx:for-item="opt" wx:key="letter">

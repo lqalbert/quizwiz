@@ -73,6 +73,62 @@ function buildPracticeStatsBucket(attempted, correct, sessions) {
   };
 }
 
+function mapSubjectStatRows(rows) {
+  return (rows || []).map((row, i) => {
+    const attempted = Number(row.attempted || 0);
+    const correct = Number(row.correct || 0);
+    const sessions = Number(row.sessions || 0);
+    const sid = row.subjectId === null || row.subjectId === undefined ? null : Number(row.subjectId);
+    return {
+      statsKey: `${sid ?? 'x'}-${i}`,
+      subjectId: sid,
+      subjectName: String(row.subjectName || '未指定学科'),
+      ...buildPracticeStatsBucket(attempted, correct, sessions),
+    };
+  });
+}
+
+async function loadPracticeStatsBySubject(studentId, range) {
+  let dateCond = '1=1';
+  if (range === 'today') dateCond = 'DATE(ps.submitted_at) = CURDATE()';
+  if (range === 'week') dateCond = 'ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)';
+
+  const [rows] = await pool.query(
+    `SELECT ps.subject_id AS subjectId,
+            COALESCE(MAX(s.name), '未指定学科') AS subjectName,
+            COALESCE(SUM(ps.submitted_count), 0) AS attempted,
+            COALESCE(SUM(ps.correct_count), 0) AS correct,
+            COUNT(*) AS sessions
+     FROM practice_sessions ps
+     LEFT JOIN subjects s ON s.id = ps.subject_id
+     WHERE ps.student_id = ?
+       AND ps.status = 'done'
+       AND ps.submitted_at IS NOT NULL
+       AND (${dateCond})
+     GROUP BY ps.subject_id
+     ORDER BY attempted DESC`,
+    [studentId]
+  );
+  return mapSubjectStatRows(rows);
+}
+
+async function attachFavoriteFlags(studentId, questionDtos) {
+  if (!questionDtos.length) return questionDtos;
+  const ids = [...new Set(questionDtos.map((q) => Number(q.id)).filter((x) => x > 0))];
+  if (ids.length === 0) return questionDtos.map((q) => ({ ...q, isFavorite: false }));
+  try {
+    const [rows] = await pool.query(
+      'SELECT question_id AS questionId FROM question_favorites WHERE student_id = ? AND question_id IN (?)',
+      [studentId, ids]
+    );
+    const set = new Set(rows.map((r) => Number(r.questionId)));
+    return questionDtos.map((q) => ({ ...q, isFavorite: set.has(Number(q.id)) }));
+  } catch (e) {
+    if (isTableMissing(e)) return questionDtos.map((q) => ({ ...q, isFavorite: false }));
+    throw e;
+  }
+}
+
 async function loadQuestionsForPractice({
   studentId = null,
   mode = 'random',
@@ -97,6 +153,13 @@ async function loadQuestionsForPractice({
     if (priorityOnly) {
       where.push('wq.is_priority = 1');
     }
+  } else if (mode === 'favorite') {
+    if (!studentId) {
+      throw new Error('studentId is required for favorite mode');
+    }
+    joinClause += ' JOIN question_favorites qf ON qf.question_id = q.id ';
+    where.push('qf.student_id = ?');
+    values.push(studentId);
   }
   if (subjectId) {
     joinClause += ' JOIN question_subject_rel qsr ON qsr.question_id = q.id ';
@@ -292,31 +355,41 @@ router.get('/subjects', async (req, res) => {
   }
 });
 
-/** GET /wx/stats/practice — 基于已提交练习会话汇总做题数与正确率（服务器时区自然日 / 近7日含今日） */
+/** GET /wx/stats/practice — 汇总 + 按学科（今日 / 近7日 / 累计） */
 router.get('/stats/practice', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT
-        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.submitted_count ELSE 0 END), 0) AS todayAttempted,
-        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.correct_count ELSE 0 END), 0) AS todayCorrect,
-        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN 1 ELSE 0 END), 0) AS todaySessions,
-        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.submitted_count ELSE 0 END), 0) AS weekAttempted,
-        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.correct_count ELSE 0 END), 0) AS weekCorrect,
-        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN 1 ELSE 0 END), 0) AS weekSessions,
-        COALESCE(SUM(ps.submitted_count), 0) AS allAttempted,
-        COALESCE(SUM(ps.correct_count), 0) AS allCorrect,
-        COUNT(*) AS allSessions
-       FROM practice_sessions ps
-       WHERE ps.student_id = ?
-         AND ps.status = 'done'
-         AND ps.submitted_at IS NOT NULL`,
-      [req.student.id]
-    );
+    const sid = req.student.id;
+    const [agg, bySubjectToday, bySubjectLast7Days, bySubjectAll] = await Promise.all([
+      pool.query(
+        `SELECT
+          COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.submitted_count ELSE 0 END), 0) AS todayAttempted,
+          COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.correct_count ELSE 0 END), 0) AS todayCorrect,
+          COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN 1 ELSE 0 END), 0) AS todaySessions,
+          COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.submitted_count ELSE 0 END), 0) AS weekAttempted,
+          COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.correct_count ELSE 0 END), 0) AS weekCorrect,
+          COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN 1 ELSE 0 END), 0) AS weekSessions,
+          COALESCE(SUM(ps.submitted_count), 0) AS allAttempted,
+          COALESCE(SUM(ps.correct_count), 0) AS allCorrect,
+          COUNT(*) AS allSessions
+         FROM practice_sessions ps
+         WHERE ps.student_id = ?
+           AND ps.status = 'done'
+           AND ps.submitted_at IS NOT NULL`,
+        [sid]
+      ),
+      loadPracticeStatsBySubject(sid, 'today'),
+      loadPracticeStatsBySubject(sid, 'week'),
+      loadPracticeStatsBySubject(sid, 'all'),
+    ]);
+    const rows = agg[0] || [];
     const r = rows[0] || {};
     res.json({
       today: buildPracticeStatsBucket(r.todayAttempted, r.todayCorrect, r.todaySessions),
       last7Days: buildPracticeStatsBucket(r.weekAttempted, r.weekCorrect, r.weekSessions),
       all: buildPracticeStatsBucket(r.allAttempted, r.allCorrect, r.allSessions),
+      bySubjectToday,
+      bySubjectLast7Days,
+      bySubjectAll,
     });
   } catch (error) {
     if (isTableMissing(error)) {
@@ -324,6 +397,125 @@ router.get('/stats/practice', async (req, res) => {
       return;
     }
     res.status(500).json({ message: error.message || '加载练习统计失败' });
+  }
+});
+
+router.get('/favorites', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize || 20)));
+    const offset = (page - 1) * pageSize;
+
+    const subjectIdRaw = String(req.query.subjectId || '').trim();
+    let subjectClause = '';
+    const values = [req.student.id];
+    if (subjectIdRaw) {
+      const subjectId = Number(subjectIdRaw);
+      if (!Number.isInteger(subjectId) || subjectId <= 0) {
+        res.status(400).json({ message: 'subjectId 必须为正整数' });
+        return;
+      }
+      subjectClause =
+        ' AND EXISTS (SELECT 1 FROM question_subject_rel qx WHERE qx.question_id = q.id AND qx.subject_id = ?)';
+      values.push(subjectId);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT qf.id, qf.question_id AS questionId, q.stem, q.chapter, q.question_type AS questionType,
+              GROUP_CONCAT(DISTINCT s.name ORDER BY s.sort_order ASC SEPARATOR ',') AS subjects
+       FROM question_favorites qf
+       JOIN questions q ON q.id = qf.question_id AND q.is_deleted = 0
+       LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id
+       LEFT JOIN subjects s ON s.id = qsr.subject_id
+       WHERE qf.student_id = ? ${subjectClause}
+       GROUP BY qf.id, qf.question_id, q.stem, q.chapter, q.question_type
+       ORDER BY qf.id DESC
+       LIMIT ? OFFSET ?`,
+      [...values, pageSize, offset]
+    );
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM question_favorites qf
+       JOIN questions q ON q.id = qf.question_id AND q.is_deleted = 0
+       WHERE qf.student_id = ? ${subjectClause}`,
+      values
+    );
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      questionId: r.questionId,
+      stem: r.stem,
+      chapter: r.chapter,
+      questionType: r.questionType,
+      subjects: String(r.subjects || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+    }));
+
+    res.json({
+      data,
+      page,
+      pageSize,
+      total: Number(countRows[0]?.total || 0),
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'question_favorites 表不存在，请执行 sql/question_favorites_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载收藏失败' });
+  }
+});
+
+router.post('/favorites', async (req, res) => {
+  const questionId = Number(req.body?.questionId);
+  if (!questionId) {
+    res.status(400).json({ message: 'questionId 必填' });
+    return;
+  }
+  try {
+    const [qrows] = await pool.query(
+      `SELECT id FROM questions WHERE id = ? AND is_deleted = 0 AND status = 'published' LIMIT 1`,
+      [questionId]
+    );
+    if (qrows.length === 0) {
+      res.status(404).json({ message: '题目不存在或未发布' });
+      return;
+    }
+    await pool.query('INSERT IGNORE INTO question_favorites (student_id, question_id) VALUES (?, ?)', [
+      req.student.id,
+      questionId,
+    ]);
+    res.json({ ok: true, questionId, favorited: true });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'question_favorites 表不存在，请执行 sql/question_favorites_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '收藏失败' });
+  }
+});
+
+router.delete('/favorites/:questionId', async (req, res) => {
+  const questionId = Number(req.params.questionId);
+  if (!questionId) {
+    res.status(400).json({ message: 'questionId 无效' });
+    return;
+  }
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM question_favorites WHERE student_id = ? AND question_id = ? LIMIT 1',
+      [req.student.id, questionId]
+    );
+    res.json({ ok: true, questionId, favorited: false, removed: result.affectedRows > 0 });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'question_favorites 表不存在，请执行 sql/question_favorites_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '取消收藏失败' });
   }
 });
 
@@ -407,8 +599,8 @@ router.post('/practice/start', async (req, res) => {
     }
 
     const mode = String(req.body?.mode || 'random');
-    if (!['random', 'sequential', 'wrong'].includes(mode)) {
-      res.status(400).json({ message: 'mode 仅支持 random / sequential / wrong' });
+    if (!['random', 'sequential', 'wrong', 'favorite'].includes(mode)) {
+      res.status(400).json({ message: 'mode 仅支持 random / sequential / wrong / favorite' });
       return;
     }
 
@@ -438,7 +630,7 @@ router.post('/practice/start', async (req, res) => {
       return;
     }
 
-    const questions = await loadQuestionsForPractice({
+    let questions = await loadQuestionsForPractice({
       studentId: req.student.id,
       mode,
       subjectId,
@@ -447,6 +639,7 @@ router.post('/practice/start', async (req, res) => {
       limit,
       priorityOnly,
     });
+    questions = await attachFavoriteFlags(req.student.id, questions);
 
     const [result] = await pool.query(
       `INSERT INTO practice_sessions
