@@ -18,6 +18,11 @@ Page({
     practiceMode: 'random',
     wrongPriorityOnly: false,
     emptyHint: '',
+    stats: {
+      today: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+      last7Days: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+      all: { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+    },
   },
 
   async onLoad(options) {
@@ -28,6 +33,29 @@ Page({
     await this.loadSubjects();
     this.applyRouteOptions(options || {});
     await this.startPractice();
+  },
+
+  onShow() {
+    if (wx.getStorageSync('token')) {
+      this.loadStats();
+    }
+  },
+
+  async loadStats() {
+    try {
+      const res = await request({ url: '/wx/stats/practice' });
+      this.setData({
+        stats: {
+          today: res.today || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+          last7Days: res.last7Days || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+          all: res.all || { attempted: 0, correct: 0, sessions: 0, accuracy: 0 },
+        },
+      });
+    } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        return;
+      }
+    }
   },
 
   applyRouteOptions(options) {
@@ -221,6 +249,7 @@ Page({
         data: payload,
       });
       this.setData({ result: res });
+      this.loadStats();
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
         wx.removeStorageSync('token');

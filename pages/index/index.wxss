@@ -29,6 +29,53 @@
   margin: 0;
 }
 
+.stats-card {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2f5a8c 100%);
+  border-radius: 16rpx;
+  padding: 20rpx 18rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 8rpx 24rpx rgba(30, 58, 95, 0.25);
+}
+
+.stats-hint {
+  display: block;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 14rpx;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.stats-cell {
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-label {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 6rpx;
+}
+
+.stats-main {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4rpx;
+}
+
+.stats-sub {
+  display: block;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .filters {
   background: #fff;
   border-radius: 14rpx;

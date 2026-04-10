@@ -33,6 +33,27 @@ module.exports.formatSelected = formatSelected;
     </view>
   </view>
 
+  <view class="stats-card">
+    <text class="stats-hint">统计按服务器日期；仅统计已提交的练习</text>
+    <view class="stats-row">
+      <view class="stats-cell">
+        <text class="stats-label">今日</text>
+        <text class="stats-main">{{stats.today.attempted}} 题</text>
+        <text class="stats-sub">对 {{stats.today.correct}} · {{stats.today.accuracy}}%</text>
+      </view>
+      <view class="stats-cell">
+        <text class="stats-label">近7日</text>
+        <text class="stats-main">{{stats.last7Days.attempted}} 题</text>
+        <text class="stats-sub">对 {{stats.last7Days.correct}} · {{stats.last7Days.accuracy}}%</text>
+      </view>
+      <view class="stats-cell">
+        <text class="stats-label">累计</text>
+        <text class="stats-main">{{stats.all.attempted}} 题</text>
+        <text class="stats-sub">对 {{stats.all.correct}} · {{stats.all.accuracy}}%</text>
+      </view>
+    </view>
+  </view>
+
   <view class="filters">
     <view class="filter-item">
       <text class="filter-label">学科</text>

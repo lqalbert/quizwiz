@@ -61,6 +61,18 @@ function isUnknownColumn(error, columnName) {
   return String(error?.message || '').includes(String(columnName || ''));
 }
 
+function buildPracticeStatsBucket(attempted, correct, sessions) {
+  const a = Number(attempted || 0);
+  const c = Number(correct || 0);
+  const s = Number(sessions || 0);
+  return {
+    attempted: a,
+    correct: c,
+    sessions: s,
+    accuracy: a > 0 ? Number(((c / a) * 100).toFixed(1)) : 0,
+  };
+}
+
 async function loadQuestionsForPractice({
   studentId = null,
   mode = 'random',
@@ -277,6 +289,41 @@ router.get('/subjects', async (req, res) => {
       return;
     }
     res.status(500).json({ message: error.message || '加载学科失败' });
+  }
+});
+
+/** GET /wx/stats/practice — 基于已提交练习会话汇总做题数与正确率（服务器时区自然日 / 近7日含今日） */
+router.get('/stats/practice', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.submitted_count ELSE 0 END), 0) AS todayAttempted,
+        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN ps.correct_count ELSE 0 END), 0) AS todayCorrect,
+        COALESCE(SUM(CASE WHEN DATE(ps.submitted_at) = CURDATE() THEN 1 ELSE 0 END), 0) AS todaySessions,
+        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.submitted_count ELSE 0 END), 0) AS weekAttempted,
+        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN ps.correct_count ELSE 0 END), 0) AS weekCorrect,
+        COALESCE(SUM(CASE WHEN ps.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) THEN 1 ELSE 0 END), 0) AS weekSessions,
+        COALESCE(SUM(ps.submitted_count), 0) AS allAttempted,
+        COALESCE(SUM(ps.correct_count), 0) AS allCorrect,
+        COUNT(*) AS allSessions
+       FROM practice_sessions ps
+       WHERE ps.student_id = ?
+         AND ps.status = 'done'
+         AND ps.submitted_at IS NOT NULL`,
+      [req.student.id]
+    );
+    const r = rows[0] || {};
+    res.json({
+      today: buildPracticeStatsBucket(r.todayAttempted, r.todayCorrect, r.todaySessions),
+      last7Days: buildPracticeStatsBucket(r.weekAttempted, r.weekCorrect, r.weekSessions),
+      all: buildPracticeStatsBucket(r.allAttempted, r.allCorrect, r.allSessions),
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'practice_sessions 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载练习统计失败' });
   }
 });
 

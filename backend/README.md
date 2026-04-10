@@ -59,6 +59,7 @@ Node + MySQL backend for question bank management.
 - `PATCH /admin/subjects/:id` (admin only)
 - `PATCH /admin/subjects/:id/status` (admin only)
 - `GET /wx/subjects` (student token required)
+- `GET /wx/stats/practice` (student token required；返回 `today` / `last7Days` / `all`：做题数 `attempted`、答对 `correct`、会话数 `sessions`、正确率 `accuracy`)
 - `POST /wx/practice/start` (student token required；`mode=wrong` 时可传 `priorityOnly: true` 仅抽取重点错题)
 - `POST /wx/practice/submit` (student token required)
 - `GET /wx/wrong-questions` (student token required；查询参数 `priorityOnly=true` 仅列出标记为「重点复习」的错题)
