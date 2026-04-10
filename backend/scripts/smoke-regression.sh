@@ -75,7 +75,7 @@ bad_date_code=$(request GET "${BASE_URL}/admin/questions/import/jobs?startDate=2
 
 log "8) Create question + soft delete(admin)"
 q_body=$(cat <<EOF
-{"questionType":"single","stem":"冒烟题(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"published"}
+{"questionType":"single","stem":"冒烟题(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"published","subjectName":"英语"}
 EOF
 )
 create_q_code=$(request POST "${BASE_URL}/admin/questions" "$q_body" 1 "${TMP_DIR}/create_q.json")
@@ -128,7 +128,7 @@ impact_code=$(request GET "${BASE_URL}/admin/question-reports/question-impact/${
 if [[ -n "${STUDENT_TOKEN}" ]]; then
   log "13) Optional: create question report by student"
   q2_body=$(cat <<EOF
-{"questionType":"single","stem":"纠错冒烟题(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke-report","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"published"}
+{"questionType":"single","stem":"纠错冒烟题(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke-report","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"published","subjectName":"英语"}
 EOF
 )
   create_q2_code=$(request POST "${BASE_URL}/admin/questions" "$q2_body" 1 "${TMP_DIR}/create_q2.json")

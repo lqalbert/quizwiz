@@ -114,6 +114,8 @@ Node + MySQL backend for question bank management.
 
 - 文件：`docs/regression-checklist.md`
 - 建议每次发布前按 checklist 全量回归
+ - 最小 CI 门禁建议：`docs/ci-minimal-test-plan.md`
+ - 一键门禁脚本：`scripts/ci-gate.sh`
 ## 8. Lightweight admin pages
 
 - Login: `http://127.0.0.1:3000/admin-ui/login.html`
