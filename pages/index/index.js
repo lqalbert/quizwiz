@@ -16,6 +16,7 @@ Page({
     difficulty: '',
     limit: 5,
     practiceMode: 'random',
+    wrongPriorityOnly: false,
   },
 
   async onLoad(options) {
@@ -33,6 +34,10 @@ Page({
     const mode = String(options.mode || '').trim();
     if (mode === 'wrong') {
       patch.practiceMode = 'wrong';
+    }
+    const po = String(options.priorityOnly || '').trim().toLowerCase();
+    if (po === '1' || po === 'true') {
+      patch.wrongPriorityOnly = true;
     }
     const chapter = String(options.chapter || '').trim();
     if (chapter) patch.chapterInput = chapter;
@@ -87,12 +92,14 @@ Page({
       : [];
     const difficultyText = String(this.data.difficulty || '').trim();
     const difficulty = difficultyText ? Number(difficultyText) : null;
+    const mode = this.data.practiceMode || 'random';
     return {
-      mode: this.data.practiceMode || 'random',
+      mode,
       subjectId: this.getSelectedSubjectId(),
       chapters,
       difficulty: Number.isInteger(difficulty) ? difficulty : null,
       limit: Number(this.data.limit) || 5,
+      priorityOnly: mode === 'wrong' && Boolean(this.data.wrongPriorityOnly),
     };
   },
 

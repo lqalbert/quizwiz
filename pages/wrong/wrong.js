@@ -11,6 +11,7 @@ Page({
     masteredOptions: ['未掌握', '已掌握', '全部'],
     masteredIndex: 0,
     limit: 10,
+    priorityOnly: false,
   },
 
   async onLoad() {
@@ -51,6 +52,7 @@ Page({
     }
     const chapter = String(this.data.chapterInput || '').trim();
     if (chapter) pairs.push(['chapter', chapter]);
+    if (this.data.priorityOnly) pairs.push(['priorityOnly', 'true']);
     return pairs
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
@@ -92,6 +94,10 @@ Page({
     this.setData({ limit: Math.max(1, Math.min(50, limit)) });
   },
 
+  onPriorityOnlyChange(e) {
+    this.setData({ priorityOnly: Boolean(e.detail.value) });
+  },
+
   onApplyFilter() {
     this.loadWrongQuestions();
   },
@@ -100,7 +106,10 @@ Page({
     const subject = this.data.subjects?.[Number(this.data.subjectIndex || 0)];
     const subjectId = subject && Number(subject.id) > 0 ? Number(subject.id) : 0;
     const chapter = encodeURIComponent(String(this.data.chapterInput || '').trim());
-    const url = `/pages/index/index?mode=wrong&subjectId=${subjectId}&chapter=${chapter}&limit=${this.data.limit}`;
+    let url = `/pages/index/index?mode=wrong&subjectId=${subjectId}&chapter=${chapter}&limit=${this.data.limit}`;
+    if (this.data.priorityOnly) {
+      url += '&priorityOnly=1';
+    }
     wx.navigateTo({ url });
   },
 

@@ -39,6 +39,10 @@ module.exports.join = join;
         <slider min="1" max="20" step="1" show-value value="{{limit}}" bindchange="onLimitChange" />
       </view>
     </view>
+    <view class="filter-item filter-switch">
+      <text class="label">仅重点复习</text>
+      <switch checked="{{priorityOnly}}" color="#07c160" bindchange="onPriorityOnlyChange" />
+    </view>
     <button size="mini" bindtap="onApplyFilter" loading="{{loading}}">应用筛选</button>
   </view>
 
@@ -47,7 +51,10 @@ module.exports.join = join;
 
   <block wx:for="{{list}}" wx:key="id">
     <view class="card">
-      <text class="stem">{{index + 1}}. {{item.stem}}</text>
+      <view class="stem-row">
+        <text wx:if="{{item.isPriority}}" class="tag-priority">重点</text>
+        <text class="stem">{{index + 1}}. {{item.stem}}</text>
+      </view>
       <text class="meta">学科：{{util.join(item.subjects, '、') || '未设置'}}｜章节：{{item.chapter || '未设置'}}</text>
       <text class="meta">错误次数：{{item.wrongCount}}｜答案：{{util.join(item.answerLetters, ',')}}</text>
       <text wx:if="{{item.analysis}}" class="analysis">解析：{{item.analysis}}</text>

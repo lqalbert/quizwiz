@@ -56,6 +56,11 @@ function isTableMissing(error) {
   return error?.code === 'ER_NO_SUCH_TABLE' || String(error?.message || '').includes("doesn't exist");
 }
 
+function isUnknownColumn(error, columnName) {
+  if (error?.code !== 'ER_BAD_FIELD_ERROR') return false;
+  return String(error?.message || '').includes(String(columnName || ''));
+}
+
 async function loadQuestionsForPractice({
   studentId = null,
   mode = 'random',
@@ -63,6 +68,7 @@ async function loadQuestionsForPractice({
   chapters = [],
   difficulty = null,
   limit = 10,
+  priorityOnly = false,
 }) {
   const where = ['q.is_deleted = 0', "q.status = 'published'"];
   const values = [];
@@ -76,6 +82,9 @@ async function loadQuestionsForPractice({
     where.push('wq.student_id = ?');
     values.push(studentId);
     where.push('wq.mastered = 0');
+    if (priorityOnly) {
+      where.push('wq.is_priority = 1');
+    }
   }
   if (subjectId) {
     joinClause += ' JOIN question_subject_rel qsr ON qsr.question_id = q.id ';
@@ -376,6 +385,12 @@ router.post('/practice/start', async (req, res) => {
 
     const chapters = normalizeChapters(req.body?.chapters);
 
+    const priorityOnly = Boolean(req.body?.priorityOnly);
+    if (priorityOnly && mode !== 'wrong') {
+      res.status(400).json({ message: 'priorityOnly 仅在与 mode=wrong 联用时有效' });
+      return;
+    }
+
     const questions = await loadQuestionsForPractice({
       studentId: req.student.id,
       mode,
@@ -383,6 +398,7 @@ router.post('/practice/start', async (req, res) => {
       chapters,
       difficulty,
       limit,
+      priorityOnly,
     });
 
     const [result] = await pool.query(
@@ -406,6 +422,7 @@ router.post('/practice/start', async (req, res) => {
         subjectId,
         chapters,
         difficulty,
+        priorityOnly,
       },
       total: questions.length,
       questions,
@@ -413,6 +430,12 @@ router.post('/practice/start', async (req, res) => {
   } catch (error) {
     if (isTableMissing(error)) {
       res.status(503).json({ message: 'practice 相关表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    if (isUnknownColumn(error, 'is_priority')) {
+      res.status(503).json({
+        message: 'wrong_questions 缺少 is_priority 字段，请在服务器执行 sql/wrong_questions_priority_v1.sql',
+      });
       return;
     }
     res.status(500).json({ message: error.message || 'failed to start practice' });
@@ -597,6 +620,11 @@ router.get('/wrong-questions', async (req, res) => {
       values.push(masteredRaw === 'true' ? 1 : 0);
     }
 
+    const priorityOnlyRaw = String(req.query.priorityOnly || '').trim().toLowerCase();
+    if (priorityOnlyRaw === 'true' || priorityOnlyRaw === '1') {
+      where.push('wq.is_priority = 1');
+    }
+
     const joinSubject = needJoinSubject
       ? 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id LEFT JOIN subjects s ON s.id = qsr.subject_id'
       : 'LEFT JOIN question_subject_rel qsr ON qsr.question_id = q.id LEFT JOIN subjects s ON s.id = qsr.subject_id';
@@ -652,6 +680,12 @@ router.get('/wrong-questions', async (req, res) => {
   } catch (error) {
     if (isTableMissing(error)) {
       res.status(503).json({ message: 'wrong_questions 或 subjects 表不存在，请先执行 schema_v2.sql' });
+      return;
+    }
+    if (isUnknownColumn(error, 'is_priority')) {
+      res.status(503).json({
+        message: 'wrong_questions 缺少 is_priority 字段，请在服务器执行 sql/wrong_questions_priority_v1.sql',
+      });
       return;
     }
     res.status(500).json({ message: error.message || '加载错题本失败' });
