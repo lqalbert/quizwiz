@@ -122,8 +122,11 @@ module.exports.formatSelected = formatSelected;
     <view class="card">
       <view class="card-head">
         <text class="stem-text stem-in-card">{{index + 1}}. {{item.stem}}</text>
-        <view class="fav-tap" data-id="{{item.id}}" catchtap="onToggleFavorite">
-          <text class="fav-icon">{{item.isFavorite ? '★' : '☆'}}</text>
+        <view class="card-head-right">
+          <text class="report-link" data-id="{{item.id}}" catchtap="openReport">纠错</text>
+          <view class="fav-tap" data-id="{{item.id}}" catchtap="onToggleFavorite">
+            <text class="fav-icon">{{item.isFavorite ? '★' : '☆'}}</text>
+          </view>
         </view>
       </view>
       <text class="meta">题型：{{item.questionType === 'single' ? '单选' : '多选'}}</text>
@@ -165,5 +168,19 @@ module.exports.formatSelected = formatSelected;
         <text wx:if="{{item.analysis}}">解析：{{item.analysis}}</text>
       </view>
     </block>
+  </view>
+
+  <view class="report-mask" wx:if="{{reportShow}}" catchtouchmove="preventMove" bindtap="closeReport">
+    <view class="report-dialog" catchtap="preventMove">
+      <text class="report-title">题目纠错</text>
+      <picker mode="selector" range="{{reportReasons}}" range-key="label" value="{{reportReasonIndex}}" bindchange="onReportReasonChange">
+        <view class="report-picker">{{reportReasons[reportReasonIndex].label}}</view>
+      </picker>
+      <textarea class="report-textarea" placeholder="补充说明（可选，最多500字）" value="{{reportDetail}}" maxlength="500" bindinput="onReportDetailInput" />
+      <view class="report-actions">
+        <button size="mini" bindtap="closeReport">取消</button>
+        <button size="mini" type="primary" bindtap="submitReport">提交</button>
+      </view>
+    </view>
   </view>
 </view>

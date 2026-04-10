@@ -1127,4 +1127,46 @@ router.get('/practice/sessions/:id', async (req, res) => {
   }
 });
 
+const REPORT_REASON_TYPES = ['answer_wrong', 'stem_error', 'option_error', 'typo', 'other'];
+
+/** POST /wx/question-reports { questionId, reasonType, detail? } */
+router.post('/question-reports', async (req, res) => {
+  const questionId = Number(req.body?.questionId);
+  if (!questionId) {
+    res.status(400).json({ message: 'questionId 必填' });
+    return;
+  }
+  const reasonType = String(req.body?.reasonType || '').trim();
+  if (!REPORT_REASON_TYPES.includes(reasonType)) {
+    res.status(400).json({
+      message: `reasonType 须为：${REPORT_REASON_TYPES.join('、')}`,
+    });
+    return;
+  }
+  const detail = String(req.body?.detail || '').trim().slice(0, 500);
+
+  try {
+    const [qrows] = await pool.query(
+      `SELECT id FROM questions WHERE id = ? AND is_deleted = 0 AND status = 'published' LIMIT 1`,
+      [questionId]
+    );
+    if (qrows.length === 0) {
+      res.status(404).json({ message: '题目不存在或已删除' });
+      return;
+    }
+    const [result] = await pool.query(
+      `INSERT INTO question_reports (student_id, question_id, reason_type, detail, status)
+       VALUES (?, ?, ?, ?, 'open')`,
+      [req.student.id, questionId, reasonType, detail || null]
+    );
+    res.json({ ok: true, id: result.insertId });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'question_reports 表不存在，请执行 sql/question_reports_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '提交反馈失败' });
+  }
+});
+
 export default router;

@@ -11,6 +11,7 @@ import { requireRole } from './middleware/requireRole.js';
 import usersRouter from './routes/users.js';
 import wxRouter from './routes/wx.js';
 import subjectsRouter from './routes/subjects.js';
+import questionReportsRouter from './routes/questionReports.js';
 import { pool } from './db.js';
 
 const app = express();
@@ -70,6 +71,7 @@ app.use('/admin/auth', authRouter);
 app.use('/admin/questions', requireAuth, questionsRouter);
 app.use('/admin/users', requireAuth, requireRole('admin'), usersRouter);
 app.use('/admin/subjects', requireAuth, requireRole('admin'), subjectsRouter);
+app.use('/admin/question-reports', requireAuth, questionReportsRouter);
 app.use('/wx', wxRouter);
 
 app.get('/admin/templates/question-import', requireAuth, async (req, res) => {

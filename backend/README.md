@@ -15,6 +15,7 @@ Node + MySQL backend for question bank management.
    - 若启用学生端 V2（学科/练习会话/错题本）：执行 `sql/schema_v2.sql`.
    - 若已有 `schema_v2.sql` 老库，需要补“重点复习”字段：执行 `sql/wrong_questions_priority_v1.sql`.
    - 题目收藏：执行 `sql/question_favorites_v1.sql`.
+   - 学生题目纠错反馈：执行 `sql/question_reports_v1.sql`.
 5. Start server:
    - `npm run dev`
 
@@ -59,11 +60,14 @@ Node + MySQL backend for question bank management.
 - `POST /admin/subjects` (admin only)
 - `PATCH /admin/subjects/:id` (admin only)
 - `PATCH /admin/subjects/:id/status` (admin only)
+- `GET /admin/question-reports` (登录教师/管理员；查询参数 `status`、`page`、`pageSize`)
+- `PATCH /admin/question-reports/:id` (body: `status` open/reviewing/closed，可选 `adminNote`)
 - `GET /wx/subjects` (student token required)
 - `GET /wx/stats/practice` (student token required；含汇总 `today` / `last7Days` / `all`，以及按学科 `bySubjectToday` / `bySubjectLast7Days` / `bySubjectAll`，每项含 `subjectId`/`subjectName`/`attempted`/`correct`/`sessions`/`accuracy`)
 - `GET /wx/favorites` (student token；可选 `subjectId`、`page`、`pageSize`)
 - `POST /wx/favorites` (student token；body `{ "questionId" }`)
 - `DELETE /wx/favorites/:questionId` (student token)
+- `POST /wx/question-reports` (student token；body: `questionId`, `reasonType`: answer_wrong/stem_error/option_error/typo/other，可选 `detail` 最多 500 字)
 - `POST /wx/practice/start` (student token required；`mode=wrong` 时可传 `priorityOnly: true`；`mode=favorite` 从收藏抽题；`mode=sequential` 时按题目 `id` 升序抽题；其余模式随机；返回题目带 `isFavorite`)
 - `POST /wx/practice/submit` (student token required；`answers[]` 每项可选 `costMs` 毫秒 0–3600000，写入 `practice_answers.cost_ms`；响应含 `totalCostMs`、`timedQuestions`)
 - `GET /wx/wrong-questions` (student token required；查询参数 `priorityOnly=true` 仅列出标记为「重点复习」的错题)
@@ -112,6 +116,7 @@ Node + MySQL backend for question bank management.
 
 - Login: `http://127.0.0.1:3000/admin-ui/login.html`
 - Task list page: `http://127.0.0.1:3000/admin-ui/index.html`
+- 题目反馈: `http://127.0.0.1:3000/admin-ui/reports.html`
 - User management page (admin): `http://127.0.0.1:3000/admin-ui/users.html`
 - Task detail page: `http://127.0.0.1:3000/admin-ui/detail.html?id=<jobId>`
 - Task list page supports Excel upload buttons:

@@ -29,6 +29,17 @@ Page({
       bySubjectLast7Days: [],
       bySubjectAll: [],
     },
+    reportShow: false,
+    reportQuestionId: null,
+    reportReasonIndex: 0,
+    reportReasons: [
+      { code: 'answer_wrong', label: '参考答案可能有误' },
+      { code: 'stem_error', label: '题干/表述有问题' },
+      { code: 'option_error', label: '选项有问题' },
+      { code: 'typo', label: '错别字/格式' },
+      { code: 'other', label: '其他' },
+    ],
+    reportDetail: '',
   },
 
   async onLoad(options) {
@@ -246,6 +257,61 @@ Page({
 
   goFavorite() {
     wx.navigateTo({ url: '/pages/favorite/favorite' });
+  },
+
+  preventMove() {},
+
+  openReport(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!id) return;
+    this.setData({
+      reportShow: true,
+      reportQuestionId: id,
+      reportReasonIndex: 0,
+      reportDetail: '',
+    });
+  },
+
+  closeReport() {
+    this.setData({ reportShow: false });
+  },
+
+  onReportReasonChange(e) {
+    this.setData({ reportReasonIndex: Number(e.detail.value || 0) });
+  },
+
+  onReportDetailInput(e) {
+    const t = String(e.detail.value || '');
+    this.setData({ reportDetail: t.length > 500 ? t.slice(0, 500) : t });
+  },
+
+  async submitReport() {
+    const qid = this.data.reportQuestionId;
+    if (!qid) return;
+    const reasons = this.data.reportReasons;
+    const idx = Number(this.data.reportReasonIndex || 0);
+    const code = reasons[idx]?.code;
+    if (!code) return;
+    try {
+      await request({
+        url: '/wx/question-reports',
+        method: 'POST',
+        data: {
+          questionId: qid,
+          reasonType: code,
+          detail: String(this.data.reportDetail || '').trim(),
+        },
+      });
+      wx.showToast({ title: '已提交', icon: 'success' });
+      this.setData({ reportShow: false });
+    } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        wx.removeStorageSync('token');
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
+      wx.showToast({ title: error.message || '提交失败', icon: 'none' });
+    }
   },
 
   async onToggleFavorite(e) {

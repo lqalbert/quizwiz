@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>题目反馈</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #222; }
+      h1 { margin: 0 0 16px; }
+      .toolbar { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      select, button, textarea { padding: 8px; font-size: 14px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { border: 1px solid #ddd; padding: 8px; font-size: 13px; vertical-align: top; }
+      th { background: #f8f8f8; text-align: left; }
+      .stem { max-width: 280px; white-space: pre-wrap; word-break: break-word; }
+      .muted { color: #666; font-size: 12px; }
+      .err { color: #b42318; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h1 style="margin:0">学生题目反馈</h1>
+      <div>
+        <a href="/admin-ui/index.html">导入任务</a>
+        <span style="margin:0 8px">|</span>
+        <a href="/admin-ui/users.html">用户管理</a>
+        <button type="button" id="logoutBtn" style="margin-left:12px;padding:8px 14px">退出</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label>状态 <select id="statusFilter">
+        <option value="">全部</option>
+        <option value="open" selected>待处理</option>
+        <option value="reviewing">处理中</option>
+        <option value="closed">已关闭</option>
+      </select></label>
+      <button type="button" id="loadBtn">刷新</button>
+    </div>
+    <div id="err" class="err"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>时间</th>
+          <th>学生ID</th>
+          <th>题目ID</th>
+          <th>题干摘要</th>
+          <th>类型</th>
+          <th>说明</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <p class="muted" id="summary"></p>
+
+    <script src="/admin-ui/auth.js"></script>
+    <script>
+      (function () {
+        if (!QuizWizAuth.requireLogin()) return;
+
+        var REASON_LABEL = {
+          answer_wrong: '答案可能有误',
+          stem_error: '题干/表述有问题',
+          option_error: '选项有问题',
+          typo: '错别字/格式',
+          other: '其他',
+        };
+
+        function el(id) { return document.getElementById(id); }
+
+        el('logoutBtn').onclick = function () { QuizWizAuth.logout(); };
+
+        function authFetch(url, opts) {
+          opts = opts || {};
+          opts.headers = Object.assign({}, opts.headers || {}, QuizWizAuth.getAuthHeaders());
+          if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(opts.body);
+          }
+          return fetch(url, opts).then(function (res) {
+            QuizWizAuth.handleResponse(res);
+            return res;
+          });
+        }
+
+        function render(rows) {
+          var tb = el('tbody');
+          tb.innerHTML = '';
+          if (!rows.length) {
+            tb.innerHTML = '<tr><td colspan="9">暂无记录</td></tr>';
+            return;
+          }
+          rows.forEach(function (r) {
+            var tr = document.createElement('tr');
+            var stem = (r.stem || '').slice(0, 120) + ((r.stem || '').length > 120 ? '…' : '');
+            tr.innerHTML =
+              '<td>' + r.id + '</td>' +
+              '<td>' + (r.createdAt || '') + '</td>' +
+              '<td>' + r.studentId + '</td>' +
+              '<td>' + r.questionId + '</td>' +
+              '<td class="stem">' + stem.replace(/</g, '&lt;') + '</td>' +
+              '<td>' + (REASON_LABEL[r.reasonType] || r.reasonType) + '</td>' +
+              '<td>' + String(r.detail || '').replace(/</g, '&lt;') + '</td>' +
+              '<td>' + r.status + '</td>' +
+              '<td data-id="' + r.id + '"></td>';
+            var op = tr.querySelector('td:last-child');
+            if (r.status === 'open') {
+              var b1 = document.createElement('button');
+              b1.textContent = '处理中';
+              b1.onclick = function () { patchStatus(r.id, 'reviewing'); };
+              op.appendChild(b1);
+            }
+            if (r.status !== 'closed') {
+              var b2 = document.createElement('button');
+              b2.textContent = '关闭';
+              b2.style.marginLeft = '4px';
+              b2.onclick = function () {
+                var note = window.prompt('备注（可选）', '');
+                if (note === null) return;
+                patchStatus(r.id, 'closed', note);
+              };
+              op.appendChild(b2);
+            }
+            tb.appendChild(tr);
+          });
+        }
+
+        function patchStatus(id, status, adminNote) {
+          var body = { status: status };
+          if (adminNote !== undefined && adminNote !== '') body.adminNote = adminNote;
+          authFetch('/admin/question-reports/' + id, { method: 'PATCH', body: body })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '更新失败');
+              load();
+            })
+            .catch(function (e) { el('err').textContent = e.message || String(e); });
+        }
+
+        function load() {
+          el('err').textContent = '';
+          var st = el('statusFilter').value;
+          var q = st ? '?status=' + encodeURIComponent(st) + '&pageSize=50' : '?pageSize=50';
+          authFetch('/admin/question-reports' + q)
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+              render(data.data || []);
+              el('summary').textContent = '共 ' + (data.total || 0) + ' 条';
+            })
+            .catch(function (e) { el('err').textContent = e.message || String(e); });
+        }
+
+        el('loadBtn').onclick = load;
+        el('statusFilter').onchange = load;
+        load();
+      })();
+    </script>
+  </body>
+</html>
