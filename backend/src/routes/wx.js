@@ -181,7 +181,7 @@ async function loadQuestionsForPractice({
      FROM questions q
      ${joinClause}
      WHERE ${where.join(' AND ')}
-     ORDER BY RAND()
+     ORDER BY ${mode === 'sequential' ? 'q.id ASC' : 'RAND()'}
      LIMIT ?`,
     [...values, limit]
   );
@@ -728,19 +728,40 @@ router.post('/practice/submit', async (req, res) => {
       return;
     }
 
+    const costByQuestion = new Map();
+    for (const item of answers) {
+      const qid = Number(item?.questionId);
+      if (!qid) continue;
+      const raw = item?.costMs;
+      if (raw === undefined || raw === null || raw === '') continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 3600000) continue;
+      costByQuestion.set(qid, Math.round(n));
+    }
+
+    let totalCostMs = 0;
+    let timedQuestionCount = 0;
+
     for (const d of evaluated.details) {
       if (!d.questionId || !Array.isArray(d.correctLetters)) {
         continue;
       }
 
+      const costMs = costByQuestion.has(d.questionId) ? costByQuestion.get(d.questionId) : null;
+      if (costMs != null) {
+        totalCostMs += costMs;
+        timedQuestionCount += 1;
+      }
+
       await conn.query(
         `INSERT INTO practice_answers
-          (session_id, student_id, question_id, selected_letters, correct_letters, is_correct)
-         VALUES (?, ?, ?, ?, ?, ?)
+          (session_id, student_id, question_id, selected_letters, correct_letters, is_correct, cost_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            selected_letters = VALUES(selected_letters),
            correct_letters = VALUES(correct_letters),
-           is_correct = VALUES(is_correct)`,
+           is_correct = VALUES(is_correct),
+           cost_ms = IFNULL(VALUES(cost_ms), cost_ms)`,
         [
           sessionId,
           req.student.id,
@@ -748,6 +769,7 @@ router.post('/practice/submit', async (req, res) => {
           d.selectedLetters.join(','),
           d.correctLetters.join(','),
           d.isCorrect ? 1 : 0,
+          costMs != null ? costMs : null,
         ]
       );
 
@@ -789,6 +811,8 @@ router.post('/practice/submit', async (req, res) => {
       correct: evaluated.score,
       score: evaluated.score,
       details: evaluated.details,
+      totalCostMs: timedQuestionCount > 0 ? totalCostMs : null,
+      timedQuestions: timedQuestionCount,
     });
   } catch (error) {
     await conn.rollback();
@@ -1056,7 +1080,7 @@ router.get('/practice/sessions/:id', async (req, res) => {
 
     const [answerRows] = await pool.query(
       `SELECT pa.question_id AS questionId, pa.selected_letters AS selectedLetters, pa.correct_letters AS correctLetters,
-              pa.is_correct AS isCorrect, q.stem, q.analysis, q.question_type AS questionType,
+              pa.is_correct AS isCorrect, pa.cost_ms AS costMs, q.stem, q.analysis, q.question_type AS questionType,
               wq.id AS wrongId, wq.is_priority AS isPriority
        FROM practice_answers pa
        JOIN questions q ON q.id = pa.question_id
@@ -1074,6 +1098,7 @@ router.get('/practice/sessions/:id', async (req, res) => {
       correctLetters: parseAnswerLetters(r.correctLetters),
       isCorrect: Number(r.isCorrect || 0) === 1,
       analysis: r.analysis || '',
+      costMs: r.costMs != null ? Number(r.costMs) : null,
       wrongId: r.wrongId ? Number(r.wrongId) : null,
       isPriority: Number(r.isPriority || 0) === 1,
     }));

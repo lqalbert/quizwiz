@@ -93,6 +93,12 @@ module.exports.formatSelected = formatSelected;
       <text class="filter-label">章节</text>
       <input class="input" placeholder="可选，多个用逗号分隔" value="{{chapterInput}}" bindinput="onChapterInput" />
     </view>
+    <view class="filter-item" wx:if="{{!practiceModeLocked}}">
+      <text class="filter-label">出题方式</text>
+      <picker mode="selector" range="{{practiceModeLabels}}" value="{{practiceModePickerIndex}}" bindchange="onPracticeModeChange">
+        <view class="picker-view">{{practiceModeLabels[practiceModePickerIndex]}}</view>
+      </picker>
+    </view>
     <view class="filter-row">
       <view class="filter-item half">
         <text class="filter-label">难度(1-5)</text>
@@ -103,6 +109,7 @@ module.exports.formatSelected = formatSelected;
         <slider min="1" max="20" step="1" value="{{limit}}" show-value bindchange="onLimitChange" />
       </view>
     </view>
+    <text class="filter-hint" wx:if="{{!practiceModeLocked}}">计时：从首次选择选项起算到提交；未作答题目不计时。</text>
   </view>
 
   <view wx:if="{{errorText}}" class="error">{{errorText}}</view>
@@ -147,6 +154,7 @@ module.exports.formatSelected = formatSelected;
 
   <view wx:if="{{result}}" class="result">
     <text class="result-title">得分：{{result.correct}} / {{result.total}}</text>
+    <text wx:if="{{result.totalCostSecText}}" class="result-time">用时（已计时题目）：约 {{result.totalCostSecText}} 秒</text>
     <button class="go-wrong-btn" size="mini" bindtap="goWrongBook">查看错题本</button>
     <block wx:for="{{result.details}}" wx:key="questionId">
       <view class="result-item {{item.isCorrect ? 'ok' : 'bad'}}">

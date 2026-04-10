@@ -16,6 +16,9 @@ Page({
     difficulty: '',
     limit: 5,
     practiceMode: 'random',
+    practiceModeLocked: false,
+    practiceModeLabels: ['随机出题', '顺序出题'],
+    practiceModePickerIndex: 0,
     wrongPriorityOnly: false,
     emptyHint: '',
     stats: {
@@ -69,6 +72,11 @@ Page({
     const mode = String(options.mode || '').trim();
     if (mode === 'wrong') {
       patch.practiceMode = 'wrong';
+      patch.practiceModeLocked = true;
+    }
+    if (mode === 'favorite') {
+      patch.practiceMode = 'favorite';
+      patch.practiceModeLocked = true;
     }
     const po = String(options.priorityOnly || '').trim().toLowerCase();
     if (po === '1' || po === 'true') {
@@ -87,6 +95,12 @@ Page({
     if (subjectIdRaw > 0 && Array.isArray(this.data.subjects)) {
       const idx = this.data.subjects.findIndex((x) => Number(x.id) === subjectIdRaw);
       if (idx >= 0) patch.subjectIndex = idx;
+    }
+    if (!patch.practiceModeLocked && patch.practiceMode !== 'sequential') {
+      patch.practiceModePickerIndex = 0;
+    }
+    if (patch.practiceMode === 'sequential') {
+      patch.practiceModePickerIndex = 1;
     }
     this.setData(patch);
   },
@@ -143,6 +157,7 @@ Page({
       wx.reLaunch({ url: '/pages/login/login' });
       return;
     }
+    this._questionFirstTap = {};
     this.setData({
       loading: true,
       starting: true,
@@ -150,6 +165,8 @@ Page({
       result: null,
       answers: {},
       emptyHint: '',
+      questions: [],
+      sessionId: null,
     });
     try {
       const res = await request({ url: '/wx/practice/start', method: 'POST', data: this.buildStartPayload() });
@@ -184,6 +201,8 @@ Page({
       }
       this.setData({
         errorText: error.message || '拉取题目失败',
+        questions: [],
+        sessionId: null,
       });
     } finally {
       this.setData({ loading: false, starting: false });
@@ -205,6 +224,16 @@ Page({
   onLimitChange(e) {
     const next = Number(e.detail.value || 5);
     this.setData({ limit: Math.max(1, Math.min(50, next)) });
+  },
+
+  onPracticeModeChange(e) {
+    if (this.data.practiceModeLocked) return;
+    const i = Number(e.detail.value || 0);
+    const modes = ['random', 'sequential'];
+    this.setData({
+      practiceModePickerIndex: i,
+      practiceMode: modes[i] || 'random',
+    });
   },
 
   goWrongBook() {
@@ -253,6 +282,11 @@ Page({
     const question = this.data.questions.find((x) => Number(x.id) === questionId);
     if (!question) return;
 
+    if (!this._questionFirstTap) this._questionFirstTap = {};
+    if (!this._questionFirstTap[questionId]) {
+      this._questionFirstTap[questionId] = Date.now();
+    }
+
     const key = `answers.${questionId}`;
     const current = Array.isArray(this.data.answers[questionId]) ? this.data.answers[questionId] : [];
     let next = current;
@@ -276,19 +310,40 @@ Page({
     if (this.data.submitting || this.data.questions.length === 0 || !this.data.sessionId) return;
     this.setData({ submitting: true, errorText: '' });
     try {
+      const now = Date.now();
+      const taps = this._questionFirstTap || {};
+      const answers = this.data.questions.map((q) => {
+        const qid = q.id;
+        const started = taps[qid];
+        const row = {
+          questionId: qid,
+          selectedLetters: this.data.answers[qid] || [],
+        };
+        if (started) {
+          const ms = Math.min(now - started, 3600000);
+          if (ms >= 0) row.costMs = ms;
+        }
+        return row;
+      });
       const payload = {
         sessionId: this.data.sessionId,
-        answers: this.data.questions.map((q) => ({
-          questionId: q.id,
-          selectedLetters: this.data.answers[q.id] || [],
-        })),
+        answers,
       };
       const res = await request({
         url: '/wx/practice/submit',
         method: 'POST',
         data: payload,
       });
-      this.setData({ result: res });
+      const totalCostMs = res.totalCostMs;
+      const timedQuestions = res.timedQuestions;
+      const result = {
+        ...res,
+        totalCostSecText:
+          totalCostMs != null && timedQuestions > 0
+            ? (totalCostMs / 1000).toFixed(1)
+            : '',
+      };
+      this.setData({ result });
       this.loadStats();
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {

@@ -7,7 +7,14 @@ function join(arr, sep) {
   }
   return s;
 }
+function formatCostMs(ms) {
+  if (ms === null || ms === undefined || ms === '') return '';
+  var n = Number(ms);
+  if (!n || n <= 0) return '';
+  return (n / 1000).toFixed(1) + '秒';
+}
 module.exports.join = join;
+module.exports.formatCostMs = formatCostMs;
 </wxs>
 
 <view class="container">
@@ -43,6 +50,7 @@ module.exports.join = join;
             <text>结果：{{detail.isCorrect ? '正确' : '错误'}}</text>
             <text>你的答案：{{util.join(detail.selectedLetters, ',')}}</text>
             <text>正确答案：{{util.join(detail.correctLetters, ',')}}</text>
+            <text wx:if="{{util.formatCostMs(detail.costMs)}}">用时：{{util.formatCostMs(detail.costMs)}}</text>
             <text wx:if="{{detail.analysis}}">解析：{{detail.analysis}}</text>
             <button
               wx:if="{{!detail.isCorrect && detail.wrongId}}"
