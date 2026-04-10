@@ -34,23 +34,21 @@
         <option value="reviewing">处理中</option>
         <option value="closed">已关闭</option>
       </select></label>
+      <label>视图 <select id="viewMode">
+        <option value="detail">反馈明细</option>
+        <option value="question">按题聚合</option>
+      </select></label>
+      <label>排序 <select id="sortMode">
+        <option value="latestReportedAt:desc">最近反馈(新到旧)</option>
+        <option value="latestReportedAt:asc">最近反馈(旧到新)</option>
+        <option value="reportCount:desc">反馈次数(高到低)</option>
+        <option value="reportCount:asc">反馈次数(低到高)</option>
+      </select></label>
       <button type="button" id="loadBtn">刷新</button>
     </div>
     <div id="err" class="err"></div>
     <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>时间</th>
-          <th>学生ID</th>
-          <th>题目ID</th>
-          <th>题干摘要</th>
-          <th>类型</th>
-          <th>说明</th>
-          <th>状态</th>
-          <th>操作</th>
-        </tr>
-      </thead>
+      <thead id="thead"></thead>
       <tbody id="tbody"></tbody>
     </table>
     <p class="muted" id="summary"></p>
@@ -85,11 +83,56 @@
           });
         }
 
-        function render(rows) {
+        var isAdmin = false;
+
+        function render(rows, viewMode) {
           var tb = el('tbody');
+          var th = el('thead');
           tb.innerHTML = '';
+          if (viewMode === 'question') {
+            th.innerHTML = '<tr><th>题目ID</th><th>最近反馈时间</th><th>反馈总数</th><th>状态分布</th><th>题干摘要</th><th>操作</th></tr>';
+          } else {
+            th.innerHTML = '<tr><th>ID</th><th>时间</th><th>学生ID</th><th>题目ID</th><th>题干摘要</th><th>类型</th><th>说明</th><th>状态</th><th>操作</th></tr>';
+          }
           if (!rows.length) {
-            tb.innerHTML = '<tr><td colspan="9">暂无记录</td></tr>';
+            tb.innerHTML = '<tr><td colspan="' + (viewMode === 'question' ? 6 : 9) + '">暂无记录</td></tr>';
+            return;
+          }
+          if (viewMode === 'question') {
+            rows.forEach(function (r) {
+              var tr = document.createElement('tr');
+              var stem = (r.stem || '').slice(0, 120) + ((r.stem || '').length > 120 ? '…' : '');
+              var statusDist = 'open:' + (r.openCount || 0) + ' / reviewing:' + (r.reviewingCount || 0) + ' / closed:' + (r.closedCount || 0);
+              tr.innerHTML =
+                '<td>' + r.questionId + '</td>' +
+                '<td>' + (r.latestReportedAt || '') + '</td>' +
+                '<td>' + (r.reportCount || 0) + '</td>' +
+                '<td>' + statusDist + '</td>' +
+                '<td class="stem">' + stem.replace(/</g, '&lt;') + '</td>' +
+                '<td></td>';
+              var op = tr.querySelector('td:last-child');
+              var activeReportId = Number(r.latestActiveReportId || 0);
+              if (isAdmin && activeReportId > 0 && !r.questionDeleted) {
+                var bDelAgg = document.createElement('button');
+                bDelAgg.textContent = '确认有误并删除题目';
+                bDelAgg.style.color = '#b42318';
+                bDelAgg.onclick = function () {
+                  getQuestionImpact(r.questionId)
+                    .then(function (impactResp) {
+                      var msg = impactText(impactResp) + '\n将把该题从题库下架（软删除），并关闭一条活跃反馈单。此操作不可撤销，确定吗？';
+                      if (!window.confirm(msg)) return;
+                      var note = window.prompt('备注（可选，留空则使用系统默认说明）', '');
+                      if (note === null) return;
+                      confirmDeleteQuestion(activeReportId, note);
+                    })
+                    .catch(function (e) { el('err').textContent = e.message || String(e); });
+                };
+                op.appendChild(bDelAgg);
+              } else {
+                op.textContent = '-';
+              }
+              tb.appendChild(tr);
+            });
             return;
           }
           rows.forEach(function (r) {
@@ -112,6 +155,24 @@
               b1.onclick = function () { patchStatus(r.id, 'reviewing'); };
               op.appendChild(b1);
             }
+            if (isAdmin && r.status !== 'closed' && !r.questionDeleted) {
+              var bDel = document.createElement('button');
+              bDel.textContent = '确认有误并删除题目';
+              bDel.style.marginLeft = '4px';
+              bDel.style.color = '#b42318';
+              bDel.onclick = function () {
+                getQuestionImpact(r.questionId)
+                  .then(function (impactResp) {
+                    var msg = impactText(impactResp) + '\n将把该题从题库下架（软删除），并关闭本条反馈。此操作不可撤销，确定吗？';
+                    if (!window.confirm(msg)) return;
+                    var note = window.prompt('备注（可选，留空则使用系统默认说明）', '');
+                    if (note === null) return;
+                    confirmDeleteQuestion(r.id, note);
+                  })
+                  .catch(function (e) { el('err').textContent = e.message || String(e); });
+              };
+              op.appendChild(bDel);
+            }
             if (r.status !== 'closed') {
               var b2 = document.createElement('button');
               b2.textContent = '关闭';
@@ -125,6 +186,40 @@
             }
             tb.appendChild(tr);
           });
+        }
+
+        function confirmDeleteQuestion(id, note) {
+          var body = {};
+          if (note && String(note).trim()) body.adminNote = String(note).trim();
+          authFetch('/admin/question-reports/' + id + '/confirm-delete-question', { method: 'POST', body: body })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '操作失败');
+              load();
+            })
+            .catch(function (e) { el('err').textContent = e.message || String(e); });
+        }
+
+        function getQuestionImpact(questionId) {
+          return authFetch('/admin/question-reports/question-impact/' + questionId)
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '加载题目影响面失败');
+              return x.j;
+            });
+        }
+
+        function impactText(impactResp) {
+          var impact = impactResp && impactResp.impact ? impactResp.impact : {};
+          var reportCount = impact.reportCount == null ? 'N/A' : String(impact.reportCount);
+          var practiceCount = impact.practiceAnswerCount == null ? 'N/A' : String(impact.practiceAnswerCount);
+          var favoriteCount = impact.favoriteCount == null ? 'N/A' : String(impact.favoriteCount);
+          var wrongCount = impact.wrongQuestionCount == null ? 'N/A' : String(impact.wrongQuestionCount);
+          var text = '影响面：反馈 ' + reportCount + '，练习记录 ' + practiceCount + '，收藏 ' + favoriteCount + '，错题 ' + wrongCount + '。';
+          if (impactResp && Array.isArray(impactResp.missingTables) && impactResp.missingTables.length) {
+            text += '\n（部分统计表缺失：' + impactResp.missingTables.join(', ') + '）';
+          }
+          return text;
         }
 
         function patchStatus(id, status, adminNote) {
@@ -142,19 +237,43 @@
         function load() {
           el('err').textContent = '';
           var st = el('statusFilter').value;
-          var q = st ? '?status=' + encodeURIComponent(st) + '&pageSize=50' : '?pageSize=50';
+          var viewMode = el('viewMode').value || 'detail';
+          var q = '?pageSize=50&view=' + encodeURIComponent(viewMode);
+          if (st) q += '&status=' + encodeURIComponent(st);
+          if (viewMode === 'question') {
+            var sm = String(el('sortMode').value || 'latestReportedAt:desc').split(':');
+            var sortBy = sm[0] || 'latestReportedAt';
+            var sortOrder = sm[1] || 'desc';
+            q += '&sortBy=' + encodeURIComponent(sortBy) + '&sortOrder=' + encodeURIComponent(sortOrder);
+          }
           authFetch('/admin/question-reports' + q)
             .then(function (res) { return res.json(); })
             .then(function (data) {
-              render(data.data || []);
-              el('summary').textContent = '共 ' + (data.total || 0) + ' 条';
+              render(data.data || [], data.view || viewMode);
+              el('summary').textContent = '共 ' + (data.total || 0) + ' 条（' + (data.view || viewMode) + '）';
             })
             .catch(function (e) { el('err').textContent = e.message || String(e); });
         }
 
-        el('loadBtn').onclick = load;
-        el('statusFilter').onchange = load;
-        load();
+        function refreshRoleThenLoad() {
+          authFetch('/admin/auth/me')
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (x.res.ok && x.j.user && x.j.user.role === 'admin') isAdmin = true;
+              else isAdmin = false;
+              load();
+            })
+            .catch(function () {
+              isAdmin = false;
+              load();
+            });
+        }
+
+        el('loadBtn').onclick = refreshRoleThenLoad;
+        el('statusFilter').onchange = refreshRoleThenLoad;
+        el('viewMode').onchange = refreshRoleThenLoad;
+        el('sortMode').onchange = refreshRoleThenLoad;
+        refreshRoleThenLoad();
       })();
     </script>
   </body>

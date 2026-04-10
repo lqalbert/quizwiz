@@ -14,6 +14,7 @@
 - [ ] 使用错误密码登录失败（401）
 - [ ] 退出登录后访问 `/admin-ui/index.html` 会跳转登录页
 - [ ] teacher 账号无法访问 admin-only 用户管理接口（403）
+- [ ] teacher 账号调用 `POST /admin/question-reports/:id/confirm-delete-question` 被拒绝（403）
 
 ## C. 用户管理
 
@@ -49,6 +50,7 @@
 - [ ] 写操作审计有真实 `actor_id` / `actor_role`
 - [ ] 读操作审计存在（如 READ_IMPORT_JOBS / READ_QUESTION_LIST）
 - [ ] 模板下载审计存在（READ_TEMPLATE_DOWNLOAD）
+- [ ] 通过纠错确认删除题目后存在 `DELETE_QUESTION` 审计
 
 建议 SQL：
 
@@ -59,7 +61,18 @@ ORDER BY id DESC
 LIMIT 50;
 ```
 
-## G. 自动化 smoke
+## G. 题目纠错反馈
+
+- [ ] 学生提交纠错成功：`POST /wx/question-reports`
+- [ ] 同一学生同一题重复提交时触发去重（返回同一个 `id`，第二次 `merged=true`）
+- [ ] 管理端列表可见反馈：`GET /admin/question-reports`
+- [ ] 管理端按题聚合视图可用：`GET /admin/question-reports?view=question`
+- [ ] 可正常流转状态：`open -> reviewing -> closed`
+- [ ] 管理员执行 `confirm-delete-question` 后：题目软删、工单关闭、备注写入
+
+## H. 自动化 smoke
 
 - [ ] 执行 `scripts/smoke-regression.sh` 全部通过
 - [ ] 归档脚本输出中的临时目录（包含关键响应与导出文件）
+- [ ] 若设置 `STUDENT_TOKEN`，验证“学生提报 -> 管理员确认删除”完整链路
+- [ ] 若设置 `CONFIRM_DELETE_REPORT_ID`，验证对既有工单的直接确认删除

@@ -1154,12 +1154,31 @@ router.post('/question-reports', async (req, res) => {
       res.status(404).json({ message: '题目不存在或已删除' });
       return;
     }
+    // 去重：同一学生对同一题目若存在未关闭反馈，则更新该条而非重复插入。
+    const [existingRows] = await pool.query(
+      `SELECT id, status FROM question_reports
+       WHERE student_id = ? AND question_id = ? AND status IN ('open', 'reviewing')
+       ORDER BY id DESC
+       LIMIT 1`,
+      [req.student.id, questionId]
+    );
+    if (existingRows.length > 0) {
+      const existing = existingRows[0];
+      await pool.query(
+        `UPDATE question_reports
+         SET reason_type = ?, detail = ?, updated_at = NOW()
+         WHERE id = ? LIMIT 1`,
+        [reasonType, detail || null, existing.id]
+      );
+      res.json({ ok: true, id: Number(existing.id), merged: true, status: existing.status });
+      return;
+    }
     const [result] = await pool.query(
       `INSERT INTO question_reports (student_id, question_id, reason_type, detail, status)
        VALUES (?, ?, ?, ?, 'open')`,
       [req.student.id, questionId, reasonType, detail || null]
     );
-    res.json({ ok: true, id: result.insertId });
+    res.json({ ok: true, id: result.insertId, merged: false, status: 'open' });
   } catch (error) {
     if (isTableMissing(error)) {
       res.status(503).json({ message: 'question_reports 表不存在，请执行 sql/question_reports_v1.sql' });

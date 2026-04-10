@@ -9,7 +9,7 @@ function join(arr, sep) {
 }
 function formatCostMs(ms) {
   if (ms === null || ms === undefined || ms === '') return '';
-  var n = Number(ms);
+  var n = +ms;
   if (!n || n <= 0) return '';
   return (n / 1000).toFixed(1) + '秒';
 }
