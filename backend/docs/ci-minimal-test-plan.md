@@ -18,6 +18,7 @@
 - [ ] 聚合排序可用（`sortBy=reportCount`）
 - [ ] 影响面接口可用（`/admin/question-reports/question-impact/:questionId`）
 - [ ] teacher 调用 `confirm-delete-question` 返回 403
+- [ ] smoke 覆盖 `republish-question`（archived→published）及 teacher 403
 
 ## 3. 可选增强项（建议）
 

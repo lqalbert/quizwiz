@@ -189,6 +189,43 @@ async function loadQuestionsForPractice({
   return rows.map(buildQuestionDto);
 }
 
+async function loadQuestionsForAssignment({ studentId, assignmentId }) {
+  const aid = Number(assignmentId);
+  if (!aid) {
+    throw new Error('assignmentId 无效');
+  }
+  try {
+    const [check] = await pool.query(
+      `SELECT ca.id, ca.class_id AS classId
+       FROM class_assignments ca
+       INNER JOIN class_members m ON m.class_id = ca.class_id AND m.student_id = ?
+       WHERE ca.id = ? LIMIT 1`,
+      [studentId, aid]
+    );
+    if (!check.length) {
+      throw new Error('作业不存在或您不在该班级中');
+    }
+    const [rows] = await pool.query(
+      `SELECT q.id, q.question_type AS questionType, q.stem, q.option_a AS optionA, q.option_b AS optionB,
+              q.option_c AS optionC, q.option_d AS optionD, q.chapter, q.difficulty
+       FROM assignment_questions aq
+       INNER JOIN questions q ON q.id = aq.question_id
+       WHERE aq.assignment_id = ? AND q.is_deleted = 0 AND q.status = 'published'
+       ORDER BY aq.sort_order ASC, aq.question_id ASC`,
+      [aid]
+    );
+    if (!rows.length) {
+      throw new Error('该作业暂无有效题目');
+    }
+    return rows.map(buildQuestionDto);
+  } catch (error) {
+    if (isTableMissing(error)) {
+      throw new Error('班级作业未启用');
+    }
+    throw error;
+  }
+}
+
 async function evaluateAnswers(answers) {
   const questionIds = [];
   const answerMap = new Map();
@@ -591,6 +628,55 @@ router.get('/questions', async (req, res) => {
 
 router.post('/practice/start', async (req, res) => {
   try {
+    const mode = String(req.body?.mode || 'random');
+    if (mode === 'assignment') {
+      const assignmentId = Number(req.body?.assignmentId);
+      if (!assignmentId) {
+        res.status(400).json({ message: '班级作业需传 assignmentId' });
+        return;
+      }
+      let questions;
+      try {
+        questions = await loadQuestionsForAssignment({
+          studentId: req.student.id,
+          assignmentId,
+        });
+      } catch (err) {
+        res.status(400).json({ message: err.message || '无法开始作业' });
+        return;
+      }
+      questions = await attachFavoriteFlags(req.student.id, questions);
+      try {
+        const [result] = await pool.query(
+          `INSERT INTO practice_sessions
+            (student_id, mode, subject_id, chapter_json, difficulty, question_count, assignment_id, status)
+            VALUES (?, 'assignment', NULL, NULL, NULL, ?, ?, 'in_progress')`,
+          [req.student.id, questions.length, assignmentId]
+        );
+        res.json({
+          sessionId: result.insertId,
+          mode: 'assignment',
+          assignmentId,
+          filters: { assignmentId },
+          total: questions.length,
+          questions,
+        });
+      } catch (error) {
+        if (isUnknownColumn(error, 'assignment_id')) {
+          res.status(503).json({ message: '请执行 sql/class_assignments_v1.sql 以使用班级作业' });
+          return;
+        }
+        if (String(error?.message || '').includes('Data truncated') || error?.code === 'WARN_DATA_TRUNCATED') {
+          res.status(503).json({
+            message: 'practice_sessions.mode 需包含 assignment，请执行 sql/class_assignments_v1.sql',
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
     const limitRaw = Number(req.body?.limit ?? 10);
     const limit = Number.isInteger(limitRaw) ? Math.min(100, Math.max(1, limitRaw)) : NaN;
     if (!Number.isInteger(limit)) {
@@ -598,7 +684,6 @@ router.post('/practice/start', async (req, res) => {
       return;
     }
 
-    const mode = String(req.body?.mode || 'random');
     if (!['random', 'sequential', 'wrong', 'favorite'].includes(mode)) {
       res.status(400).json({ message: 'mode 仅支持 random / sequential / wrong / favorite' });
       return;
@@ -1128,6 +1213,77 @@ router.get('/practice/sessions/:id', async (req, res) => {
 });
 
 const REPORT_REASON_TYPES = ['answer_wrong', 'stem_error', 'option_error', 'typo', 'other'];
+const REPORT_AUTO_ESCALATE_DISTINCT_STUDENTS_24H = 3;
+
+async function tryAutoEscalateQuestionReports(questionId) {
+  const [hotRows] = await pool.query(
+    `SELECT COUNT(DISTINCT student_id) AS studentCount
+     FROM question_reports
+     WHERE question_id = ?
+       AND created_at >= (NOW() - INTERVAL 24 HOUR)
+       AND status IN ('open', 'reviewing')`,
+    [questionId]
+  );
+  const studentCount = Number(hotRows[0]?.studentCount || 0);
+  if (studentCount < REPORT_AUTO_ESCALATE_DISTINCT_STUDENTS_24H) {
+    return { autoEscalated: false, studentCount };
+  }
+  const [upd] = await pool.query(
+    `UPDATE question_reports
+     SET status = 'reviewing', updated_at = NOW()
+     WHERE question_id = ? AND status = 'open'`,
+    [questionId]
+  );
+  return {
+    autoEscalated: Number(upd.affectedRows || 0) > 0,
+    studentCount,
+  };
+}
+
+/** GET /wx/question-reports?status=&page=&pageSize= */
+router.get('/question-reports', async (req, res) => {
+  const page = Math.max(1, Number(req.query.page || 1));
+  const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 10)));
+  const offset = (page - 1) * pageSize;
+  const statusRaw = String(req.query.status || '').trim();
+  const statusFilter = ['open', 'reviewing', 'closed'].includes(statusRaw) ? statusRaw : '';
+  const where = ['qr.student_id = ?'];
+  const values = [req.student.id];
+  if (statusFilter) {
+    where.push('qr.status = ?');
+    values.push(statusFilter);
+  }
+  const wc = `WHERE ${where.join(' AND ')}`;
+  try {
+    const [rows] = await pool.query(
+      `SELECT qr.id, qr.question_id AS questionId, qr.reason_type AS reasonType, qr.detail,
+              qr.status, qr.admin_note AS adminNote, qr.created_at AS createdAt, qr.updated_at AS updatedAt,
+              q.stem, q.question_type AS questionType
+       FROM question_reports qr
+       JOIN questions q ON q.id = qr.question_id
+       ${wc}
+       ORDER BY qr.id DESC
+       LIMIT ? OFFSET ?`,
+      [...values, pageSize, offset]
+    );
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total FROM question_reports qr ${wc}`,
+      values
+    );
+    res.json({
+      data: rows,
+      page,
+      pageSize,
+      total: Number(countRows[0]?.total || 0),
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: 'question_reports 表不存在，请执行 sql/question_reports_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载反馈记录失败' });
+  }
+});
 
 /** POST /wx/question-reports { questionId, reasonType, detail? } */
 router.post('/question-reports', async (req, res) => {
@@ -1170,7 +1326,16 @@ router.post('/question-reports', async (req, res) => {
          WHERE id = ? LIMIT 1`,
         [reasonType, detail || null, existing.id]
       );
-      res.json({ ok: true, id: Number(existing.id), merged: true, status: existing.status });
+      const escalate = await tryAutoEscalateQuestionReports(questionId);
+      const [statusRows] = await pool.query('SELECT status FROM question_reports WHERE id = ? LIMIT 1', [existing.id]);
+      res.json({
+        ok: true,
+        id: Number(existing.id),
+        merged: true,
+        status: statusRows[0]?.status || existing.status,
+        autoEscalated: escalate.autoEscalated,
+        recentDistinctStudents24h: escalate.studentCount,
+      });
       return;
     }
     const [result] = await pool.query(
@@ -1178,13 +1343,143 @@ router.post('/question-reports', async (req, res) => {
        VALUES (?, ?, ?, ?, 'open')`,
       [req.student.id, questionId, reasonType, detail || null]
     );
-    res.json({ ok: true, id: result.insertId, merged: false, status: 'open' });
+    const escalate = await tryAutoEscalateQuestionReports(questionId);
+    const [statusRows] = await pool.query('SELECT status FROM question_reports WHERE id = ? LIMIT 1', [result.insertId]);
+    res.json({
+      ok: true,
+      id: result.insertId,
+      merged: false,
+      status: statusRows[0]?.status || 'open',
+      autoEscalated: escalate.autoEscalated,
+      recentDistinctStudents24h: escalate.studentCount,
+    });
   } catch (error) {
     if (isTableMissing(error)) {
       res.status(503).json({ message: 'question_reports 表不存在，请执行 sql/question_reports_v1.sql' });
       return;
     }
     res.status(500).json({ message: error.message || '提交反馈失败' });
+  }
+});
+
+/** POST /wx/classes/join { inviteCode } — 学生凭教师提供的邀请码加入班级 */
+router.post('/classes/join', async (req, res) => {
+  const raw = String(req.body?.inviteCode || '')
+    .trim()
+    .replace(/\s+/g, '');
+  const inviteCode = raw.toUpperCase();
+  if (!inviteCode || inviteCode.length > 16) {
+    res.status(400).json({ message: '请填写邀请码' });
+    return;
+  }
+  try {
+    const [rows] = await pool.query('SELECT id, name FROM classes WHERE invite_code = ? LIMIT 1', [
+      inviteCode,
+    ]);
+    if (rows.length === 0) {
+      res.status(404).json({ message: '邀请码无效' });
+      return;
+    }
+    const cls = rows[0];
+    try {
+      await pool.query('INSERT INTO class_members (class_id, student_id) VALUES (?, ?)', [
+        cls.id,
+        req.student.id,
+      ]);
+      res.status(201).json({
+        ok: true,
+        classId: cls.id,
+        className: cls.name,
+        alreadyMember: false,
+      });
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') {
+        res.json({
+          ok: true,
+          classId: cls.id,
+          className: cls.name,
+          alreadyMember: true,
+        });
+        return;
+      }
+      throw e;
+    }
+  } catch (error) {
+    if (isUnknownColumn(error, 'invite_code')) {
+      res.status(503).json({ message: '请执行 sql/classes_invite_code_v1.sql 启用班级邀请码' });
+      return;
+    }
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: '班级表未就绪，请执行 sql/classes_v1.sql 与 sql/classes_invite_code_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加入班级失败' });
+  }
+});
+
+/** GET /wx/classes/mine — 当前学生已加入的班级 */
+router.get('/classes/mine', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.id AS classId, c.name AS className, m.created_at AS joinedAt
+       FROM class_members m
+       INNER JOIN classes c ON c.id = m.class_id
+       WHERE m.student_id = ?
+       ORDER BY m.created_at DESC`,
+      [req.student.id]
+    );
+    res.json({ ok: true, data: rows });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: '班级表未就绪' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载班级失败' });
+  }
+});
+
+/** GET /wx/assignments — 已加入班级下的作业列表（含是否已完成一次提交） */
+router.get('/assignments', async (req, res) => {
+  const sid = req.student.id;
+  try {
+    const [rows] = await pool.query(
+      `SELECT ca.id AS assignmentId, ca.class_id AS classId, c.name AS className,
+              ca.title, ca.description, ca.due_at AS dueAt, ca.created_at AS createdAt,
+              (SELECT COUNT(*) FROM assignment_questions aq WHERE aq.assignment_id = ca.id) AS questionCount,
+              IF((SELECT COUNT(*) FROM practice_sessions ps
+                  WHERE ps.assignment_id = ca.id AND ps.student_id = ? AND ps.status = 'done') > 0, 1, 0) AS completed
+       FROM class_assignments ca
+       INNER JOIN class_members m ON m.class_id = ca.class_id AND m.student_id = ?
+       INNER JOIN classes c ON c.id = ca.class_id
+       ORDER BY (ca.due_at IS NULL) ASC, ca.due_at ASC, ca.id DESC`,
+      [sid, sid]
+    );
+    const now = Date.now();
+    res.json({
+      ok: true,
+      data: rows.map((r) => {
+        const due = r.dueAt ? new Date(r.dueAt).getTime() : null;
+        const completed = Number(r.completed) === 1;
+        return {
+          assignmentId: r.assignmentId,
+          classId: r.classId,
+          className: r.className,
+          title: r.title,
+          description: r.description,
+          dueAt: r.dueAt,
+          createdAt: r.createdAt,
+          questionCount: Number(r.questionCount || 0),
+          completed,
+          overdue: Boolean(due && due < now && !completed),
+        };
+      }),
+    });
+  } catch (error) {
+    if (isTableMissing(error)) {
+      res.status(503).json({ message: '班级作业未启用，请执行 sql/class_assignments_v1.sql' });
+      return;
+    }
+    res.status(500).json({ message: error.message || '加载作业列表失败' });
   }
 });
 

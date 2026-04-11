@@ -12,6 +12,8 @@ import usersRouter from './routes/users.js';
 import wxRouter from './routes/wx.js';
 import subjectsRouter from './routes/subjects.js';
 import questionReportsRouter from './routes/questionReports.js';
+import classesRouter from './routes/classes.js';
+import classAssignmentsRouter from './routes/classAssignments.js';
 import { pool } from './db.js';
 
 const app = express();
@@ -72,6 +74,13 @@ app.use('/admin/questions', requireAuth, questionsRouter);
 app.use('/admin/users', requireAuth, requireRole('admin'), usersRouter);
 app.use('/admin/subjects', requireAuth, requireRole('admin'), subjectsRouter);
 app.use('/admin/question-reports', requireAuth, questionReportsRouter);
+app.use('/admin/classes', requireAuth, requireRole('admin', 'teacher'), classesRouter);
+app.use(
+  '/admin/classes/:classId(\\d+)/assignments',
+  requireAuth,
+  requireRole('admin', 'teacher'),
+  classAssignmentsRouter
+);
 app.use('/wx', wxRouter);
 
 app.get('/admin/templates/question-import', requireAuth, async (req, res) => {

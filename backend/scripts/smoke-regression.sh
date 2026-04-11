@@ -85,6 +85,28 @@ QID=$(json_get "${TMP_DIR}/create_q.json" "o.id")
 del_q_code=$(request DELETE "${BASE_URL}/admin/questions/${QID}" "" 1 "${TMP_DIR}/del_q.json")
 [[ "$del_q_code" == "200" ]] || fail "delete question expected 200, got $del_q_code"
 
+log "8.1) Republish archived question flow"
+q_arch_body=$(cat <<EOF
+{"questionType":"single","stem":"存档上架冒烟(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke-arch","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"published","subjectName":"英语"}
+EOF
+)
+create_arch_code=$(request POST "${BASE_URL}/admin/questions" "$q_arch_body" 1 "${TMP_DIR}/create_arch.json")
+[[ "$create_arch_code" == "201" ]] || fail "create arch question expected 201, got $create_arch_code body=$(cat "${TMP_DIR}/create_arch.json")"
+Q_ARCH=$(json_get "${TMP_DIR}/create_arch.json" "o.id")
+[[ -n "$Q_ARCH" ]] || fail "arch question id missing"
+put_arch_body=$(cat <<EOF
+{"questionType":"single","stem":"存档上架冒烟(run-${RUN_ID})","optionA":"A","optionB":"B","optionC":"C","optionD":"D","answerLetters":"A","analysis":"smoke-arch","knowledgePoints":["回归测试"],"difficulty":1,"chapter":"回归","status":"archived","subjectName":"英语"}
+EOF
+)
+put_arch_code=$(request PUT "${BASE_URL}/admin/questions/${Q_ARCH}" "$put_arch_body" 1 "${TMP_DIR}/put_arch.json")
+[[ "$put_arch_code" == "200" ]] || fail "put archived expected 200, got $put_arch_code body=$(cat "${TMP_DIR}/put_arch.json")"
+repub_code=$(request POST "${BASE_URL}/admin/question-reports/republish-question" "{\"questionId\":${Q_ARCH}}" 1 "${TMP_DIR}/republish.json")
+[[ "$repub_code" == "200" ]] || fail "republish expected 200, got $repub_code body=$(cat "${TMP_DIR}/republish.json")"
+repub_twice_code=$(request POST "${BASE_URL}/admin/question-reports/republish-question" "{\"questionId\":${Q_ARCH}}" 1 "${TMP_DIR}/republish_twice.json")
+[[ "$repub_twice_code" == "400" ]] || fail "republish twice expected 400, got $repub_twice_code body=$(cat "${TMP_DIR}/republish_twice.json")"
+del_arch_code=$(request DELETE "${BASE_URL}/admin/questions/${Q_ARCH}" "" 1 "${TMP_DIR}/del_arch.json")
+[[ "$del_arch_code" == "200" ]] || fail "delete arch question expected 200, got $del_arch_code"
+
 log "9) Import preview should work"
 preview_code=$(curl -sS -X POST "${BASE_URL}/admin/questions/import/preview" \
   -H "Authorization: Bearer ${TOKEN}" \
@@ -113,17 +135,98 @@ teacher_confirm_code=$(curl -sS -X POST "${BASE_URL}/admin/question-reports/1/co
   -o "${TMP_DIR}/teacher_confirm_delete.json" -w "%{http_code}")
 [[ "$teacher_confirm_code" == "403" ]] || fail "teacher confirm-delete expected 403, got $teacher_confirm_code body=$(cat "${TMP_DIR}/teacher_confirm_delete.json")"
 
+log "12.0) Mark-fix endpoint should reject teacher role"
+teacher_fix_code=$(curl -sS -X POST "${BASE_URL}/admin/question-reports/1/mark-fix-needed" \
+  -H "Authorization: Bearer ${TEACHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"adminNote":"smoke permission check"}' \
+  -o "${TMP_DIR}/teacher_mark_fix.json" -w "%{http_code}")
+[[ "$teacher_fix_code" == "403" ]] || fail "teacher mark-fix expected 403, got $teacher_fix_code body=$(cat "${TMP_DIR}/teacher_mark_fix.json")"
+
+log "12.0.1) Replace endpoint should reject teacher role"
+teacher_replace_code=$(curl -sS -X POST "${BASE_URL}/admin/question-reports/1/replace-question" \
+  -H "Authorization: Bearer ${TEACHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"replacementQuestionId":1}' \
+  -o "${TMP_DIR}/teacher_replace.json" -w "%{http_code}")
+[[ "$teacher_replace_code" == "403" ]] || fail "teacher replace expected 403, got $teacher_replace_code body=$(cat "${TMP_DIR}/teacher_replace.json")"
+
+log "12.0.2) Batch mark-fix action should reject teacher role"
+teacher_batch_fix_code=$(curl -sS -X POST "${BASE_URL}/admin/question-reports/batch" \
+  -H "Authorization: Bearer ${TEACHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"markFixNeeded","ids":[1]}' \
+  -o "${TMP_DIR}/teacher_batch_fix.json" -w "%{http_code}")
+[[ "$teacher_batch_fix_code" == "403" ]] || fail "teacher batch mark-fix expected 403, got $teacher_batch_fix_code body=$(cat "${TMP_DIR}/teacher_batch_fix.json")"
+
+log "12.0.3) Republish endpoint should reject teacher role"
+teacher_repub_code=$(curl -sS -X POST "${BASE_URL}/admin/question-reports/republish-question" \
+  -H "Authorization: Bearer ${TEACHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"questionId":1}' \
+  -o "${TMP_DIR}/teacher_repub.json" -w "%{http_code}")
+[[ "$teacher_repub_code" == "403" ]] || fail "teacher republish expected 403, got $teacher_repub_code body=$(cat "${TMP_DIR}/teacher_repub.json")"
+
 log "12.1) Question-reports aggregate view should work"
 agg_view_code=$(request GET "${BASE_URL}/admin/question-reports?view=question&pageSize=20" "" 1 "${TMP_DIR}/reports_agg.json")
 [[ "$agg_view_code" == "200" ]] || fail "question-reports aggregate view expected 200, got $agg_view_code body=$(cat "${TMP_DIR}/reports_agg.json")"
+
+log "12.1.1) Question-reports high-risk filter should work"
+agg_high_risk_code=$(request GET "${BASE_URL}/admin/question-reports?view=question&pageSize=20&highRiskOnly=true" "" 1 "${TMP_DIR}/reports_agg_high_risk.json")
+[[ "$agg_high_risk_code" == "200" ]] || fail "question-reports high-risk filter expected 200, got $agg_high_risk_code body=$(cat "${TMP_DIR}/reports_agg_high_risk.json")"
+
+log "12.1.2) Question-reports SLA stale filter (detail + aggregate)"
+stale_detail_code=$(request GET "${BASE_URL}/admin/question-reports?staleOnly=true&staleHours=1&pageSize=5" "" 1 "${TMP_DIR}/reports_stale_detail.json")
+[[ "$stale_detail_code" == "200" ]] || fail "question-reports stale detail expected 200, got $stale_detail_code body=$(cat "${TMP_DIR}/reports_stale_detail.json")"
+stale_agg_code=$(request GET "${BASE_URL}/admin/question-reports?view=question&staleOnly=true&staleHours=1&pageSize=5" "" 1 "${TMP_DIR}/reports_stale_agg.json")
+[[ "$stale_agg_code" == "200" ]] || fail "question-reports stale aggregate expected 200, got $stale_agg_code body=$(cat "${TMP_DIR}/reports_stale_agg.json")"
 
 log "12.2) Question-reports aggregate sort by reportCount should work"
 agg_sort_code=$(request GET "${BASE_URL}/admin/question-reports?view=question&pageSize=20&sortBy=reportCount&sortOrder=desc" "" 1 "${TMP_DIR}/reports_agg_sort.json")
 [[ "$agg_sort_code" == "200" ]] || fail "question-reports aggregate sort expected 200, got $agg_sort_code body=$(cat "${TMP_DIR}/reports_agg_sort.json")"
 
+log "12.2.1) Question-reports aggregate sort by priorityScore should work"
+agg_priority_sort_code=$(request GET "${BASE_URL}/admin/question-reports?view=question&pageSize=20&sortBy=priorityScore&sortOrder=desc" "" 1 "${TMP_DIR}/reports_agg_priority_sort.json")
+[[ "$agg_priority_sort_code" == "200" ]] || fail "question-reports priority sort expected 200, got $agg_priority_sort_code body=$(cat "${TMP_DIR}/reports_agg_priority_sort.json")"
+
 log "12.3) Question impact endpoint should work"
 impact_code=$(request GET "${BASE_URL}/admin/question-reports/question-impact/${QID}" "" 1 "${TMP_DIR}/question_impact.json")
 [[ "$impact_code" == "200" ]] || fail "question impact expected 200, got $impact_code body=$(cat "${TMP_DIR}/question_impact.json")"
+
+log "12.3.1) Question reports dashboard should work"
+dash_code=$(request GET "${BASE_URL}/admin/question-reports/dashboard?staleHours=48" "" 1 "${TMP_DIR}/dashboard.json")
+[[ "$dash_code" == "200" ]] || fail "dashboard expected 200, got $dash_code body=$(cat "${TMP_DIR}/dashboard.json")"
+dash_sla=$(json_get "${TMP_DIR}/dashboard.json" "typeof o.overview==='object'&&typeof o.overview.slaStaleReportCount==='number'?String(o.overview.slaStaleReportCount):''")
+[[ -n "$dash_sla" ]] || fail "dashboard missing overview.slaStaleReportCount body=$(cat "${TMP_DIR}/dashboard.json")"
+
+log "12.4) Teacher classes: create, dashboard, wrong-questions, delete"
+class_create_code=$(request POST "${BASE_URL}/admin/classes" "{\"name\":\"smoke-class-${RUN_ID}\"}" 1 "${TMP_DIR}/class_create.json")
+[[ "$class_create_code" == "201" ]] || fail "classes POST expected 201, got $class_create_code body=$(cat "${TMP_DIR}/class_create.json")"
+CLASS_ID=$(json_get "${TMP_DIR}/class_create.json" "o.id")
+[[ -n "$CLASS_ID" ]] || fail "class id missing"
+class_dash_code=$(request GET "${BASE_URL}/admin/classes/${CLASS_ID}/dashboard?days=7" "" 1 "${TMP_DIR}/class_dash.json")
+[[ "$class_dash_code" == "200" ]] || fail "class dashboard expected 200, got $class_dash_code body=$(cat "${TMP_DIR}/class_dash.json")"
+class_wrong_code=$(request GET "${BASE_URL}/admin/classes/${CLASS_ID}/wrong-questions?days=30&limit=5" "" 1 "${TMP_DIR}/class_wrong.json")
+[[ "$class_wrong_code" == "200" ]] || fail "class wrong-questions expected 200, got $class_wrong_code body=$(cat "${TMP_DIR}/class_wrong.json")"
+class_detail_code=$(request GET "${BASE_URL}/admin/classes/${CLASS_ID}" "" 1 "${TMP_DIR}/class_detail.json")
+[[ "$class_detail_code" == "200" ]] || fail "class GET detail expected 200, got $class_detail_code body=$(cat "${TMP_DIR}/class_detail.json")"
+if [[ -n "${STUDENT_TOKEN}" ]]; then
+  INVITE=$(json_get "${TMP_DIR}/class_detail.json" "o.class && o.class.inviteCode ? String(o.class.inviteCode) : ''")
+  if [[ -n "${INVITE}" ]]; then
+    join_code=$(curl -sS -X POST "${BASE_URL}/wx/classes/join" \
+      -H "Authorization: Bearer ${STUDENT_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"inviteCode\":\"${INVITE}\"}" \
+      -o "${TMP_DIR}/wx_class_join.json" -w "%{http_code}")
+    [[ "$join_code" == "200" || "$join_code" == "201" ]] || fail "wx classes/join expected 200/201, got $join_code body=$(cat "${TMP_DIR}/wx_class_join.json")"
+    mine_code=$(curl -sS -X GET "${BASE_URL}/wx/classes/mine" \
+      -H "Authorization: Bearer ${STUDENT_TOKEN}" \
+      -o "${TMP_DIR}/wx_class_mine.json" -w "%{http_code}")
+    [[ "$mine_code" == "200" ]] || fail "wx classes/mine expected 200, got $mine_code body=$(cat "${TMP_DIR}/wx_class_mine.json")"
+  fi
+fi
+class_del_code=$(request DELETE "${BASE_URL}/admin/classes/${CLASS_ID}" "" 1 "${TMP_DIR}/class_del.json")
+[[ "$class_del_code" == "200" ]] || fail "class DELETE expected 200, got $class_del_code body=$(cat "${TMP_DIR}/class_del.json")"
 
 if [[ -n "${STUDENT_TOKEN}" ]]; then
   log "13) Optional: create question report by student"
@@ -157,6 +260,11 @@ EOF
   [[ "$REPORT_ID_2" == "$REPORT_ID" ]] || fail "dedupe expected same report id, got ${REPORT_ID_2} != ${REPORT_ID}"
   MERGED2=$(json_get "${TMP_DIR}/create_report2.json" "o.merged")
   [[ "${MERGED2}" == "true" ]] || fail "second report should be merged=true"
+
+  list_report_code=$(curl -sS -X GET "${BASE_URL}/wx/question-reports?pageSize=5" \
+    -H "Authorization: Bearer ${STUDENT_TOKEN}" \
+    -o "${TMP_DIR}/list_report.json" -w "%{http_code}")
+  [[ "$list_report_code" == "200" ]] || fail "list report expected 200, got $list_report_code body=$(cat "${TMP_DIR}/list_report.json")"
 
   log "14) Optional: admin confirm-delete question via report"
   confirm_del_code=$(request POST "${BASE_URL}/admin/question-reports/${REPORT_ID}/confirm-delete-question" "{\"adminNote\":\"smoke confirm delete run-${RUN_ID}\"}" 1 "${TMP_DIR}/confirm_del.json")

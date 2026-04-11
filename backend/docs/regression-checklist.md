@@ -65,10 +65,19 @@ LIMIT 50;
 
 - [ ] 学生提交纠错成功：`POST /wx/question-reports`
 - [ ] 同一学生同一题重复提交时触发去重（返回同一个 `id`，第二次 `merged=true`）
+- [ ] 同题 24h 内反馈学生数达到阈值时，`open` 工单自动提级到 `reviewing`
 - [ ] 管理端列表可见反馈：`GET /admin/question-reports`
 - [ ] 管理端按题聚合视图可用：`GET /admin/question-reports?view=question`
+- [ ] 高风险筛选可用：`GET /admin/question-reports?view=question&highRiskOnly=true`
+- [ ] 反馈看板可用：`GET /admin/question-reports/dashboard`（总量/状态/近7日/学科）
 - [ ] 可正常流转状态：`open -> reviewing -> closed`
 - [ ] 管理员执行 `confirm-delete-question` 后：题目软删、工单关闭、备注写入
+- [ ] 管理员执行 `mark-fix-needed` 后：题目状态置为 `archived`、工单置为 `reviewing`
+- [ ] 管理员执行 `replace-question` 后：工单关闭且指向替换题目
+- [ ] 批量处理可用：批量设 `reviewing/closed`、批量备注
+- [ ] 非管理员批量 `markFixNeeded` 被拒绝（403）
+- [ ] 管理员 `republish-question`：`archived` 题目恢复为 `published`，该题未关闭工单批量关闭
+- [ ] 非 `archived` 题目调用 `republish-question` 返回 400
 
 ## H. 自动化 smoke
 

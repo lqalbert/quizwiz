@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>班级学情</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #222; max-width: 1100px; }
+      h1 { margin: 0 0 16px; }
+      h2 { font-size: 16px; margin: 20px 0 10px; }
+      .toolbar { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      select, button, input[type="text"], input[type="number"] { padding: 8px; font-size: 14px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+      th { background: #f8f8f8; }
+      .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+      .dash .card { border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fff; }
+      .dash .k { font-size: 12px; color: #666; }
+      .dash .v { font-size: 18px; font-weight: 600; }
+      .stem { max-width: 360px; white-space: pre-wrap; word-break: break-word; }
+      .muted { color: #666; font-size: 12px; }
+      .err { color: #b42318; margin-top: 8px; }
+      .panel { border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-bottom: 16px; background: #fafafa; }
+      .timeline-row { border-bottom: 1px solid #eee; padding: 8px 0; font-size: 13px; }
+      .ok { color: #0d6b3a; }
+      .bad { color: #b42318; }
+    </style>
+  </head>
+  <body>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h1 style="margin:0">班级学情</h1>
+      <div>
+        <a href="/admin-ui/index.html">导入任务</a>
+        <span style="margin:0 8px">|</span>
+        <a href="/admin-ui/reports.html">题目反馈</a>
+        <span style="margin:0 8px">|</span>
+        <a href="/admin-ui/users.html">用户管理</a>
+        <button type="button" id="logoutBtn" style="margin-left:12px;padding:8px 14px">退出</button>
+      </div>
+    </div>
+    <p class="muted">教师创建班级后会得到<strong>邀请码</strong>，学生在小程序「我的班级」中输入邀请码即可加入。教师可在下方成员列表中<strong>移除</strong>学生。仍支持在后台手动填写学生 ID 代为入班（可选）。</p>
+
+    <div class="panel">
+      <h2>班级</h2>
+      <div class="toolbar">
+        <input type="text" id="newClassName" placeholder="新班级名称" style="min-width:200px" />
+        <button type="button" id="createClassBtn">创建</button>
+        <label>当前班级 <select id="classSelect"><option value="">— 请选择 —</option></select></label>
+        <button type="button" id="deleteClassBtn">删除当前班级</button>
+        <button type="button" id="refreshBtn">刷新列表与看板</button>
+      </div>
+    </div>
+
+    <div id="classDetail" style="display:none">
+      <div class="panel" id="invitePanel">
+        <div class="k" style="font-size:13px;color:#333">邀请码 · 发给学生，在小程序「我的班级」输入后加入</div>
+        <div style="margin-top:8px;font-family:ui-monospace,monospace;font-size:22px;letter-spacing:4px;font-weight:600" id="inviteCodeText">-</div>
+        <button type="button" id="copyInviteBtn" style="margin-top:8px">复制邀请码</button>
+      </div>
+      <div class="toolbar">
+        <label>统计窗口 <select id="daysSelect">
+          <option value="7">近 7 天</option>
+          <option value="14">近 14 天</option>
+          <option value="30" selected>近 30 天</option>
+        </select></label>
+      </div>
+      <div class="dash" id="dash"></div>
+      <p class="muted" id="dailyLine"></p>
+
+      <h2>成员练习概况</h2>
+      <table>
+        <thead><tr><th>学生 ID</th><th>答题次数</th><th>正确</th><th>正确率</th><th>操作</th></tr></thead>
+        <tbody id="byStudentBody"></tbody>
+      </table>
+
+      <h2>班级易错题（按错题次数）</h2>
+      <table>
+        <thead><tr><th>题目 ID</th><th>错题次数</th><th>总作答</th><th>错率</th><th>题干摘要</th></tr></thead>
+        <tbody id="wrongBody"></tbody>
+      </table>
+
+      <h2>班级作业</h2>
+      <p class="muted">① 设置筛选条件 → 点「搜索题目」② 勾选题目（可翻页继续选）③ 填写标题与截止时间 → 点「发布作业」。学生在小程序「我的班级 → 班级作业」中完成。</p>
+      <div class="panel" style="padding:12px;margin:10px 0">
+        <div class="toolbar" style="flex-wrap:wrap;align-items:center">
+          <input type="text" id="qKw" placeholder="题干关键词" style="width:140px" />
+          <input type="text" id="qChapter" placeholder="章节" style="width:100px" />
+          <select id="qDiff">
+            <option value="">难度</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option>
+          </select>
+          <select id="qType">
+            <option value="">题型</option>
+            <option value="single">单选</option>
+            <option value="multiple">多选</option>
+          </select>
+          <select id="qStatus">
+            <option value="published" selected>已发布</option>
+            <option value="">全部状态</option>
+            <option value="draft">草稿</option>
+            <option value="archived">已下架</option>
+          </select>
+          <button type="button" id="qSearchBtn">搜索题目</button>
+          <span class="muted" id="qSearchHint"></span>
+        </div>
+        <div class="toolbar" style="margin-top:8px">
+          <button type="button" id="qPickPagePrev">上一页</button>
+          <span class="muted" id="qPickPageLabel">第 1 页</span>
+          <button type="button" id="qPickPageNext">下一页</button>
+          <button type="button" id="qPickSelectPage">全选本页（仅已发布）</button>
+        </div>
+        <table class="q-pick-table" style="margin-top:8px;font-size:12px">
+          <thead><tr><th style="width:36px">选</th><th>ID</th><th>题干摘要</th><th>章节</th><th>难度</th><th>状态</th></tr></thead>
+          <tbody id="qPickTableBody"><tr><td colspan="6" class="muted">请先搜索题目</td></tr></tbody>
+        </table>
+        <div class="toolbar" style="margin-top:10px;align-items:center">
+          <span>已选 <strong id="hwSelectedCount">0</strong> 题</span>
+          <button type="button" id="hwClearSelected">清空已选</button>
+          <span class="muted" id="hwSelectedPreview" style="max-width:480px;word-break:break-all"></span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input type="text" id="hwTitle" placeholder="作业标题" style="min-width:200px" />
+        <label class="muted">截止 <input type="datetime-local" id="hwDue" /></label>
+        <button type="button" id="createHwBtn">发布作业</button>
+      </div>
+      <details style="margin:8px 0">
+        <summary class="muted" style="cursor:pointer">手动输入题目 ID（可选，与勾选合并）</summary>
+        <textarea id="hwQuestions" rows="2" style="width:100%;max-width:640px;box-sizing:border-box;margin-top:8px" placeholder="例如：101,102,103"></textarea>
+      </details>
+      <table style="margin-top:12px">
+        <thead><tr><th>标题</th><th>截止</th><th>题数</th><th>完成/班级人数</th><th>操作</th></tr></thead>
+        <tbody id="hwBody"></tbody>
+      </table>
+
+      <h2>班级成员</h2>
+      <div class="toolbar">
+        <input type="number" id="addStudentId" placeholder="学生 wx_students.id" style="width:160px" />
+        <input type="text" id="addStudentNote" placeholder="备注(可选)" style="width:140px" />
+        <button type="button" id="addMemberBtn">加入班级</button>
+      </div>
+      <table>
+        <thead><tr><th>学生 ID</th><th>备注</th><th>加入时间</th><th>操作</th></tr></thead>
+        <tbody id="membersBody"></tbody>
+      </table>
+    </div>
+
+    <div id="timelinePanel" class="panel" style="display:none;margin-top:16px">
+      <h2>学生答题时间线 <span class="muted" id="timelineTitle"></span></h2>
+      <button type="button" id="closeTimelineBtn">关闭</button>
+      <div id="timelineContent" style="margin-top:12px;max-height:420px;overflow:auto"></div>
+    </div>
+
+    <div id="err" class="err"></div>
+
+    <script src="/admin-ui/auth.js"></script>
+    <script>
+      (function () {
+        if (!QuizWizAuth.requireLogin()) return;
+
+        function el(id) { return document.getElementById(id); }
+        el('logoutBtn').onclick = function () { QuizWizAuth.logout(); };
+
+        function authFetch(url, opts) {
+          opts = opts || {};
+          opts.headers = Object.assign({}, opts.headers || {}, QuizWizAuth.getAuthHeaders());
+          if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(opts.body);
+          }
+          return fetch(url, opts).then(function (res) {
+            QuizWizAuth.handleResponse(res);
+            return res;
+          });
+        }
+
+        var currentClassId = null;
+        var timelineStudentId = null;
+        var hwSelectedIds = [];
+        var hwPickPage = 1;
+        var hwPickPageSize = 20;
+        var hwLastPickRows = [];
+
+        function showErr(msg) { el('err').textContent = msg || ''; }
+
+        function updateHwSelectionUI() {
+          el('hwSelectedCount').textContent = String(hwSelectedIds.length);
+          var prev = hwSelectedIds.slice(0, 15).join(', ');
+          el('hwSelectedPreview').textContent = hwSelectedIds.length
+            ? ('ID: ' + prev + (hwSelectedIds.length > 15 ? ' …' : ''))
+            : '';
+        }
+
+        function toggleHwQuestionId(qid, checked) {
+          var id = Number(qid);
+          if (!id) return;
+          if (checked) {
+            if (hwSelectedIds.indexOf(id) === -1) hwSelectedIds.push(id);
+          } else {
+            hwSelectedIds = hwSelectedIds.filter(function (x) { return x !== id; });
+          }
+          updateHwSelectionUI();
+        }
+
+        function buildQuestionSearchQuery() {
+          var p = new URLSearchParams();
+          p.set('page', String(hwPickPage));
+          p.set('pageSize', String(hwPickPageSize));
+          var st = el('qStatus').value;
+          if (st) p.set('status', st);
+          var kw = String(el('qKw').value || '').trim();
+          if (kw) p.set('keyword', kw);
+          var ch = String(el('qChapter').value || '').trim();
+          if (ch) p.set('chapter', ch);
+          var df = el('qDiff').value;
+          if (df) p.set('difficulty', df);
+          var qt = el('qType').value;
+          if (qt) p.set('questionType', qt);
+          return p.toString();
+        }
+
+        function renderHwPickTable(rows) {
+          hwLastPickRows = rows || [];
+          var tb = el('qPickTableBody');
+          tb.innerHTML = '';
+          if (!rows || !rows.length) {
+            tb.innerHTML = '<tr><td colspan="6" class="muted">无匹配题目，请调整筛选</td></tr>';
+            return;
+          }
+          rows.forEach(function (r) {
+            var id = Number(r.id);
+            var checked = hwSelectedIds.indexOf(id) >= 0;
+            var stem = String(r.stem || '');
+            if (stem.length > 80) stem = stem.slice(0, 80) + '…';
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+              '<td><input type="checkbox" class="hwPickCb" data-qid="' + id + '"' + (checked ? ' checked' : '') + ' /></td>' +
+              '<td>' + id + '</td>' +
+              '<td class="stem">' + stem.replace(/</g, '&lt;') + '</td>' +
+              '<td>' + String(r.chapter || '') + '</td>' +
+              '<td>' + (r.difficulty != null ? r.difficulty : '') + '</td>' +
+              '<td>' + String(r.status || '') + '</td>';
+            tb.appendChild(tr);
+          });
+          Array.prototype.forEach.call(tb.querySelectorAll('.hwPickCb'), function (cb) {
+            cb.onchange = function () {
+              toggleHwQuestionId(cb.getAttribute('data-qid'), cb.checked);
+            };
+          });
+        }
+
+        function resetQuestionPick() {
+          hwPickPage = 1;
+          hwLastPickRows = [];
+          if (el('qPickTableBody')) {
+            el('qPickTableBody').innerHTML = '<tr><td colspan="6" class="muted">请先搜索题目</td></tr>';
+          }
+          if (el('qSearchHint')) el('qSearchHint').textContent = '';
+          if (el('qPickPageLabel')) el('qPickPageLabel').textContent = '第 1 页';
+          if (el('qPickPagePrev')) el('qPickPagePrev').disabled = true;
+          if (el('qPickPageNext')) el('qPickPageNext').disabled = false;
+        }
+
+        function searchHwQuestions() {
+          el('qSearchHint').textContent = '加载中…';
+          authFetch('/admin/questions?' + buildQuestionSearchQuery())
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var rows = j.data || [];
+              el('qSearchHint').textContent = '本页 ' + rows.length + ' 条';
+              el('qPickPageLabel').textContent = '第 ' + hwPickPage + ' 页';
+              el('qPickPagePrev').disabled = hwPickPage <= 1;
+              el('qPickPageNext').disabled = rows.length < hwPickPageSize;
+              renderHwPickTable(rows);
+            })
+            .catch(function (e) {
+              el('qSearchHint').textContent = '加载失败';
+              showErr(e.message || String(e));
+              renderHwPickTable([]);
+            });
+        }
+
+        function loadInviteCode() {
+          if (!currentClassId) return Promise.resolve();
+          return authFetch('/admin/classes/' + currentClassId)
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var code = (j.class && j.class.inviteCode) || '';
+              el('inviteCodeText').textContent = code || '（尚未生成，请执行 sql/classes_invite_code_v1.sql）';
+            })
+            .catch(function () {
+              el('inviteCodeText').textContent = '-';
+            });
+        }
+
+        el('copyInviteBtn').onclick = function () {
+          var t = el('inviteCodeText').textContent || '';
+          if (!t || t.indexOf('（') === 0) { showErr('无可复制的邀请码'); return; }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(t.trim()).then(function () { showErr(''); alert('已复制'); }).catch(function () {
+              window.prompt('请手动复制：', t);
+            });
+          } else {
+            window.prompt('请手动复制：', t);
+          }
+        };
+
+        function loadClassList(selectedId) {
+          return authFetch('/admin/classes')
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var sel = el('classSelect');
+              sel.innerHTML = '<option value="">— 请选择 —</option>';
+              (j.data || []).forEach(function (c) {
+                var opt = document.createElement('option');
+                opt.value = String(c.id);
+                opt.textContent = c.name + ' (' + (c.memberCount || 0) + ' 人)';
+                sel.appendChild(opt);
+              });
+              if (selectedId) sel.value = String(selectedId);
+            });
+        }
+
+        function renderDashboard(j) {
+          var ov = j.overview || {};
+          var dash = el('dash');
+          dash.innerHTML =
+            '<div class="card"><div class="k">成员人数</div><div class="v">' + (ov.memberCount != null ? ov.memberCount : '-') + '</div></div>' +
+            '<div class="card"><div class="k">活跃人数</div><div class="v">' + (ov.activeStudentCount != null ? ov.activeStudentCount : '-') + '</div></div>' +
+            '<div class="card"><div class="k">答题次数</div><div class="v">' + (ov.totalAttempts != null ? ov.totalAttempts : '-') + '</div></div>' +
+            '<div class="card"><div class="k">正确率</div><div class="v">' + (ov.accuracy == null ? '-' : (Math.round(ov.accuracy * 10000) / 100 + '%')) + '</div></div>' +
+            '<div class="card"><div class="k">完成练习场次</div><div class="v">' + (ov.sessionsDone != null ? ov.sessionsDone : '-') + '</div></div>';
+          var daily = j.daily || [];
+          el('dailyLine').textContent = daily.length
+            ? '按日答题：' + daily.map(function (d) { return String(d.date).slice(5) + '=' + d.attempts + '次'; }).join(' | ')
+            : '按日答题：暂无数据';
+
+          var bs = j.byStudent || [];
+          var tb = el('byStudentBody');
+          tb.innerHTML = '';
+          if (!bs.length) {
+            tb.innerHTML = '<tr><td colspan="5">窗口内无答题记录（或班级尚无成员）</td></tr>';
+          } else {
+            bs.forEach(function (r) {
+              var tr = document.createElement('tr');
+              var acc = r.accuracy == null ? '-' : (Math.round(r.accuracy * 10000) / 100 + '%');
+              tr.innerHTML =
+                '<td>' + r.studentId + '</td>' +
+                '<td>' + (r.attempts || 0) + '</td>' +
+                '<td>' + (r.correct || 0) + '</td>' +
+                '<td>' + acc + '</td>' +
+                '<td><button type="button" class="tlBtn" data-sid="' + r.studentId + '">时间线</button></td>';
+              tb.appendChild(tr);
+            });
+            Array.prototype.forEach.call(tb.querySelectorAll('.tlBtn'), function (btn) {
+              btn.onclick = function () {
+                openTimeline(Number(btn.getAttribute('data-sid')));
+              };
+            });
+          }
+        }
+
+        function loadWrong() {
+          if (!currentClassId) return Promise.resolve();
+          var days = el('daysSelect').value;
+          return authFetch('/admin/classes/' + currentClassId + '/wrong-questions?days=' + encodeURIComponent(days) + '&limit=30')
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var rows = j.data || [];
+              var tb = el('wrongBody');
+              tb.innerHTML = '';
+              if (!rows.length) {
+                tb.innerHTML = '<tr><td colspan="5">暂无易错题数据</td></tr>';
+                return;
+              }
+              rows.forEach(function (r) {
+                var tr = document.createElement('tr');
+                var wr = r.wrongRate == null ? '-' : (Math.round(r.wrongRate * 10000) / 100 + '%');
+                var stem = String(r.stem || '').replace(/</g, '&lt;');
+                tr.innerHTML =
+                  '<td>' + r.questionId + '</td>' +
+                  '<td>' + (r.wrongCount || 0) + '</td>' +
+                  '<td>' + (r.attemptCount || 0) + '</td>' +
+                  '<td>' + wr + '</td>' +
+                  '<td class="stem">' + stem + '</td>';
+                tb.appendChild(tr);
+              });
+            });
+        }
+
+        function loadMembers() {
+          if (!currentClassId) return Promise.resolve();
+          return authFetch('/admin/classes/' + currentClassId + '/members')
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var rows = j.data || [];
+              var tb = el('membersBody');
+              tb.innerHTML = '';
+              if (!rows.length) {
+                tb.innerHTML = '<tr><td colspan="4">暂无成员；请学生用邀请码在小程序加入，或使用上方手动添加</td></tr>';
+                return;
+              }
+              rows.forEach(function (r) {
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                  '<td>' + r.studentId + '</td>' +
+                  '<td>' + String(r.note || '') + '</td>' +
+                  '<td>' + (r.joinedAt || '') + '</td>' +
+                  '<td><button type="button" class="rmBtn" data-sid="' + r.studentId + '">移除</button> ' +
+                  '<button type="button" class="tlBtn2" data-sid="' + r.studentId + '">时间线</button></td>';
+                tb.appendChild(tr);
+              });
+              Array.prototype.forEach.call(tb.querySelectorAll('.rmBtn'), function (btn) {
+                btn.onclick = function () {
+                  var sid = Number(btn.getAttribute('data-sid'));
+                  if (!window.confirm('从本班移除学生 ' + sid + '？')) return;
+                  authFetch('/admin/classes/' + currentClassId + '/members/' + sid, { method: 'DELETE' })
+                    .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+                    .then(function (x) {
+                      if (!x.res.ok) throw new Error(x.j.message || '移除失败');
+                      return refreshAll();
+                    })
+                    .catch(function (e) { showErr(e.message || String(e)); });
+                };
+              });
+              Array.prototype.forEach.call(tb.querySelectorAll('.tlBtn2'), function (btn) {
+                btn.onclick = function () { openTimeline(Number(btn.getAttribute('data-sid'))); };
+              });
+            });
+        }
+
+        function loadDashboardData() {
+          if (!currentClassId) return Promise.resolve();
+          var days = el('daysSelect').value;
+          showErr('');
+          return authFetch('/admin/classes/' + currentClassId + '/dashboard?days=' + encodeURIComponent(days))
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              renderDashboard(j);
+              return loadWrong();
+            })
+            .catch(function (e) { showErr(e.message || String(e)); });
+        }
+
+        function parseQuestionIds(text) {
+          var s = String(text || '');
+          var parts = s.split(/[\s,，;；]+/);
+          var out = [];
+          var seen = {};
+          parts.forEach(function (p) {
+            var n = parseInt(String(p).trim(), 10);
+            if (n > 0 && !seen[n]) { seen[n] = true; out.push(n); }
+          });
+          return out;
+        }
+
+        function loadHomeworkList() {
+          if (!currentClassId) return Promise.resolve();
+          return authFetch('/admin/classes/' + currentClassId + '/assignments')
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var rows = j.data || [];
+              var tb = el('hwBody');
+              tb.innerHTML = '';
+              if (!rows.length) {
+                tb.innerHTML = '<tr><td colspan="5">暂无作业</td></tr>';
+                return;
+              }
+              rows.forEach(function (r) {
+                var tr = document.createElement('tr');
+                var prog = (r.completedStudentCount || 0) + ' / ' + (r.memberCount || 0);
+                tr.innerHTML =
+                  '<td>' + String(r.title || '').replace(/</g, '&lt;') + '</td>' +
+                  '<td>' + (r.dueAt || '-') + '</td>' +
+                  '<td>' + (r.questionCount || 0) + '</td>' +
+                  '<td>' + prog + '</td>' +
+                  '<td><button type="button" class="hwDetailBtn" data-aid="' + r.id + '">明细</button> ' +
+                  '<button type="button" class="hwDelBtn" data-aid="' + r.id + '">删除</button></td>';
+                tb.appendChild(tr);
+              });
+              Array.prototype.forEach.call(tb.querySelectorAll('.hwDetailBtn'), function (btn) {
+                btn.onclick = function () {
+                  var aid = Number(btn.getAttribute('data-aid'));
+                  authFetch('/admin/classes/' + currentClassId + '/assignments/' + aid)
+                    .then(function (res) { return res.json(); })
+                    .then(function (d) {
+                      var lines = (d.members || []).map(function (m) {
+                        return '学生 ' + m.studentId + '：' + (m.completed ? '已完成' : '未完成') +
+                          (m.submittedAt ? ' · ' + m.submittedAt : '');
+                      });
+                      window.alert((d.assignment && d.assignment.title) + '\n\n' + lines.join('\n'));
+                    })
+                    .catch(function (e) { showErr(e.message || String(e)); });
+                };
+              });
+              Array.prototype.forEach.call(tb.querySelectorAll('.hwDelBtn'), function (btn) {
+                btn.onclick = function () {
+                  var aid = Number(btn.getAttribute('data-aid'));
+                  if (!window.confirm('删除该作业？')) return;
+                  authFetch('/admin/classes/' + currentClassId + '/assignments/' + aid, { method: 'DELETE' })
+                    .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+                    .then(function (x) {
+                      if (!x.res.ok) throw new Error(x.j.message || '删除失败');
+                      return loadHomeworkList();
+                    })
+                    .catch(function (e) { showErr(e.message || String(e)); });
+                };
+              });
+            })
+            .catch(function () {
+              el('hwBody').innerHTML = '<tr><td colspan="5">加载失败（是否已执行 class_assignments_v1.sql？）</td></tr>';
+            });
+        }
+
+        function refreshAll() {
+          return loadClassList(currentClassId).then(function () {
+            if (currentClassId) {
+              el('classDetail').style.display = 'block';
+              return loadMembers().then(function () {
+                return loadDashboardData().then(function () { return loadHomeworkList(); });
+              });
+            }
+          });
+        }
+
+        function openTimeline(studentId) {
+          if (!currentClassId || !studentId) return;
+          timelineStudentId = studentId;
+          el('timelinePanel').style.display = 'block';
+          el('timelineTitle').textContent = '学生 ' + studentId + ' · ' + el('daysSelect').options[el('daysSelect').selectedIndex].text;
+          el('timelineContent').textContent = '加载中…';
+          var days = el('daysSelect').value;
+          authFetch('/admin/classes/' + currentClassId + '/students/' + studentId + '/timeline?days=' + encodeURIComponent(days) + '&pageSize=80')
+            .then(function (res) { return res.json(); })
+            .then(function (j) {
+              var rows = j.data || [];
+              if (!rows.length) {
+                el('timelineContent').innerHTML = '<p class="muted">该窗口内无答题记录</p>';
+                return;
+              }
+              var html = '<div class="muted">共 ' + (j.total || rows.length) + ' 条 · 本页 ' + rows.length + ' 条</div>';
+              rows.forEach(function (r) {
+                var cls = r.isCorrect ? 'ok' : 'bad';
+                var mark = r.isCorrect ? '对' : '错';
+                html += '<div class="timeline-row"><span class="' + cls + '">' + mark + '</span> · ' +
+                  (r.createdAt || '') + ' · 题 ' + r.questionId +
+                  ' · ' + (r.subjectName || '-') + ' · ' + (r.sessionMode || '') +
+                  '<div class="stem">' + String(r.stem || '').replace(/</g, '&lt;') + '</div></div>';
+              });
+              el('timelineContent').innerHTML = html;
+            })
+            .catch(function (e) {
+              el('timelineContent').textContent = e.message || String(e);
+            });
+        }
+
+        el('closeTimelineBtn').onclick = function () {
+          el('timelinePanel').style.display = 'none';
+        };
+
+        el('createClassBtn').onclick = function () {
+          var name = String(el('newClassName').value || '').trim();
+          if (!name) { showErr('请填写班级名称'); return; }
+          authFetch('/admin/classes', { method: 'POST', body: { name: name } })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '创建失败');
+              el('newClassName').value = '';
+              currentClassId = x.j.id;
+              el('classDetail').style.display = 'block';
+              if (x.j.inviteCode) el('inviteCodeText').textContent = x.j.inviteCode;
+              else if (x.j.hint) showErr(x.j.hint);
+              return refreshAll();
+            })
+            .then(function () {
+              if (currentClassId) el('classSelect').value = String(currentClassId);
+            })
+            .catch(function (e) { showErr(e.message || String(e)); });
+        };
+
+        el('classSelect').onchange = function () {
+          currentClassId = el('classSelect').value ? Number(el('classSelect').value) : null;
+          hwSelectedIds = [];
+          updateHwSelectionUI();
+          resetQuestionPick();
+          if (!currentClassId) {
+            el('classDetail').style.display = 'none';
+            return;
+          }
+          el('classDetail').style.display = 'block';
+          refreshAll();
+        };
+
+        el('deleteClassBtn').onclick = function () {
+          if (!currentClassId) { showErr('请先选择班级'); return; }
+          if (!window.confirm('删除该班级及成员关系（不删除学生账号）？')) return;
+          authFetch('/admin/classes/' + currentClassId, { method: 'DELETE' })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '删除失败');
+              currentClassId = null;
+              el('classDetail').style.display = 'none';
+              el('timelinePanel').style.display = 'none';
+              return loadClassList(null);
+            })
+            .catch(function (e) { showErr(e.message || String(e)); });
+        };
+
+        el('qSearchBtn').onclick = function () {
+          hwPickPage = 1;
+          searchHwQuestions();
+        };
+        el('qPickPagePrev').onclick = function () {
+          if (hwPickPage <= 1) return;
+          hwPickPage -= 1;
+          searchHwQuestions();
+        };
+        el('qPickPageNext').onclick = function () {
+          hwPickPage += 1;
+          searchHwQuestions();
+        };
+        el('qPickSelectPage').onclick = function () {
+          hwLastPickRows.forEach(function (r) {
+            if (String(r.status) !== 'published') return;
+            var id = Number(r.id);
+            if (id && hwSelectedIds.indexOf(id) === -1) hwSelectedIds.push(id);
+          });
+          updateHwSelectionUI();
+          renderHwPickTable(hwLastPickRows);
+        };
+        el('hwClearSelected').onclick = function () {
+          hwSelectedIds = [];
+          updateHwSelectionUI();
+          renderHwPickTable(hwLastPickRows);
+        };
+
+        el('createHwBtn').onclick = function () {
+          if (!currentClassId) return;
+          var title = String(el('hwTitle').value || '').trim();
+          var qids = hwSelectedIds.slice();
+          parseQuestionIds(el('hwQuestions').value).forEach(function (id) {
+            if (qids.indexOf(id) === -1) qids.push(id);
+          });
+          if (!title) { showErr('请填写作业标题'); return; }
+          if (!qids.length) { showErr('请先勾选题目，或在下方手动输入题目 ID'); return; }
+          var body = { title: title, questionIds: qids };
+          var due = el('hwDue').value;
+          if (due) body.dueAt = due;
+          authFetch('/admin/classes/' + currentClassId + '/assignments', { method: 'POST', body: body })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '发布失败');
+              el('hwTitle').value = '';
+              el('hwDue').value = '';
+              el('hwQuestions').value = '';
+              hwSelectedIds = [];
+              updateHwSelectionUI();
+              showErr('');
+              return loadHomeworkList();
+            })
+            .catch(function (e) { showErr(e.message || String(e)); });
+        };
+
+        el('addMemberBtn').onclick = function () {
+          if (!currentClassId) return;
+          var sid = Number(el('addStudentId').value);
+          if (!sid) { showErr('请填写学生 ID'); return; }
+          var note = String(el('addStudentNote').value || '').trim() || null;
+          authFetch('/admin/classes/' + currentClassId + '/members', { method: 'POST', body: { studentId: sid, note: note } })
+            .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+            .then(function (x) {
+              if (!x.res.ok) throw new Error(x.j.message || '添加失败');
+              el('addStudentId').value = '';
+              el('addStudentNote').value = '';
+              return refreshAll();
+            })
+            .catch(function (e) { showErr(e.message || String(e)); });
+        };
+
+        el('daysSelect').onchange = function () { loadDashboardData(); };
+        el('refreshBtn').onclick = function () { showErr(''); refreshAll(); };
+
+        loadClassList(null).catch(function () {});
+      })();
+    </script>
+  </body>
+</html>
