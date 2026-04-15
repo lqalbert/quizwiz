@@ -41,7 +41,7 @@ module.exports.join = join;
     </view>
     <view class="filter-item filter-switch">
       <text class="label">仅重点复习</text>
-      <switch checked="{{priorityOnly}}" color="#07c160" bindchange="onPriorityOnlyChange" />
+      <switch checked="{{priorityOnly}}" color="#0066FF" bindchange="onPriorityOnlyChange" />
     </view>
     <button size="mini" bindtap="onApplyFilter" loading="{{loading}}">应用筛选</button>
   </view>

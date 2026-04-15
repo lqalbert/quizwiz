@@ -1,5 +1,6 @@
 {
   "setting": {
+    "urlCheck": false,
     "es6": true,
     "postcss": true,
     "minified": true,
@@ -17,7 +18,10 @@
   "compileType": "miniprogram",
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      "**/.git/**",
+      "**/.cursor/**"
+    ],
     "include": []
   },
   "appid": "wxda81343eb7dbf460",

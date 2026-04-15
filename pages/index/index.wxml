@@ -24,10 +24,12 @@ module.exports.formatSelected = formatSelected;
 </wxs>
 
 <view class="container">
+  <view class="assignment-banner" wx:if="{{assignmentMode}}">班级作业 · 请完成全部题目后提交</view>
   <view class="header">
     <text class="title">QuizWiz 练习模式</text>
     <view class="header-actions">
       <button class="history-btn" size="mini" bindtap="goHistory">练习历史</button>
+      <button class="class-btn" size="mini" bindtap="goClass">我的班级</button>
       <button class="wrong-btn" size="mini" bindtap="goWrongBook">错题本</button>
       <button class="fav-nav-btn" size="mini" bindtap="goFavorite">收藏</button>
       <button class="refresh-btn" size="mini" bindtap="startPractice" loading="{{starting}}">开始练习</button>
@@ -82,7 +84,30 @@ module.exports.formatSelected = formatSelected;
     </view>
   </view>
 
-  <view class="filters">
+  <view class="report-list-card">
+    <view class="report-list-head">
+      <text class="report-list-title">我的纠错反馈</text>
+      <view class="report-list-actions">
+        <picker mode="selector" range="{{reportStatusOptions}}" value="{{reportStatusFilterIndex}}" bindchange="onReportStatusFilterChange">
+          <view class="report-filter-picker">{{reportStatusOptions[reportStatusFilterIndex]}}</view>
+        </picker>
+        <button class="report-refresh-btn" size="mini" bindtap="loadMyReports" loading="{{myReportsLoading}}">刷新</button>
+      </view>
+    </view>
+    <view wx:if="{{myReports.length === 0}}" class="report-list-empty">暂无反馈记录</view>
+    <block wx:for="{{myReports}}" wx:key="id">
+      <view class="report-item">
+        <view class="report-item-row">
+          <text class="report-item-status status-{{item.status}}">{{item.statusText}}</text>
+          <text class="report-item-reason">{{item.reasonText}}</text>
+        </view>
+        <text class="report-item-stem">题目#{{item.questionId}}：{{item.stem}}</text>
+        <text wx:if="{{item.adminNote}}" class="report-item-note">处理备注：{{item.adminNote}}</text>
+      </view>
+    </block>
+  </view>
+
+  <view class="filters" wx:if="{{!assignmentMode}}">
     <view class="filter-item">
       <text class="filter-label">学科</text>
       <picker mode="selector" range="{{subjects}}" range-key="name" value="{{subjectIndex}}" bindchange="onSubjectChange">

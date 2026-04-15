@@ -4,13 +4,14 @@
     "pages/index/index",
     "pages/wrong/wrong",
     "pages/history/history",
-    "pages/favorite/favorite"
+    "pages/favorite/favorite",
+    "pages/class/class"
   ],
   "window": {
     "navigationBarTitleText": "QuizWiz",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f5f5f5"
+    "backgroundColor": "#f8f9fb"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

@@ -40,6 +40,13 @@ Page({
       { code: 'other', label: '其他' },
     ],
     reportDetail: '',
+    myReports: [],
+    myReportsLoading: false,
+    reportStatusFilter: '',
+    reportStatusFilterIndex: 0,
+    reportStatusOptions: ['全部状态', '已接收', '处理中', '已处理'],
+    assignmentMode: false,
+    assignmentId: null,
   },
 
   async onLoad(options) {
@@ -55,7 +62,60 @@ Page({
   onShow() {
     if (wx.getStorageSync('token')) {
       this.loadStats();
+      this.loadMyReports();
     }
+  },
+
+  reasonLabel(code) {
+    const map = {
+      answer_wrong: '答案可能有误',
+      stem_error: '题干/表述有问题',
+      option_error: '选项有问题',
+      typo: '错别字/格式',
+      other: '其他',
+    };
+    return map[code] || code;
+  },
+
+  statusLabel(code) {
+    const map = {
+      open: '已接收',
+      reviewing: '处理中',
+      closed: '已处理',
+    };
+    return map[code] || code;
+  },
+
+  async loadMyReports() {
+    this.setData({ myReportsLoading: true });
+    try {
+      const status = String(this.data.reportStatusFilter || '').trim();
+      const q = status ? `?status=${encodeURIComponent(status)}&pageSize=5` : '?pageSize=5';
+      const res = await request({ url: `/wx/question-reports${q}` });
+      const rows = Array.isArray(res.data) ? res.data : [];
+      const myReports = rows.map((r) => ({
+        ...r,
+        reasonText: this.reasonLabel(r.reasonType),
+        statusText: this.statusLabel(r.status),
+      }));
+      this.setData({ myReports });
+    } catch (error) {
+      if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
+        wx.removeStorageSync('token');
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
+      // 反馈列表属于增强能力，失败时不阻断练习
+      this.setData({ myReports: [] });
+    } finally {
+      this.setData({ myReportsLoading: false });
+    }
+  },
+
+  onReportStatusFilterChange(e) {
+    const value = Number(e.detail.value || 0);
+    const statusMap = ['', 'open', 'reviewing', 'closed'];
+    this.setData({ reportStatusFilter: statusMap[value] || '', reportStatusFilterIndex: value }, () => this.loadMyReports());
   },
 
   async loadStats() {
@@ -143,6 +203,13 @@ Page({
   },
 
   buildStartPayload() {
+    if (this.data.assignmentMode && this.data.assignmentId) {
+      return {
+        mode: 'assignment',
+        assignmentId: Number(this.data.assignmentId),
+        limit: 100,
+      };
+    }
     const chapterText = String(this.data.chapterInput || '').trim();
     const chapters = chapterText
       ? chapterText
@@ -195,6 +262,8 @@ Page({
             : '当前没有符合条件的未掌握错题。可调整学科/章节，或先去随机练习产生错题。';
         } else if (mode === 'favorite') {
           emptyHint = '暂无收藏题目。练习时点击题旁的星标即可收藏。';
+        } else if (this.data.assignmentMode) {
+          emptyHint = '无法加载班级作业题目，请确认已加入班级且作业仍有效。';
         } else {
           emptyHint = '暂无可练习题目。请确认该学科已在后台关联题目，或放宽章节、难度筛选。';
         }
@@ -255,6 +324,10 @@ Page({
     wx.navigateTo({ url: '/pages/history/history' });
   },
 
+  goClass() {
+    wx.navigateTo({ url: '/pages/class/class' });
+  },
+
   goFavorite() {
     wx.navigateTo({ url: '/pages/favorite/favorite' });
   },
@@ -304,6 +377,7 @@ Page({
       });
       wx.showToast({ title: '已提交', icon: 'success' });
       this.setData({ reportShow: false });
+      this.loadMyReports();
     } catch (error) {
       if (error.statusCode === 401 || String(error.message || '').includes('请先登录')) {
         wx.removeStorageSync('token');
