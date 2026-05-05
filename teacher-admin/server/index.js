@@ -5052,14 +5052,10 @@ app.get('/api/questions', authRequired, async (req, res) => {
           q.updated_at,
           COALESCE(
             (
-              SELECT string_agg(x.tag_name, '、')
-              FROM (
-                SELECT qt.name AS tag_name
-                FROM question_tag_rel qtr
-                JOIN question_tags qt ON qt.id = qtr.tag_id
-                WHERE qtr.question_id = q.id
-                ORDER BY qt.name
-              ) x
+              SELECT string_agg(qt.name, '、' ORDER BY qt.name)
+              FROM question_tag_rel qtr
+              JOIN question_tags qt ON qt.id = qtr.tag_id
+              WHERE qtr.question_id = q.id
             ),
             ''
           ) AS knowledge_points
@@ -5078,13 +5074,11 @@ app.get('/api/questions', authRequired, async (req, res) => {
     const total = rows.length > 0 ? Number(rows[0].__total ?? 0) : 0
     res.json({
       data: rows.map((row) => {
-        const { __total, ...rest } = row
         const kp = String(
-          row['knowledge_points'] ??
-            row['Knowledge_points'] ??
-            row['knowledgePoints'] ??
-            rest['knowledge_points'] ??
-            rest['knowledgePoints'] ??
+          row?.knowledge_points ??
+            row?.Knowledge_points ??
+            row?.knowledgePoints ??
+            row?.knowledgepoints ??
             '',
         ).trim()
         const tagList = kp
@@ -5093,18 +5087,19 @@ app.get('/api/questions', authRequired, async (req, res) => {
               .map((s) => s.trim())
               .filter(Boolean)
           : []
+        const qType = row?.question_type
         return {
-          id: rest.id,
-          question_type: rest.question_type,
-          question_type_text: questionTypeLabelMap[rest.question_type] || String(rest.question_type),
-          stem: rest.stem,
-          difficulty: rest.difficulty,
-          difficulty_text: difficultyTextFromDb(rest.difficulty),
-          /** 知识点：snake_case 字符串；camelCase 同值；knowledgePointTags 为标签数组（详情接口里 knowledgePoints 为数组） */
+          id: row?.id,
+          question_type: qType,
+          question_type_text: questionTypeLabelMap[qType] || String(qType),
+          stem: row?.stem,
+          difficulty: row?.difficulty,
+          difficulty_text: difficultyTextFromDb(row?.difficulty),
+          /** 列表与详情对齐：字符串摘要 + 标签名数组（无标签时为空串 / 空数组） */
           knowledge_points: kp,
           knowledgePoints: kp,
           knowledgePointTags: tagList,
-          updated_at: rest.updated_at,
+          updated_at: row?.updated_at,
         }
       }),
       pagination: { total, page, pageSize },
