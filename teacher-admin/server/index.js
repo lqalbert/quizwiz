@@ -1211,7 +1211,12 @@ app.get('/api/classes', authRequired, async (req, res) => {
       ORDER BY c.created_at DESC
     `
     const { rows } = await pool.query(sql, values)
-    res.json({ data: rows })
+    const userId = Number(req.auth?.userId) || 0
+    const data = rows.map((row) => ({
+      ...row,
+      can_manage: Boolean(isAdmin || Number(row.owner_id) === userId),
+    }))
+    res.json({ data })
   } catch (error) {
     res.status(500).json({ message: '班级列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -1241,6 +1246,43 @@ app.post('/api/classes', authRequired, async (req, res) => {
     res.status(201).json({ data: result.rows[0] })
   } catch (error) {
     res.status(500).json({ message: '创建班级失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.delete('/api/classes/:id', authRequired, async (req, res) => {
+  const classId = Number(req.params.id)
+  if (Number.isNaN(classId) || classId <= 0) return res.status(400).json({ message: '班级ID不合法' })
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const access = await assertClassManageAccess(client, classId, req.auth)
+    if (!access.ok) {
+      await client.query('ROLLBACK')
+      return res.status(access.code).json({ message: access.message })
+    }
+    const del = await client.query('DELETE FROM classes WHERE id = $1 RETURNING id, name', [classId])
+    if (del.rowCount === 0) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '班级不存在' })
+    }
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'class.delete',
+      targetType: 'class',
+      targetId: String(classId),
+      detail: { name: del.rows[0]?.name || '' },
+    })
+    await client.query('COMMIT')
+    return res.json({ data: { id: classId } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23503') {
+      return res.status(400).json({ message: '该班级仍有关联数据无法删除，请先解除关联' })
+    }
+    return res.status(500).json({ message: '删除班级失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
   }
 })
 
@@ -2214,6 +2256,8 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
     )
     const examRow = examResult.rows[0]
     if (!examRow) return res.status(404).json({ message: '考试不存在' })
+    const isAdmin = Array.isArray(req.auth?.roles) && req.auth.roles.includes('admin')
+    const canManage = Boolean(isAdmin || Number(examRow.creator_id) === Number(req.auth?.userId))
 
     const classResult = await client.query(
       `
@@ -2312,6 +2356,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
     return res.json({
       data: {
         ...examRow,
+        can_manage: canManage,
         classes: classResult.rows,
         questions: questionResult.rows.map((item) => ({
           ...item,

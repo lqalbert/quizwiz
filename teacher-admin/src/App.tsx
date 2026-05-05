@@ -101,13 +101,6 @@ const classColumns = [
   { title: '邀请码', dataIndex: 'inviteCode' },
 ]
 
-const questionColumns = [
-  { title: '题型', dataIndex: 'type' },
-  { title: '题干摘要', dataIndex: 'content' },
-  { title: '难度', dataIndex: 'difficulty' },
-  { title: '最后编辑', dataIndex: 'updatedAt' },
-]
-
 const initialQuestionData = [
   { key: '1', id: 1, type: '单选', content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...', difficulty: '3', updatedAt: '2026-04-20' },
   { key: '2', id: 2, type: '填空', content: '求抛物线 y=x^2 的顶点坐标', difficulty: '2', updatedAt: '2026-04-22' },
@@ -230,6 +223,36 @@ const mapDifficultyFromApi = (difficulty: string | number) => {
   if (s === '困难') return '4'
   return '3'
 }
+
+/** 题目预览：将 `<br>` / `<br/>` 等换行标签转为换行符，配合 whiteSpace:pre-wrap 分行（不做完整 HTML 渲染，避免 XSS） */
+const previewTextWithLineBreaks = (raw: string | undefined | null) =>
+  String(raw ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+
+/** 按规范后的难度等级（1–5）显示对应颗数的星标 */
+function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number }) {
+  const levelStr = mapDifficultyFromApi(difficulty)
+  const n = Number(levelStr)
+  const count = Number.isInteger(n) && n >= 1 && n <= 5 ? n : 3
+  return (
+    <span title={`难度 ${count}（1 最易，5 最难）`} style={{ whiteSpace: 'nowrap', letterSpacing: 1 }}>
+      {'⭐'.repeat(count)}
+    </span>
+  )
+}
+
+const questionColumns = [
+  { title: '题型', dataIndex: 'type' },
+  { title: '题干摘要', dataIndex: 'content' },
+  {
+    title: '难度',
+    dataIndex: 'difficulty',
+    width: 130,
+    render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
+  },
+  { title: '最后编辑', dataIndex: 'updatedAt' },
+]
 
 type QuestionPreviewDetail = {
   id: number
@@ -709,6 +732,7 @@ function ClassPage() {
       inviteEnabled: boolean
       inviteExpiresAt?: string
       joinAuditMode?: string
+      canManage: boolean
     }>
   >([])
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
@@ -754,6 +778,7 @@ function ClassPage() {
         inviteEnabled: Boolean(item.invite_enabled ?? true),
         inviteExpiresAt: String(item.invite_expires_at ?? ''),
         joinAuditMode: String(item.join_audit_mode ?? 'auto'),
+        canManage: Boolean(item.can_manage),
       }))
       setClassRows(rows)
     } catch (error) {
@@ -762,6 +787,39 @@ function ClassPage() {
       setLoading(false)
     }
   }
+
+  const deleteClassWithConfirm = async (classId: number) => {
+    if (!CAN_USE_API) return
+    if (
+      !window.confirm(
+        '确认删除该班级？将一并删除本班学生归属、科任关联、考试班级分配、邀请与入班申请等关联数据，且不可恢复（学生账号与题库不受影响）。',
+      )
+    ) {
+      return
+    }
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}`, {
+        method: 'DELETE',
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+      message.success('班级已删除')
+      if (selectedClassId === classId) {
+        setOpenDetail(false)
+        setSelectedClassId(null)
+      }
+      await loadClasses()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除班级失败')
+    }
+  }
+
+  const selectedClassCanManage = useMemo(
+    () =>
+      selectedClassId != null ? Boolean(classRows.find((r) => r.id === selectedClassId)?.canManage) : false,
+    [classRows, selectedClassId],
+  )
 
   const loadInviteConfig = async (classId: number) => {
     if (!CAN_USE_API) return
@@ -910,19 +968,26 @@ function ClassPage() {
           {
             title: '操作',
             key: 'actions',
-            render: (_: unknown, record: { id: number }) => (
-              <Button
-                type="link"
-                onClick={() => {
-                  setSelectedClassId(record.id)
-                  void loadStudents(record.id)
-                  void loadTeachers(record.id)
-                  void loadInviteConfig(record.id)
-                  setOpenDetail(true)
-                }}
-              >
-                查看成员
-              </Button>
+            render: (_: unknown, record: { id: number; canManage: boolean }) => (
+              <Space>
+                <Button
+                  type="link"
+                  onClick={() => {
+                    setSelectedClassId(record.id)
+                    void loadStudents(record.id)
+                    void loadTeachers(record.id)
+                    void loadInviteConfig(record.id)
+                    setOpenDetail(true)
+                  }}
+                >
+                  查看成员
+                </Button>
+                {record.canManage ? (
+                  <Button danger type="link" onClick={() => void deleteClassWithConfirm(record.id)}>
+                    删除
+                  </Button>
+                ) : null}
+              </Space>
             ),
           },
         ]}
@@ -972,7 +1037,19 @@ function ClassPage() {
         </Modal>
       ) : null}
 
-      <Drawer open={openDetail} title="班级详情" width={920} onClose={() => setOpenDetail(false)}>
+      <Drawer
+        open={openDetail}
+        title="班级详情"
+        width={920}
+        onClose={() => setOpenDetail(false)}
+        extra={
+          selectedClassId != null && selectedClassCanManage ? (
+            <Button danger onClick={() => void deleteClassWithConfirm(selectedClassId)}>
+              删除班级
+            </Button>
+          ) : null
+        }
+      >
         <Tabs
           items={[
             {
@@ -1407,12 +1484,16 @@ function QuestionPreviewPanelBody({ item }: { item: QuestionPreviewDetail }) {
       <Space wrap>
         <Tag>{item.subject || '—'}</Tag>
         <Tag color="processing">{item.typeText}</Tag>
-        <Tag>{item.difficultyText}</Tag>
+        <Tag>
+          <DifficultyStarsDisplay difficulty={item.difficultyText} />
+        </Tag>
       </Space>
       <Typography.Title level={5} style={{ marginBottom: 0 }}>
         题干
       </Typography.Title>
-      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{item.stem || '—'}</Typography.Paragraph>
+      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+        {previewTextWithLineBreaks(item.stem) || '—'}
+      </Typography.Paragraph>
       {item.options.length > 0 ? (
         <>
           <Typography.Title level={5} style={{ marginBottom: 0 }}>
@@ -1423,7 +1504,8 @@ function QuestionPreviewPanelBody({ item }: { item: QuestionPreviewDetail }) {
             dataSource={item.options}
             renderItem={(opt) => (
               <List.Item style={{ padding: '4px 0' }}>
-                <Typography.Text strong>{opt.key}.</Typography.Text> {opt.text}
+                <Typography.Text strong>{opt.key}.</Typography.Text>{' '}
+                <span style={{ whiteSpace: 'pre-wrap' }}>{previewTextWithLineBreaks(opt.text)}</span>
               </List.Item>
             )}
           />
@@ -1432,14 +1514,16 @@ function QuestionPreviewPanelBody({ item }: { item: QuestionPreviewDetail }) {
       <Typography.Title level={5} style={{ marginBottom: 0 }}>
         答案
       </Typography.Title>
-      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{item.answerDisplay || '—'}</Typography.Paragraph>
+      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+        {previewTextWithLineBreaks(item.answerDisplay) || '—'}
+      </Typography.Paragraph>
       {item.explanation ? (
         <>
           <Typography.Title level={5} style={{ marginBottom: 0 }}>
             解析
           </Typography.Title>
           <Typography.Paragraph type="secondary" style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
-            {item.explanation}
+            {previewTextWithLineBreaks(item.explanation)}
           </Typography.Paragraph>
         </>
       ) : null}
@@ -2819,7 +2903,10 @@ function QuestionBankPage() {
                 <Space direction="vertical" size={2}>
                   <Typography.Text type="secondary">科目：{String(snapshot.subject_name || '-')}</Typography.Text>
                   <Typography.Text type="secondary">题型：{mapQuestionTypeFromApi(snapshot.question_type as string | number)}</Typography.Text>
-                  <Typography.Text type="secondary">难度：{mapDifficultyFromApi(snapshot.difficulty as string | number)}</Typography.Text>
+                  <Typography.Text type="secondary">
+                    难度：
+                    <DifficultyStarsDisplay difficulty={snapshot.difficulty as string | number} />
+                  </Typography.Text>
                   <Typography.Text>题干：{String(snapshot.stem || '-')}</Typography.Text>
                 </Space>
               ),
@@ -2888,7 +2975,12 @@ function QuestionBankPage() {
             { title: '科目', dataIndex: 'subject_name', width: 100 },
             { title: '题型', dataIndex: 'question_type_text', width: 90 },
             { title: '题干', dataIndex: 'stem', ellipsis: true },
-            { title: '难度', dataIndex: 'difficulty_text', width: 90 },
+            {
+              title: '难度',
+              dataIndex: 'difficulty_text',
+              width: 130,
+              render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
+            },
             { title: '删除时间', dataIndex: 'deleted_at', width: 170, render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
             {
               title: '操作',
@@ -4105,7 +4197,12 @@ function ExamPage() {
               },
               { title: '题型', dataIndex: 'type', width: 90 },
               { title: '题干', dataIndex: 'stem' },
-              { title: '难度', dataIndex: 'difficulty', width: 90 },
+              {
+                title: '难度',
+                dataIndex: 'difficulty',
+                width: 130,
+                render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
+              },
               {
                 title: '分值',
                 key: 'score',
@@ -4162,6 +4259,7 @@ function ExamDetailPage() {
     end_time: string
     duration: number
     status: number
+    can_manage?: boolean
     description?: string
     expected_count: number
     submitted_count: number
@@ -4226,6 +4324,30 @@ function ExamDetailPage() {
   }, [authToken, examId])
 
   const statusText = detail?.status === 1 ? '未开始' : detail?.status === 2 ? '进行中' : '已结束'
+  const deleteExamConfirmMessage =
+    detail?.status === 2
+      ? '确认删除该进行中的考试吗？将删除考试及关联答卷等数据且不可恢复，题库中的题目仍保留，之后可单独删除题目。'
+      : detail?.status === 3
+        ? '确认删除该已结束考试吗？答卷记录将被删除且不可恢复，题库中的题目仍保留，之后可单独删除题目。'
+        : '确认删除该考试吗？删除后考试与答卷数据不可恢复，题库中的题目仍保留，之后可单独删除题目。'
+
+  const deleteExamFromDetail = async () => {
+    if (!CAN_USE_API || !detail?.id) return
+    if (!window.confirm(deleteExamConfirmMessage)) return
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${detail.id}`, {
+        method: 'DELETE',
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+      message.success('考试已删除')
+      navigate('/exams')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除考试失败')
+    }
+  }
+
   const filteredSubmissionRows = (detail?.student_submissions || []).filter((item) => {
     const statusOk = resultStatusFilter ? item.submission_status_text === resultStatusFilter : true
     const keyword = resultKeyword.trim()
@@ -4262,9 +4384,16 @@ function ExamDetailPage() {
         loading={loading}
         title="考试详情"
         extra={
-          <Button onClick={() => navigate('/exams')} type="default">
-            返回考试列表
-          </Button>
+          <Space>
+            {detail?.can_manage ? (
+              <Button danger type="default" onClick={() => void deleteExamFromDetail()}>
+                删除考试
+              </Button>
+            ) : null}
+            <Button onClick={() => navigate('/exams')} type="default">
+              返回考试列表
+            </Button>
+          </Space>
         }
       >
         {!detail ? (
@@ -4311,7 +4440,12 @@ function ExamDetailPage() {
                   { title: '序号', dataIndex: 'sort_order', width: 80 },
                   { title: '题型', dataIndex: 'question_type_text', width: 90 },
                   { title: '题干', dataIndex: 'stem' },
-                  { title: '难度', dataIndex: 'difficulty_text', width: 90 },
+                  {
+                    title: '难度',
+                    dataIndex: 'difficulty_text',
+                    width: 130,
+                    render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
+                  },
                   { title: '分值', dataIndex: 'score', width: 90 },
                 ]}
               />
@@ -5375,7 +5509,12 @@ function AnalyticsPage() {
           columns={[
             { title: '题目ID', dataIndex: 'question_id', width: 90 },
             { title: '题型', dataIndex: 'question_type', render: (v: string | number) => mapQuestionTypeFromApi(v), width: 90 },
-            { title: '难度', dataIndex: 'difficulty', render: (v: string | number) => mapDifficultyFromApi(v), width: 90 },
+            {
+              title: '难度',
+              dataIndex: 'difficulty',
+              width: 130,
+              render: (v: string | number) => <DifficultyStarsDisplay difficulty={v} />,
+            },
             { title: '题干', dataIndex: 'stem', ellipsis: true },
             { title: '作答', dataIndex: 'attempt_count', width: 70 },
             { title: '正确率', dataIndex: 'correct_rate', render: (v: number) => `${Number(v || 0)}%`, width: 90 },
@@ -5741,8 +5880,8 @@ function AnalyticsPage() {
             {
               title: '难度',
               dataIndex: 'difficulty',
-              width: 90,
-              render: (value: string | number) => mapDifficultyFromApi(value),
+              width: 130,
+              render: (value: string | number) => <DifficultyStarsDisplay difficulty={value} />,
             },
             { title: '作答数', dataIndex: 'attempt_count', width: 80 },
             { title: '答对数', dataIndex: 'correct_count', width: 80 },
