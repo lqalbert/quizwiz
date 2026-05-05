@@ -102,8 +102,24 @@ const classColumns = [
 ]
 
 const initialQuestionData = [
-  { key: '1', id: 1, type: '单选', content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...', difficulty: '3', updatedAt: '2026-04-20' },
-  { key: '2', id: 2, type: '填空', content: '求抛物线 y=x^2 的顶点坐标', difficulty: '2', updatedAt: '2026-04-22' },
+  {
+    key: '1',
+    id: 1,
+    type: '单选',
+    content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...',
+    difficulty: '3',
+    knowledgePoints: '函数、二次函数',
+    updatedAt: '2026-04-20',
+  },
+  {
+    key: '2',
+    id: 2,
+    type: '填空',
+    content: '求抛物线 y=x^2 的顶点坐标',
+    difficulty: '2',
+    knowledgePoints: '',
+    updatedAt: '2026-04-22',
+  },
 ]
 
 const excelTemplateHeaders = ['科目', '题型', '题干', '选项A', '选项B', '选项C', '选项D', '答案', '解析', '难度', '知识点']
@@ -153,6 +169,7 @@ type QuestionListItem = {
   type: string
   content: string
   difficulty: string
+  knowledgePoints: string
   updatedAt: string
 }
 
@@ -268,15 +285,30 @@ function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number })
 }
 
 const questionColumns = [
-  { title: '题型', dataIndex: 'type' },
-  { title: '题干摘要', dataIndex: 'content' },
+  { title: '题型', dataIndex: 'type', width: 90 },
+  { title: '题干摘要', dataIndex: 'content', ellipsis: true },
+  {
+    title: '知识点',
+    dataIndex: 'knowledgePoints',
+    width: 220,
+    ellipsis: { showTitle: false },
+    render: (v: string) => {
+      const t = v && String(v).trim() ? String(v).trim() : ''
+      if (!t) return <Typography.Text type="secondary">—</Typography.Text>
+      return (
+        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 212, display: 'block' }}>
+          {t}
+        </Typography.Text>
+      )
+    },
+  },
   {
     title: '难度',
     dataIndex: 'difficulty',
     width: 130,
     render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
   },
-  { title: '最后编辑', dataIndex: 'updatedAt' },
+  { title: '最后编辑', dataIndex: 'updatedAt', width: 110 },
 ]
 
 type QuestionPreviewDetail = {
@@ -1754,6 +1786,7 @@ function QuestionBankPage() {
             const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
             return t || mapDifficultyFromApi(item.difficulty as string | number)
           })(),
+          knowledgePoints: String(item.knowledge_points ?? item.knowledgePoints ?? '').trim(),
           updatedAt: String(item.updated_at ?? item.updatedAt ?? '').slice(0, 10),
         }),
       )
@@ -2020,6 +2053,9 @@ function QuestionBankPage() {
         type,
         content: stem.slice(0, 50),
         difficulty: difficultyLevel,
+        knowledgePoints: knowledgeText
+          ? knowledgeText.split(/[;；,，\s]+/).filter(Boolean).slice(0, 8).join('、')
+          : '',
         updatedAt: new Date().toISOString().slice(0, 10),
       })
       payloadRows.push({
@@ -2837,12 +2873,14 @@ function QuestionBankPage() {
         </Form.Item>
       </Form>
       <Table
+        scroll={{ x: 1100 }}
         columns={[
           ...questionColumns,
           {
             title: '操作',
             key: 'action',
             width: 160,
+            fixed: 'right' as const,
             render: (_: unknown, row: QuestionListItem) => (
               <Space>
                 <Button type="link" onClick={() => void openEditDrawer(row.id)}>

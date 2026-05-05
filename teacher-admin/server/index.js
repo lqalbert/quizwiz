@@ -5049,7 +5049,16 @@ app.get('/api/questions', authRequired, async (req, res) => {
           q.question_type,
           q.stem,
           q.difficulty,
-          q.updated_at
+          q.updated_at,
+          COALESCE(
+            (
+              SELECT string_agg(qt.name, '、' ORDER BY qt.name)
+              FROM question_tag_rel qtr
+              JOIN question_tags qt ON qt.id = qtr.tag_id
+              WHERE qtr.question_id = q.id
+            ),
+            ''
+          ) AS knowledge_points
         FROM questions q
         JOIN subjects s ON s.id = q.subject_id
         ${whereClause}
@@ -5073,6 +5082,7 @@ app.get('/api/questions', authRequired, async (req, res) => {
           stem: rest.stem,
           difficulty: rest.difficulty,
           difficulty_text: difficultyTextFromDb(rest.difficulty),
+          knowledge_points: String(rest.knowledge_points || '').trim(),
           updated_at: rest.updated_at,
         }
       }),
