@@ -1689,6 +1689,7 @@ function QuestionBankPage() {
   const [subjectFilter, setSubjectFilter] = useState<string | undefined>(undefined)
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined)
   const [keywordFilter, setKeywordFilter] = useState('')
+  const [knowledgePointFilter, setKnowledgePointFilter] = useState('')
   const [questionListPage, setQuestionListPage] = useState(1)
   const [questionListPageSize, setQuestionListPageSize] = useState(20)
   const [questionListTotal, setQuestionListTotal] = useState(0)
@@ -1698,7 +1699,14 @@ function QuestionBankPage() {
   const [importErrors, setImportErrors] = useState<string[]>([])
   const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: string }>>([])
 
-  const loadQuestionList = async (overrides?: { subject?: string; type?: string; keyword?: string; page?: number; pageSize?: number }) => {
+  const loadQuestionList = async (overrides?: {
+    subject?: string
+    type?: string
+    keyword?: string
+    knowledgePoint?: string
+    page?: number
+    pageSize?: number
+  }) => {
     if (!CAN_USE_API) {
       message.warning('未配置 VITE_API_BASE_URL，当前展示本地示例数据')
       setQuestionRows(initialQuestionData)
@@ -1711,11 +1719,13 @@ function QuestionBankPage() {
       const effectiveSubject = overrides?.subject ?? subjectFilter
       const effectiveType = overrides?.type ?? typeFilter
       const effectiveKeyword = overrides?.keyword ?? keywordFilter
+      const effectiveKnowledgePoint = overrides?.knowledgePoint ?? knowledgePointFilter
       const page = overrides?.page ?? questionListPage
       const pageSize = overrides?.pageSize ?? questionListPageSize
       if (effectiveSubject) params.set('subject', effectiveSubject)
       if (effectiveType) params.set('type', effectiveType)
       if (effectiveKeyword.trim()) params.set('keyword', effectiveKeyword.trim())
+      if (effectiveKnowledgePoint.trim()) params.set('knowledgePoint', effectiveKnowledgePoint.trim())
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
       const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions?${params.toString()}`, {
@@ -2753,7 +2763,22 @@ function QuestionBankPage() {
           />
         </Form.Item>
         <Form.Item label="知识点">
-          <Input placeholder="函数 / 概率" />
+          <Input
+            allowClear
+            placeholder="标签名模糊匹配，如 函数"
+            style={{ width: 200 }}
+            value={knowledgePointFilter}
+            onChange={(e) => setKnowledgePointFilter(e.target.value)}
+            onPressEnter={() =>
+              void loadQuestionList({
+                page: 1,
+                subject: subjectFilter,
+                type: typeFilter,
+                keyword: keywordFilter,
+                knowledgePoint: knowledgePointFilter,
+              })
+            }
+          />
         </Form.Item>
         <Form.Item>
           <Input.Search
@@ -2763,7 +2788,13 @@ function QuestionBankPage() {
             onChange={(e) => setKeywordFilter(e.target.value)}
             onSearch={(value) => {
               setKeywordFilter(value)
-              void loadQuestionList({ keyword: value, page: 1 })
+              void loadQuestionList({
+                keyword: value,
+                page: 1,
+                subject: subjectFilter,
+                type: typeFilter,
+                knowledgePoint: knowledgePointFilter,
+              })
             }}
           />
         </Form.Item>
@@ -2776,6 +2807,7 @@ function QuestionBankPage() {
                 subject: subjectFilter,
                 type: typeFilter,
                 keyword: keywordFilter,
+                knowledgePoint: knowledgePointFilter,
               })
             }
           >
@@ -2788,8 +2820,16 @@ function QuestionBankPage() {
               setSubjectFilter(undefined)
               setTypeFilter(undefined)
               setKeywordFilter('')
+              setKnowledgePointFilter('')
               setQuestionListPage(1)
-              void loadQuestionList({ subject: '', type: '', keyword: '', page: 1, pageSize: questionListPageSize })
+              void loadQuestionList({
+                subject: '',
+                type: '',
+                keyword: '',
+                knowledgePoint: '',
+                page: 1,
+                pageSize: questionListPageSize,
+              })
             }}
           >
             重置筛选

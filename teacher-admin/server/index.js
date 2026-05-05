@@ -4996,6 +4996,7 @@ app.delete('/api/resources/:id', authRequired, async (req, res) => {
 app.get('/api/questions', authRequired, async (req, res) => {
   try {
     const { subject, type, keyword } = req.query
+    const knowledgePoint = String(req.query?.knowledgePoint ?? req.query?.knowledge ?? '').trim()
     const values = []
     const conditions = []
 
@@ -5017,6 +5018,18 @@ app.get('/api/questions', authRequired, async (req, res) => {
     if (keyword && String(keyword).trim()) {
       values.push(`%${String(keyword).trim()}%`)
       conditions.push(`q.stem ILIKE $${values.length}`)
+    }
+
+    if (knowledgePoint) {
+      values.push(`%${knowledgePoint}%`)
+      conditions.push(
+        `EXISTS (
+          SELECT 1
+          FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.name ILIKE $${values.length}
+        )`,
+      )
     }
 
     conditions.unshift('q.deleted_at IS NULL')
