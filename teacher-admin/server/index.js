@@ -5052,10 +5052,14 @@ app.get('/api/questions', authRequired, async (req, res) => {
           q.updated_at,
           COALESCE(
             (
-              SELECT string_agg(qt.name, '、' ORDER BY qt.name)
-              FROM question_tag_rel qtr
-              JOIN question_tags qt ON qt.id = qtr.tag_id
-              WHERE qtr.question_id = q.id
+              SELECT string_agg(x.tag_name, '、')
+              FROM (
+                SELECT qt.name AS tag_name
+                FROM question_tag_rel qtr
+                JOIN question_tags qt ON qt.id = qtr.tag_id
+                WHERE qtr.question_id = q.id
+                ORDER BY qt.name
+              ) x
             ),
             ''
           ) AS knowledge_points
@@ -5075,6 +5079,20 @@ app.get('/api/questions', authRequired, async (req, res) => {
     res.json({
       data: rows.map((row) => {
         const { __total, ...rest } = row
+        const kp = String(
+          row['knowledge_points'] ??
+            row['Knowledge_points'] ??
+            row['knowledgePoints'] ??
+            rest['knowledge_points'] ??
+            rest['knowledgePoints'] ??
+            '',
+        ).trim()
+        const tagList = kp
+          ? kp
+              .split('、')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : []
         return {
           id: rest.id,
           question_type: rest.question_type,
@@ -5082,7 +5100,10 @@ app.get('/api/questions', authRequired, async (req, res) => {
           stem: rest.stem,
           difficulty: rest.difficulty,
           difficulty_text: difficultyTextFromDb(rest.difficulty),
-          knowledge_points: String(rest.knowledge_points || '').trim(),
+          /** 知识点：snake_case 字符串；camelCase 同值；knowledgePointTags 为标签数组（详情接口里 knowledgePoints 为数组） */
+          knowledge_points: kp,
+          knowledgePoints: kp,
+          knowledgePointTags: tagList,
           updated_at: rest.updated_at,
         }
       }),

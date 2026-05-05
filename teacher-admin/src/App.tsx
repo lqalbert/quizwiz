@@ -308,7 +308,6 @@ const questionColumns = [
     width: 130,
     render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
   },
-  { title: '最后编辑', dataIndex: 'updatedAt', width: 110 },
 ]
 
 type QuestionPreviewDetail = {
@@ -1786,7 +1785,14 @@ function QuestionBankPage() {
             const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
             return t || mapDifficultyFromApi(item.difficulty as string | number)
           })(),
-          knowledgePoints: String(item.knowledge_points ?? item.knowledgePoints ?? '').trim(),
+          knowledgePoints: (() => {
+            const tags = item.knowledgePointTags
+            if (Array.isArray(tags) && tags.length > 0) return tags.map((t) => String(t).trim()).filter(Boolean).join('、')
+            const kp = item.knowledgePoints
+            if (Array.isArray(kp) && kp.length > 0) return kp.map((t) => String(t).trim()).filter(Boolean).join('、')
+            const s = kp ?? item.knowledge_points ?? item.knowledgePointSummary
+            return String(s ?? '').trim()
+          })(),
           updatedAt: String(item.updated_at ?? item.updatedAt ?? '').slice(0, 10),
         }),
       )
