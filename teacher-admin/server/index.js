@@ -2179,7 +2179,7 @@ app.get('/api/exams', authRequired, async (req, res) => {
           ), 0) AS submitted_count
         FROM exams e
       ),
-      ranked AS (
+      ranked_base AS (
         SELECT
           e.id,
           e.title,
@@ -2200,15 +2200,17 @@ app.get('/api/exams', authRequired, async (req, res) => {
             FROM exam_classes ec
             JOIN classes c ON c.id = ec.class_id
             WHERE ec.exam_id = e.id
-          ), '{}') AS class_names,
-          COUNT(*) OVER() AS __total
+          ), '{}') AS class_names
         FROM exams e
         JOIN subjects s ON s.id = e.subject_id
         JOIN exam_stat es ON es.id = e.id
         ${combinedWhere}
-      )
-      SELECT * FROM ranked
-      ORDER BY created_at DESC, id DESC
+      ),
+      tot AS (SELECT COUNT(*)::int AS c FROM ranked_base)
+      SELECT rb.*, tot.c AS __total
+      FROM ranked_base rb
+      CROSS JOIN tot
+      ORDER BY rb.created_at DESC, rb.id DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `
     const { rows } = await pool.query(sql, values)
@@ -4573,7 +4575,7 @@ app.get('/api/resources', authRequired, async (req, res) => {
     const offset = (page - 1) * pageSize
     const resourceResult = await pool.query(
       `
-      SELECT * FROM (
+      WITH base AS (
         SELECT
           r.id,
           r.name,
@@ -4582,13 +4584,16 @@ app.get('/api/resources', authRequired, async (req, res) => {
           r.folder,
           r.uploader_id,
           r.created_at,
-          COALESCE(u.name, '') AS uploader_name,
-          COUNT(*) OVER() AS __total
+          COALESCE(u.name, '') AS uploader_name
         FROM resources r
         LEFT JOIN users u ON u.id = r.uploader_id
         ${whereClause}
-      ) sub
-      ORDER BY sub.created_at DESC, sub.id DESC
+      ),
+      tot AS (SELECT COUNT(*)::int AS c FROM base)
+      SELECT b.*, tot.c AS __total
+      FROM base b
+      CROSS JOIN tot
+      ORDER BY b.created_at DESC, b.id DESC
       LIMIT ${pageSize} OFFSET ${offset}
       `,
       values,
@@ -5023,20 +5028,24 @@ app.get('/api/questions', authRequired, async (req, res) => {
       pageSize = Math.min(100, Math.max(1, parseInt(String(req.query?.pageSize ?? '20'), 10) || 20))
     }
     const offset = (page - 1) * pageSize
+    /** 先 materialize 筛选结果再 COUNT，避免窗口函数与外层 LIMIT 组合在部分计划下总条数不准 */
     const sql = `
-      SELECT * FROM (
+      WITH base AS (
         SELECT
           q.id,
           q.question_type,
           q.stem,
           q.difficulty,
-          q.updated_at,
-          COUNT(*) OVER() AS __total
+          q.updated_at
         FROM questions q
         JOIN subjects s ON s.id = q.subject_id
         ${whereClause}
-      ) sub
-      ORDER BY sub.updated_at DESC, sub.id DESC
+      ),
+      tot AS (SELECT COUNT(*)::int AS c FROM base)
+      SELECT b.*, tot.c AS __total
+      FROM base b
+      CROSS JOIN tot
+      ORDER BY b.updated_at DESC, b.id DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `
     const { rows } = await pool.query(sql, values)

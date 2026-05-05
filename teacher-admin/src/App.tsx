@@ -252,7 +252,15 @@ function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number })
   return (
     <span
       title={`难度 ${count}/5（1 最易，5 最难）`}
-      style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 1, lineHeight: 1.35, maxWidth: '100%' }}
+      style={{
+        display: 'inline-flex',
+        flexWrap: 'wrap',
+        gap: 1,
+        lineHeight: 1.35,
+        maxWidth: '100%',
+        color: '#fadb14',
+        textShadow: '0 0 0.5px rgba(212, 136, 6, 0.45)',
+      }}
     >
       {'★'.repeat(count)}
     </span>
@@ -1741,7 +1749,9 @@ function QuestionBankPage() {
       )
       setQuestionListPage(page)
       setQuestionListPageSize(pageSize)
-      setQuestionListTotal(Number(payload?.pagination?.total ?? rows.length))
+      const rawTotal = payload?.pagination?.total
+      const parsedTotal = typeof rawTotal === 'number' ? rawTotal : Number(rawTotal)
+      setQuestionListTotal(Number.isFinite(parsedTotal) ? parsedTotal : rows.length)
       setQuestionRows(rows)
       setSelectedQuestionIds((prev) => prev.filter((id) => rows.some((row) => row.id === id)))
     } catch (error) {
@@ -2758,7 +2768,17 @@ function QuestionBankPage() {
           />
         </Form.Item>
         <Form.Item>
-          <Button type="primary" onClick={() => void loadQuestionList({ page: 1 })}>
+          <Button
+            type="primary"
+            onClick={() =>
+              void loadQuestionList({
+                page: 1,
+                subject: subjectFilter,
+                type: typeFilter,
+                keyword: keywordFilter,
+              })
+            }
+          >
             查询
           </Button>
         </Form.Item>
