@@ -129,19 +129,31 @@ const questionTypeLabelMap = {
   5: '简答',
 }
 
-const difficultyMap = {
-  '简单': 1,
-  easy: 1,
-  '中等': 2,
-  medium: 2,
-  '困难': 3,
-  hard: 3,
+/** 旧版中文/英文难度 → 约略映射到 1–5 档（兼容历史数据与旧模板） */
+const legacyDifficultyZhMap = {
+  简单: 2,
+  中等: 3,
+  困难: 4,
+  easy: 2,
+  medium: 3,
+  hard: 4,
 }
 
-const difficultyLabelMap = {
-  1: '简单',
-  2: '中等',
-  3: '困难',
+/** 解析为库存难度等级 1–5；无法识别返回 null */
+const parseDifficultyLevel = (value) => {
+  const s = String(value ?? '').trim()
+  if (!s) return null
+  const n = Number(s)
+  if (Number.isInteger(n) && n >= 1 && n <= 5) return n
+  const legacy = legacyDifficultyZhMap[s] ?? legacyDifficultyZhMap[s.toLowerCase()]
+  if (legacy != null) return legacy
+  return null
+}
+
+/** API 展示的 difficulty_text：与库存数值一致为 "1"…"5" */
+const difficultyTextFromDb = (d) => {
+  const n = Number(d)
+  return Number.isInteger(n) && n >= 1 && n <= 5 ? String(n) : '3'
 }
 
 const subjectAliasMap = {
@@ -2304,7 +2316,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
         questions: questionResult.rows.map((item) => ({
           ...item,
           question_type_text: questionTypeLabelMap[item.question_type] || String(item.question_type),
-          difficulty_text: difficultyLabelMap[item.difficulty] || '中等',
+          difficulty_text: difficultyTextFromDb(item.difficulty),
         })),
         expected_count: Number(expectedResult.rows[0]?.expected_count || 0),
         submitted_count: Number(submissionResult.rows[0]?.submitted_count || 0),
@@ -4150,25 +4162,6 @@ app.delete('/api/exams/:id', authRequired, async (req, res) => {
       await client.query('ROLLBACK')
       return res.status(access.code).json({ message: access.message })
     }
-    const statusResult = await client.query(
-      `
-      SELECT
-        CASE
-          WHEN e.status = 3 THEN 3
-          WHEN NOW() < e.start_time THEN 1
-          WHEN NOW() >= e.start_time AND NOW() <= e.end_time THEN 2
-          ELSE 3
-        END AS computed_status
-      FROM exams e
-      WHERE e.id = $1
-      `,
-      [examId],
-    )
-    const computedStatus = Number(statusResult.rows[0]?.computed_status || 0)
-    if (computedStatus !== 1) {
-      await client.query('ROLLBACK')
-      return res.status(400).json({ message: '仅未开始考试允许删除' })
-    }
 
     await client.query('DELETE FROM exams WHERE id = $1', [examId])
     await writeOperationLog({
@@ -5009,7 +5002,7 @@ app.get('/api/questions', authRequired, async (req, res) => {
           question_type_text: questionTypeLabelMap[rest.question_type] || String(rest.question_type),
           stem: rest.stem,
           difficulty: rest.difficulty,
-          difficulty_text: difficultyLabelMap[rest.difficulty] || '中等',
+          difficulty_text: difficultyTextFromDb(rest.difficulty),
           updated_at: rest.updated_at,
         }
       }),
@@ -5257,7 +5250,7 @@ app.post('/api/questions', authRequired, async (req, res) => {
   const stem = String(req.body?.stem || '').trim()
   const answer = String(req.body?.answer || '').trim()
   const explanation = String(req.body?.explanation || '').trim()
-  const difficultyValue = String(req.body?.difficulty || '').trim() || '中等'
+  const difficultyRaw = String(req.body?.difficulty ?? '').trim()
   const optionA = String(req.body?.optionA || '').trim()
   const optionB = String(req.body?.optionB || '').trim()
   const optionC = String(req.body?.optionC || '').trim()
@@ -5278,9 +5271,9 @@ app.post('/api/questions', authRequired, async (req, res) => {
   if (!questionType) {
     return res.status(400).json({ message: '题型不合法' })
   }
-  const difficulty = difficultyMap[difficultyValue] || Number(difficultyValue) || 2
-  if (![1, 2, 3].includes(difficulty)) {
-    return res.status(400).json({ message: '难度不合法' })
+  const difficulty = parseDifficultyLevel(difficultyRaw === '' ? '3' : difficultyRaw)
+  if (difficulty === null) {
+    return res.status(400).json({ message: '难度不合法，请使用 1–5 的整数（1 最易，5 最难；仍兼容 简单/中等/困难）' })
   }
   const optionMap = {
     A: optionA,
@@ -5438,7 +5431,7 @@ app.post('/api/questions', authRequired, async (req, res) => {
         question_type_text: questionTypeLabelMap[questionResult.rows[0].question_type] || String(questionResult.rows[0].question_type),
         stem: questionResult.rows[0].stem,
         difficulty: questionResult.rows[0].difficulty,
-        difficulty_text: difficultyLabelMap[questionResult.rows[0].difficulty] || '中等',
+        difficulty_text: difficultyTextFromDb(questionResult.rows[0].difficulty),
         updated_at: questionResult.rows[0].updated_at,
       },
     })
@@ -5589,7 +5582,7 @@ app.post('/api/questions/:id/versions/:versionId/restore', authRequired, async (
     const difficulty = Number(snapshot.difficulty || 0)
     const options = Array.isArray(snapshot.options) ? snapshot.options : []
     const knowledgePoints = Array.isArray(snapshot.knowledge_points) ? snapshot.knowledge_points : []
-    if (!subjectId || !questionType || !stem || !answerText || ![1, 2, 3].includes(difficulty)) {
+    if (!subjectId || !questionType || !stem || !answerText || ![1, 2, 3, 4, 5].includes(difficulty)) {
       await client.query('ROLLBACK')
       return res.status(400).json({ message: '版本快照不完整，无法回滚' })
     }
@@ -5680,7 +5673,7 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
   const stem = String(req.body?.stem || '').trim()
   const answer = String(req.body?.answer || '').trim()
   const explanation = String(req.body?.explanation || '').trim()
-  const difficultyValue = String(req.body?.difficulty || '').trim() || '中等'
+  const difficultyRaw = String(req.body?.difficulty ?? '').trim()
   const optionA = String(req.body?.optionA || '').trim()
   const optionB = String(req.body?.optionB || '').trim()
   const optionC = String(req.body?.optionC || '').trim()
@@ -5693,8 +5686,10 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
 
   const questionType = questionTypeMap[typeValue]
   if (!questionType) return res.status(400).json({ message: '题型不合法' })
-  const difficulty = difficultyMap[difficultyValue] || Number(difficultyValue) || 2
-  if (![1, 2, 3].includes(difficulty)) return res.status(400).json({ message: '难度不合法' })
+  const difficulty = parseDifficultyLevel(difficultyRaw === '' ? '3' : difficultyRaw)
+  if (difficulty === null) {
+    return res.status(400).json({ message: '难度不合法，请使用 1–5 的整数（仍兼容 简单/中等/困难）' })
+  }
 
   const optionMap = { A: optionA, B: optionB, C: optionC, D: optionD }
   const availableOptionKeys = Object.entries(optionMap).filter(([, value]) => Boolean(value)).map(([key]) => key)
@@ -5835,7 +5830,7 @@ app.delete('/api/questions/:id', authRequired, async (req, res) => {
     const bindCount = Number(bindResult.rows[0]?.count || 0)
     if (bindCount > 0) {
       await client.query('ROLLBACK')
-      return res.status(400).json({ message: '该题目已被考试使用，暂不支持删除' })
+      return res.status(400).json({ message: '该题目仍被考试引用，请先删除或调整相关考试后再删除题目' })
     }
 
     await client.query(`UPDATE questions SET deleted_at = NOW(), deleted_by = $1, updated_at = NOW() WHERE id = $2`, [req.auth?.userId || null, questionId])
@@ -5900,7 +5895,7 @@ app.get('/api/question-recycle-bin', authRequired, async (req, res) => {
         question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
         stem: row.stem,
         difficulty: row.difficulty,
-        difficulty_text: difficultyLabelMap[row.difficulty] || '中等',
+        difficulty_text: difficultyTextFromDb(row.difficulty),
         deleted_at: row.deleted_at,
         updated_at: row.updated_at,
       })),
@@ -5961,7 +5956,7 @@ app.delete('/api/questions/:id/permanent', authRequired, async (req, res) => {
     const bindResult = await client.query(`SELECT COUNT(*)::int AS count FROM exam_questions WHERE question_id = $1`, [questionId])
     if (Number(bindResult.rows[0]?.count || 0) > 0) {
       await client.query('ROLLBACK')
-      return res.status(400).json({ message: '该题目已被考试引用，不能彻底删除' })
+      return res.status(400).json({ message: '该题目仍被考试引用，请先删除或调整相关考试后再彻底删除' })
     }
     await client.query(`DELETE FROM questions WHERE id = $1`, [questionId])
     await writeOperationLog({
@@ -6059,7 +6054,7 @@ app.post('/api/questions/recycle-bin/batch-permanent-delete', authRequired, asyn
       }
       const bindResult = await client.query(`SELECT COUNT(*)::int AS count FROM exam_questions WHERE question_id = $1`, [questionId])
       if (Number(bindResult.rows[0]?.count || 0) > 0) {
-        failed.push({ id: questionId, reason: '已被考试引用，不能彻底删除' })
+        failed.push({ id: questionId, reason: '仍被考试引用，请先删除相关考试' })
         continue
       }
       await client.query(`DELETE FROM questions WHERE id = $1`, [questionId])
@@ -6116,8 +6111,8 @@ app.get('/api/question-duplicates', authRequired, async (req, res) => {
           q.updated_at,
           regexp_replace(lower(COALESCE(q.stem, '')), '[[:space:][:punct:]，。！？；：、“”‘’（）《》【】]+', '', 'g') AS norm_stem
         FROM questions q
-        WHERE q.deleted_at IS NULL
         JOIN subjects s ON s.id = q.subject_id
+        WHERE q.deleted_at IS NULL
       ),
       grouped AS (
         SELECT subject_id, norm_stem, COUNT(*) AS duplicate_count
@@ -6382,7 +6377,7 @@ app.post('/api/questions/batch-delete', authRequired, async (req, res) => {
       const bindResult = await client.query(`SELECT COUNT(*)::int AS count FROM exam_questions WHERE question_id = $1`, [questionId])
       const bindCount = Number(bindResult.rows[0]?.count || 0)
       if (bindCount > 0) {
-        failed.push({ id: questionId, reason: '已被考试引用' })
+        failed.push({ id: questionId, reason: '仍被考试引用，请先删除相关考试' })
         continue
       }
       await client.query(`UPDATE questions SET deleted_at = NOW(), deleted_by = $1, updated_at = NOW() WHERE id = $2`, [req.auth?.userId || null, questionId])
@@ -6436,9 +6431,9 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
   }
   let difficulty = null
   if (difficultyValue) {
-    difficulty = difficultyMap[difficultyValue] || Number(difficultyValue) || null
-    if (![1, 2, 3].includes(Number(difficulty))) {
-      return res.status(400).json({ message: '难度不合法' })
+    difficulty = parseDifficultyLevel(difficultyValue)
+    if (difficulty === null) {
+      return res.status(400).json({ message: '难度不合法，请使用 1–5（仍兼容 简单/中等/困难）' })
     }
   }
   const uniqueIds = Array.from(new Set(ids))
@@ -6577,12 +6572,16 @@ app.post('/api/questions/import', authRequired, async (req, res) => {
       const stem = String(row.stem || '').trim()
       const answer = String(row.answer || '').trim()
       const explanation = String(row.explanation || '').trim()
-      const difficultyValue = String(row.difficulty || '').trim() || '中等'
+      const difficultyValue = String(row.difficulty || '').trim() || '3'
       const knowledgePoints = Array.isArray(row.knowledgePoints) ? row.knowledgePoints : []
 
       const subjectId = subjectMap.get(subjectAliasMap[subjectName.toLowerCase()] || subjectName)
       const questionType = questionTypeMap[typeValue]
-      const difficulty = difficultyMap[difficultyValue] || 2
+      const difficulty = parseDifficultyLevel(difficultyValue)
+      if (difficulty === null) {
+        errors.push(`第${rowNo}行: 难度须为 1–5 的整数（仍兼容 简单/中等/困难）`)
+        continue
+      }
 
       if (!subjectId) {
         errors.push(`第${rowNo}行: 科目不存在(${subjectName || '空'})`)

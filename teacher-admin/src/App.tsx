@@ -46,9 +46,15 @@ import type { MenuProps, TabsProps, UploadFile, UploadProps } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
+import type { DataValidation, Worksheet } from 'exceljs'
 import * as XLSX from 'xlsx'
 
 const { Header, Sider, Content } = Layout
+
+/** exceljs 运行时有 dataValidations，官方 .d.ts 的 Worksheet 未列出 */
+type ExcelWorksheetWithDv = Worksheet & {
+  dataValidations: { add(address: string, validation: DataValidation): void }
+}
 
 type RoleType = 'admin' | 'class_teacher' | 'subject_teacher' | 'hybrid'
 type ThemeOption = {
@@ -103,13 +109,14 @@ const questionColumns = [
 ]
 
 const initialQuestionData = [
-  { key: '1', id: 1, type: '单选', content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...', difficulty: '中等', updatedAt: '2026-04-20' },
-  { key: '2', id: 2, type: '填空', content: '求抛物线 y=x^2 的顶点坐标', difficulty: '简单', updatedAt: '2026-04-22' },
+  { key: '1', id: 1, type: '单选', content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...', difficulty: '3', updatedAt: '2026-04-20' },
+  { key: '2', id: 2, type: '填空', content: '求抛物线 y=x^2 的顶点坐标', difficulty: '2', updatedAt: '2026-04-22' },
 ]
 
 const excelTemplateHeaders = ['科目', '题型', '题干', '选项A', '选项B', '选项C', '选项D', '答案', '解析', '难度', '知识点']
 const validQuestionTypes = new Set(['单选', '多选', '判断', '填空', '简答'])
-const validDifficulties = new Set(['简单', '中等', '困难'])
+const validDifficulties = new Set(['1', '2', '3', '4', '5'])
+const difficultyLevelSelectOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
 /** 生产须配置完整 API 根地址；开发未配置时用同源相对路径，由 vite 代理到后端（见 vite.config.ts）。 */
 const API_BASE_URL = (() => {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
@@ -120,6 +127,32 @@ const API_BASE_URL = (() => {
 const CAN_USE_API = import.meta.env.DEV || Boolean(API_BASE_URL)
 const AUTH_TOKEN_KEY = 'quizwiz-auth-token'
 const AUTH_USER_KEY = 'quizwiz-auth-user'
+
+/** 由 App 挂载时注册：任意业务请求返回 401 时清会话并跳转登录（登录接口密码错误也为 401，需排除）。 */
+let teacherAdminUnauthorizedHandler: (() => void) | null = null
+let lastTeacherAdmin401At = 0
+
+function resolveTeacherAdminRequestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  return input.url
+}
+
+function teacherAdminFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return window.fetch(input, init).then((response) => {
+    if (response.status === 401) {
+      const url = resolveTeacherAdminRequestUrl(input)
+      if (!url.includes('/api/auth/login')) {
+        const now = Date.now()
+        if (now - lastTeacherAdmin401At > 500) {
+          lastTeacherAdmin401At = now
+          teacherAdminUnauthorizedHandler?.()
+        }
+      }
+    }
+    return response
+  })
+}
 
 type QuestionListItem = {
   key: string
@@ -187,18 +220,81 @@ const mapQuestionTypeFromApi = (type: string | number) => {
   return String(type)
 }
 
+/** 难度：库存为 1–5（1 最易，5 最难）；兼容旧版中文 */
 const mapDifficultyFromApi = (difficulty: string | number) => {
-  if (typeof difficulty === 'number') {
-    if (difficulty === 1) return '简单'
-    if (difficulty === 2) return '中等'
-    if (difficulty === 3) return '困难'
+  const n = typeof difficulty === 'number' ? difficulty : Number(String(difficulty).trim())
+  if (Number.isInteger(n) && n >= 1 && n <= 5) return String(n)
+  const s = String(difficulty ?? '').trim()
+  if (s === '简单') return '2'
+  if (s === '中等') return '3'
+  if (s === '困难') return '4'
+  return '3'
+}
+
+type QuestionPreviewDetail = {
+  id: number
+  subject: string
+  typeText: string
+  stem: string
+  options: Array<{ key: string; text: string }>
+  answerDisplay: string
+  explanation: string
+  difficultyText: string
+  knowledgePoints: string[]
+}
+
+const buildQuestionPreviewDetailFromApi = (detail: Record<string, unknown>): QuestionPreviewDetail => {
+  const id = Number(detail.id || 0)
+  const apiType = Number(detail.type ?? 0)
+  const typeText = mapQuestionTypeFromApi(apiType || (detail.type as string | number))
+  const options = Array.isArray(detail.options) ? detail.options : []
+  const optionMap: Record<string, string> = {}
+  options.forEach((item: Record<string, unknown>) => {
+    const key = String(item.option_key || '').toUpperCase()
+    optionMap[key] = String(item.option_text || '')
+  })
+  const optKeys = Object.keys(optionMap).sort((a, b) => a.localeCompare(b))
+  const optList = optKeys.map((k) => ({ key: k, text: optionMap[k] }))
+  const rawAnswer = String(detail.answer ?? detail.answer_text ?? '')
+  let answerDisplay = rawAnswer
+  if (apiType === 3) {
+    const a = rawAnswer.trim().toUpperCase()
+    if (a === 'A' || rawAnswer.trim() === '对') answerDisplay = '对（A）'
+    else if (a === 'B' || rawAnswer.trim() === '错') answerDisplay = '错（B）'
   }
-  if (typeof difficulty === 'string') {
-    if (difficulty === '1') return '简单'
-    if (difficulty === '2') return '中等'
-    if (difficulty === '3') return '困难'
+  return {
+    id,
+    subject: String(detail.subject || ''),
+    typeText,
+    stem: String(detail.stem || ''),
+    options: optList,
+    answerDisplay,
+    explanation: String(detail.explanation || ''),
+    difficultyText: mapDifficultyFromApi(detail.difficulty as string | number),
+    knowledgePoints: Array.isArray(detail.knowledgePoints) ? detail.knowledgePoints.map((x) => String(x)) : [],
   }
-  return String(difficulty || '中等')
+}
+
+async function fetchQuestionPreviewDetails(ids: number[]): Promise<{ items: QuestionPreviewDetail[]; errorCount: number }> {
+  if (ids.length === 0) return { items: [], errorCount: 0 }
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || ''
+  const settled = await Promise.allSettled(
+    ids.map(async (id) => {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(String(payload?.message || response.status))
+      return buildQuestionPreviewDetailFromApi((payload?.data || {}) as Record<string, unknown>)
+    }),
+  )
+  const items: QuestionPreviewDetail[] = []
+  let errorCount = 0
+  settled.forEach((r) => {
+    if (r.status === 'fulfilled') items.push(r.value)
+    else errorCount += 1
+  })
+  return { items, errorCount }
 }
 
 function LoginPage({ onLoginSuccess }: { onLoginSuccess: (token: string, user: AuthUser) => void }) {
@@ -212,7 +308,7 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: (token: string, user: A
     }
     try {
       setLoginLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
@@ -323,7 +419,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         setClassStatsLoading(true)
         const params = new URLSearchParams()
         params.set('withOverview', '1')
-        const response = await fetch(`${API_BASE_URL}/api/dashboard/class-stats?${params.toString()}`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/class-stats?${params.toString()}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -365,7 +461,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           const weighted = denom > 0 ? Math.round((num / denom) * 10000) / 100 : 0
           let qTotal = 0
           try {
-            const qRes = await fetch(`${API_BASE_URL}/api/questions?page=1&pageSize=1`, {
+            const qRes = await teacherAdminFetch(`${API_BASE_URL}/api/questions?page=1&pageSize=1`, {
               headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
             })
             const qPayload = await qRes.json().catch(() => ({}))
@@ -410,7 +506,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         setTrendLoading(true)
         const params = new URLSearchParams()
         params.set('trendLimit', '5')
-        const response = await fetch(`${API_BASE_URL}/api/analytics/class-performance?${params.toString()}`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/class-performance?${params.toString()}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -447,10 +543,10 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       }
       try {
         const [warningRes, qualityRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/analytics/student-warnings?handleStatus=pending`, {
+          teacherAdminFetch(`${API_BASE_URL}/api/analytics/student-warnings?handleStatus=pending`, {
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           }),
-          fetch(`${API_BASE_URL}/api/analytics/exam-quality-overview`, {
+          teacherAdminFetch(`${API_BASE_URL}/api/analytics/exam-quality-overview`, {
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           }),
         ])
@@ -643,7 +739,7 @@ function ClassPage() {
     if (!CAN_USE_API) return
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/classes`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -671,7 +767,7 @@ function ClassPage() {
     if (!CAN_USE_API) return
     try {
       setInviteConfigLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/classes/${classId}/invite-config`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}/invite-config`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -701,7 +797,7 @@ function ClassPage() {
     if (!CAN_USE_API) return
     try {
       setStudentsLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/classes/${classId}/students`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}/students`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -718,7 +814,7 @@ function ClassPage() {
     if (!CAN_USE_API) return
     try {
       setTeachersLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/classes/${classId}/teachers`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}/teachers`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -744,10 +840,10 @@ function ClassPage() {
     if (!CAN_USE_API) return
     try {
       const [teachersRes, subjectsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/teachers`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/teachers`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
-        fetch(`${API_BASE_URL}/api/subjects`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
       ])
@@ -847,7 +943,7 @@ function ClassPage() {
             onFinish={async (values: { name: string; grade: string }) => {
               if (!CAN_USE_API) return
               try {
-                const response = await fetch(`${API_BASE_URL}/api/classes`, {
+                const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -894,7 +990,7 @@ function ClassPage() {
                           if (!selectedClassId) return
                           if (!CAN_USE_API) return
                           try {
-                            const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-code/reset`, {
+                            const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-code/reset`, {
                               method: 'POST',
                               headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                             })
@@ -928,7 +1024,7 @@ function ClassPage() {
                                   onClick={async () => {
                                     if (!selectedClassId || !CAN_USE_API) return
                                     try {
-                                      const response = await fetch(
+                                      const response = await teacherAdminFetch(
                                         `${API_BASE_URL}/api/classes/${selectedClassId}/students/${row.id}`,
                                         {
                                           method: 'DELETE',
@@ -992,7 +1088,7 @@ function ClassPage() {
                                   onClick={async () => {
                                     if (!selectedClassId || !CAN_USE_API) return
                                     try {
-                                      const response = await fetch(
+                                      const response = await teacherAdminFetch(
                                         `${API_BASE_URL}/api/classes/${selectedClassId}/teachers/${row.teacher_id}/${row.subject_id}`,
                                         {
                                           method: 'DELETE',
@@ -1044,7 +1140,7 @@ function ClassPage() {
                   onClick={async () => {
                     if (!selectedClassId || !CAN_USE_API) return
                     try {
-                      const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-code/reset`, {
+                      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-code/reset`, {
                         method: 'POST',
                         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                       })
@@ -1088,7 +1184,7 @@ function ClassPage() {
                   onClick={async () => {
                     if (!selectedClassId || !CAN_USE_API) return
                     try {
-                      const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-config`, {
+                      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/invite-config`, {
                         method: 'PATCH',
                         headers: {
                           'Content-Type': 'application/json',
@@ -1148,7 +1244,7 @@ function ClassPage() {
                                 onClick={async () => {
                                   if (!selectedClassId || !CAN_USE_API) return
                                   try {
-                                    const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/join-requests/${row.id}`, {
+                                    const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/join-requests/${row.id}`, {
                                       method: 'PATCH',
                                       headers: {
                                         'Content-Type': 'application/json',
@@ -1175,7 +1271,7 @@ function ClassPage() {
                                 onClick={async () => {
                                   if (!selectedClassId || !CAN_USE_API) return
                                   try {
-                                    const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/join-requests/${row.id}`, {
+                                    const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/join-requests/${row.id}`, {
                                       method: 'PATCH',
                                       headers: {
                                         'Content-Type': 'application/json',
@@ -1219,7 +1315,7 @@ function ClassPage() {
             onFinish={async (values: { name: string; studentNo: string }) => {
               if (!selectedClassId || !CAN_USE_API) return
               try {
-                const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/students`, {
+                const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/students`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -1262,7 +1358,7 @@ function ClassPage() {
             onFinish={async (values: { teacherId: number; subjectId: number }) => {
               if (!selectedClassId || !CAN_USE_API) return
               try {
-                const response = await fetch(`${API_BASE_URL}/api/classes/${selectedClassId}/teachers`, {
+                const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/teachers`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -1302,6 +1398,93 @@ function ClassPage() {
         </Modal>
       ) : null}
     </Card>
+  )
+}
+
+function QuestionPreviewPanelBody({ item }: { item: QuestionPreviewDetail }) {
+  return (
+    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      <Space wrap>
+        <Tag>{item.subject || '—'}</Tag>
+        <Tag color="processing">{item.typeText}</Tag>
+        <Tag>{item.difficultyText}</Tag>
+      </Space>
+      <Typography.Title level={5} style={{ marginBottom: 0 }}>
+        题干
+      </Typography.Title>
+      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{item.stem || '—'}</Typography.Paragraph>
+      {item.options.length > 0 ? (
+        <>
+          <Typography.Title level={5} style={{ marginBottom: 0 }}>
+            选项
+          </Typography.Title>
+          <List
+            size="small"
+            dataSource={item.options}
+            renderItem={(opt) => (
+              <List.Item style={{ padding: '4px 0' }}>
+                <Typography.Text strong>{opt.key}.</Typography.Text> {opt.text}
+              </List.Item>
+            )}
+          />
+        </>
+      ) : null}
+      <Typography.Title level={5} style={{ marginBottom: 0 }}>
+        答案
+      </Typography.Title>
+      <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{item.answerDisplay || '—'}</Typography.Paragraph>
+      {item.explanation ? (
+        <>
+          <Typography.Title level={5} style={{ marginBottom: 0 }}>
+            解析
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+            {item.explanation}
+          </Typography.Paragraph>
+        </>
+      ) : null}
+      {item.knowledgePoints.length > 0 ? (
+        <Space wrap size={4}>
+          {item.knowledgePoints.map((name) => (
+            <Tag key={name}>{name}</Tag>
+          ))}
+        </Space>
+      ) : null}
+    </Space>
+  )
+}
+
+function QuestionPreviewModal({
+  open,
+  title,
+  loading,
+  items,
+  onClose,
+}: {
+  open: boolean
+  title: string
+  loading: boolean
+  items: QuestionPreviewDetail[]
+  onClose: () => void
+}) {
+  return (
+    <Modal open={open} title={title} width={920} onCancel={onClose} footer={<Button onClick={onClose}>关闭</Button>} destroyOnClose>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 48 }}>
+          <Spin />
+        </div>
+      ) : items.length === 0 ? (
+        <Empty description="暂无可预览的题目" />
+      ) : (
+        <Tabs
+          items={items.map((item, index) => ({
+            key: String(item.id),
+            label: `${index + 1}. #${item.id}`,
+            children: <QuestionPreviewPanelBody item={item} />,
+          }))}
+        />
+      )}
+    </Modal>
   )
 }
 
@@ -1345,6 +1528,8 @@ function QuestionBankPage() {
     }>
   >([])
   const [openPreview, setOpenPreview] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewItems, setPreviewItems] = useState<QuestionPreviewDetail[]>([])
   const [questionRows, setQuestionRows] = useState<QuestionListItem[]>(initialQuestionData)
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([])
   const [tableLoading, setTableLoading] = useState(false)
@@ -1424,11 +1609,11 @@ function QuestionBankPage() {
       if (effectiveKeyword.trim()) params.set('keyword', effectiveKeyword.trim())
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
-      const response = await fetch(`${API_BASE_URL}/api/questions?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       if (!response.ok) {
-        if (response.status === 401) throw new Error('登录已过期，请重新登录')
+        if (response.status === 401) return
         if (response.status === 403) {
           setQuestionRows([])
           setQuestionListTotal(0)
@@ -1462,6 +1647,30 @@ function QuestionBankPage() {
     }
   }
 
+  const openQuestionBankPreview = async () => {
+    if (!CAN_USE_API) {
+      message.error('未配置 VITE_API_BASE_URL，无法预览')
+      return
+    }
+    if (selectedQuestionIds.length === 0) {
+      message.warning('请先勾选要预览的题目')
+      return
+    }
+    setOpenPreview(true)
+    setPreviewLoading(true)
+    setPreviewItems([])
+    try {
+      const { items, errorCount } = await fetchQuestionPreviewDetails([...selectedQuestionIds])
+      setPreviewItems(items)
+      if (errorCount > 0) message.warning(`${errorCount} 道题目加载失败`)
+      if (items.length === 0 && errorCount === selectedQuestionIds.length) message.error('预览数据加载失败')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '预览加载失败')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   useEffect(() => {
     void loadQuestionList({ page: 1, pageSize: 20 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1471,7 +1680,7 @@ function QuestionBankPage() {
     const loadSubjectOptions = async () => {
       if (!CAN_USE_API) return
       try {
-        const response = await fetch(`${API_BASE_URL}/api/subjects`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -1495,8 +1704,8 @@ function QuestionBankPage() {
     void loadSubjectOptions()
   }, [authToken])
 
-  const downloadTemplate = () => {
-    const exampleRows = [
+  const downloadTemplate = async () => {
+    const exampleRows: Array<Record<string, string>> = [
       {
         科目: '数学',
         题型: '单选',
@@ -1507,7 +1716,7 @@ function QuestionBankPage() {
         选项D: '在R上单调递减',
         答案: 'A',
         解析: 'y=(x+1)^2，最小值为0',
-        难度: '中等',
+        难度: '3',
         知识点: '函数;二次函数',
       },
       {
@@ -1520,15 +1729,103 @@ function QuestionBankPage() {
         选项D: '',
         答案: 'goes',
         解析: '第三人称单数用 goes',
-        难度: '简单',
+        难度: '2',
         知识点: '一般现在时',
       },
     ]
-    const sheet = XLSX.utils.json_to_sheet(exampleRows, { header: excelTemplateHeaders })
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, sheet, '题库模板')
-    XLSX.writeFile(workbook, 'question_import_template.xlsx')
-    message.success('模板已下载')
+    const typeOptions = Array.from(validQuestionTypes)
+    const difficultyOptions = Array.from(validDifficulties)
+    let subjectNames = Array.from(new Set(subjectOptions.map((o) => String(o.label || '').trim()).filter(Boolean)))
+    if (CAN_USE_API && subjectNames.length === 0) {
+      try {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (response.ok && Array.isArray(payload?.data)) {
+          subjectNames = Array.from(
+            new Set(
+              (payload.data as Record<string, unknown>[])
+                .map((item) => String(item.name ?? '').trim())
+                .filter(Boolean),
+            ),
+          )
+        }
+      } catch {
+        // 忽略，使用下方兜底
+      }
+    }
+    if (subjectNames.length === 0) {
+      message.warning('未能加载科目字典，已使用示例科目作为下拉项；可在系统中维护科目后重新下载模板。')
+      subjectNames = ['数学', '语文', '英语', '物理', '化学']
+    }
+
+    const hideLoading = message.loading('正在生成模板…', 0)
+    try {
+      const { default: ExcelJS } = await import('exceljs')
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet('题库模板')
+      sheet.views = [{ state: 'frozen', ySplit: 1 }]
+      sheet.addRow(excelTemplateHeaders)
+      const headerRow = sheet.getRow(1)
+      headerRow.font = { bold: true }
+      exampleRows.forEach((row) => {
+        sheet.addRow(excelTemplateHeaders.map((h) => String(row[h] ?? '')))
+      })
+      const colWidths: number[] = [10, 8, 44, 18, 18, 18, 18, 10, 28, 8, 22]
+      excelTemplateHeaders.forEach((_, i) => {
+        sheet.getColumn(i + 1).width = colWidths[i] ?? 14
+      })
+
+      const dictSheet = workbook.addWorksheet('字典', { state: 'veryHidden' })
+      subjectNames.forEach((name, i) => {
+        dictSheet.getCell(i + 1, 1).value = name
+      })
+      typeOptions.forEach((name, i) => {
+        dictSheet.getCell(i + 1, 2).value = name
+      })
+      difficultyOptions.forEach((name, i) => {
+        dictSheet.getCell(i + 1, 3).value = name
+      })
+
+      const nSub = subjectNames.length
+      const nType = typeOptions.length
+      const nDif = difficultyOptions.length
+      const sheetDv = sheet as ExcelWorksheetWithDv
+      const listDv = (range: string, formula: string, prompt: string) => {
+        sheetDv.dataValidations.add(range, {
+          type: 'list',
+          allowBlank: true,
+          formulae: [formula],
+          showInputMessage: true,
+          promptTitle: '填写说明',
+          prompt,
+          showErrorMessage: true,
+          errorStyle: 'warning',
+          errorTitle: '取值提示',
+          error: '请从下拉列表中选择，或先在「字典」表对应列维护可选值后重新下载模板。',
+        })
+      }
+      listDv('A2:A2000', `=字典!$A$1:$A$${nSub}`, '科目须与系统中科目名称一致')
+      listDv('B2:B2000', `=字典!$B$1:$B$${nType}`, '题型：单选 / 多选 / 判断 / 填空 / 简答')
+      listDv('J2:J2000', `=字典!$C$1:$C$${nDif}`, '难度：1–5（1 最易，5 最难）')
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'question_import_template.xlsx'
+      anchor.click()
+      URL.revokeObjectURL(url)
+      message.success('模板已下载（科目、题型、难度列为下拉）')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '模板生成失败')
+    } finally {
+      hideLoading()
+    }
   }
 
   const parseExcel = async (file: File) => {
@@ -1550,7 +1847,16 @@ function QuestionBankPage() {
       const type = String(row['题型'] ?? '').trim()
       const stem = String(row['题干'] ?? '').trim()
       const answer = String(row['答案'] ?? '').trim()
-      const difficulty = String(row['难度'] ?? '').trim() || '中等'
+      const rawDifficulty = String(row['难度'] ?? '').trim() || '3'
+      let difficultyLevel = ''
+      if (validDifficulties.has(rawDifficulty)) difficultyLevel = rawDifficulty
+      else if (rawDifficulty === '简单') difficultyLevel = '2'
+      else if (rawDifficulty === '中等') difficultyLevel = '3'
+      else if (rawDifficulty === '困难') difficultyLevel = '4'
+      else {
+        const n = Number(rawDifficulty)
+        if (Number.isInteger(n) && n >= 1 && n <= 5) difficultyLevel = String(n)
+      }
       const optionA = String(row['选项A'] ?? '').trim()
       const optionB = String(row['选项B'] ?? '').trim()
       const optionC = String(row['选项C'] ?? '').trim()
@@ -1575,8 +1881,8 @@ function QuestionBankPage() {
         errors.push(`第 ${rowNo} 行：答案不能为空`)
         return
       }
-      if (!validDifficulties.has(difficulty)) {
-        errors.push(`第 ${rowNo} 行：难度必须是 简单/中等/困难`)
+      if (!difficultyLevel) {
+        errors.push(`第 ${rowNo} 行：难度须为 1–5 的整数（仍兼容填写 简单/中等/困难）`)
         return
       }
       if ((type === '单选' || type === '多选') && (!optionA || !optionB)) {
@@ -1589,7 +1895,7 @@ function QuestionBankPage() {
         id: 0,
         type,
         content: stem.slice(0, 50),
-        difficulty,
+        difficulty: difficultyLevel,
         updatedAt: new Date().toISOString().slice(0, 10),
       })
       payloadRows.push({
@@ -1602,7 +1908,7 @@ function QuestionBankPage() {
         optionD,
         answer,
         explanation,
-        difficulty,
+        difficulty: difficultyLevel,
         knowledgePoints: knowledgeText
           ? knowledgeText
               .split(';')
@@ -1646,7 +1952,7 @@ function QuestionBankPage() {
     }
     try {
       setImportSubmitting(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/import`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/import`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1655,7 +1961,7 @@ function QuestionBankPage() {
         body: JSON.stringify({ rows: importPayloadRows }),
       })
       if (!response.ok) {
-        if (response.status === 401) throw new Error('登录已过期，请重新登录')
+        if (response.status === 401) return
         throw new Error(`导入接口失败(${response.status})`)
       }
       const payload = await response.json()
@@ -1713,11 +2019,11 @@ function QuestionBankPage() {
         optionD: String(values.optionD || '').trim(),
         answer: normalizedAnswer,
         explanation: String(values.explanation || '').trim(),
-        difficulty: String(values.difficulty || '中等').trim(),
+        difficulty: String(values.difficulty || '3').trim(),
         knowledgePoints: Array.isArray(values.knowledgePoints) ? values.knowledgePoints.map((item: unknown) => String(item).trim()).filter(Boolean) : [],
       }
       const endpoint = editingQuestionId ? `${API_BASE_URL}/api/questions/${editingQuestionId}` : `${API_BASE_URL}/api/questions`
-      const response = await fetch(endpoint, {
+      const response = await teacherAdminFetch(endpoint, {
         method: editingQuestionId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1740,14 +2046,14 @@ function QuestionBankPage() {
   const openCreateDrawer = () => {
     setEditingQuestionId(null)
     createForm.resetFields()
-    createForm.setFieldsValue({ type: 'single', difficulty: '中等', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' })
+    createForm.setFieldsValue({ type: 'single', difficulty: '3', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' })
     setOpenDrawer(true)
   }
 
   const openEditDrawer = async (id: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/questions/${id}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -1784,7 +2090,7 @@ function QuestionBankPage() {
   const deleteQuestion = async (id: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/questions/${id}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}`, {
         method: 'DELETE',
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
@@ -1803,7 +2109,7 @@ function QuestionBankPage() {
       setDuplicateLoading(true)
       const params = new URLSearchParams()
       if (markStatus) params.set('markStatus', markStatus)
-      const response = await fetch(`${API_BASE_URL}/api/question-duplicates?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/question-duplicates?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -1833,7 +2139,7 @@ function QuestionBankPage() {
   const markDuplicateQuestion = async (questionId: number, markStatus: 'pending' | 'marked' | 'ignored') => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/question-duplicates/mark`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/question-duplicates/mark`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1854,7 +2160,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API) return
     try {
       setRecycleLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/question-recycle-bin`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/question-recycle-bin`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -1882,7 +2188,7 @@ function QuestionBankPage() {
   const restoreQuestion = async (id: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/questions/${id}/restore`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}/restore`, {
         method: 'PATCH',
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
@@ -1898,7 +2204,7 @@ function QuestionBankPage() {
   const permanentDeleteQuestion = async (id: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/questions/${id}/permanent`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}/permanent`, {
         method: 'DELETE',
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
@@ -1917,7 +2223,7 @@ function QuestionBankPage() {
       setVersionQuestionId(id)
       setOpenVersionHistory(true)
       setVersionLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/${id}/versions`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${id}/versions`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -1944,7 +2250,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API) return
     try {
       setQualityAuditLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/quality-audit`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/quality-audit`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -1980,7 +2286,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API) return
     try {
       setQualityAuditFixing(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/quality-audit/fix`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/quality-audit/fix`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2003,7 +2309,7 @@ function QuestionBankPage() {
   const restoreQuestionVersion = async (questionId: number, versionId: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/questions/${questionId}/versions/${versionId}/restore`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/${questionId}/versions/${versionId}/restore`, {
         method: 'POST',
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
@@ -2020,7 +2326,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API || selectedRecycleIds.length === 0) return
     try {
       setRecycleSubmitting(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/recycle-bin/batch-restore`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/recycle-bin/batch-restore`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2063,7 +2369,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API || selectedRecycleIds.length === 0) return
     try {
       setRecycleSubmitting(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/recycle-bin/batch-permanent-delete`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/recycle-bin/batch-permanent-delete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2128,7 +2434,7 @@ function QuestionBankPage() {
     }
     try {
       setDuplicateMergeLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/question-duplicates/merge-group`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/question-duplicates/merge-group`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2159,7 +2465,7 @@ function QuestionBankPage() {
     if (!CAN_USE_API || selectedQuestionIds.length === 0) return
     try {
       setBatchSubmitting(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/batch-delete`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/batch-delete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2214,7 +2520,7 @@ function QuestionBankPage() {
         return
       }
       setBatchSubmitting(true)
-      const response = await fetch(`${API_BASE_URL}/api/questions/batch-attrs`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/questions/batch-attrs`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -2258,7 +2564,7 @@ function QuestionBankPage() {
       title="题库中心"
       extra={
         <Space>
-          <Button onClick={downloadTemplate}>下载模板</Button>
+          <Button onClick={() => void downloadTemplate()}>下载模板</Button>
           <Button onClick={() => setOpenImport(true)}>批量导入</Button>
           <Button
             onClick={() => {
@@ -2305,7 +2611,9 @@ function QuestionBankPage() {
             </Button>
           </Popconfirm>
           <Button onClick={() => void loadQuestionList()}>刷新题库</Button>
-          <Button onClick={() => setOpenPreview(true)}>预览题目</Button>
+          <Button disabled={selectedQuestionIds.length === 0} onClick={() => void openQuestionBankPreview()}>
+            预览题目
+          </Button>
           <Button type="primary" onClick={openCreateDrawer}>
             新增题目
           </Button>
@@ -2723,15 +3031,7 @@ function QuestionBankPage() {
             <Select allowClear placeholder="不修改请留空" options={subjectOptions} showSearch optionFilterProp="label" />
           </Form.Item>
           <Form.Item label="批量修改难度" name="difficulty">
-            <Select
-              allowClear
-              placeholder="不修改请留空"
-              options={[
-                { value: '简单', label: '简单' },
-                { value: '中等', label: '中等' },
-                { value: '困难', label: '困难' },
-              ]}
-            />
+            <Select allowClear placeholder="不修改请留空" options={difficultyLevelSelectOptions} />
           </Form.Item>
           <Form.Item label="批量新增知识点标签" name="addKnowledgePoints">
             <Select mode="tags" placeholder="输入后回车，可留空" />
@@ -2754,7 +3054,7 @@ function QuestionBankPage() {
         <Form
           form={createForm}
           layout="vertical"
-          initialValues={{ type: 'single', difficulty: '中等', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' }}
+          initialValues={{ type: 'single', difficulty: '3', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' }}
           onValuesChange={(changedValues) => {
             if (!Object.prototype.hasOwnProperty.call(changedValues, 'type')) return
             const nextType = changedValues.type
@@ -2898,8 +3198,8 @@ function QuestionBankPage() {
           <Form.Item label="解析" name="explanation">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item label="难度" name="difficulty" rules={[{ required: true, message: '请选择难度' }]}>
-            <Select options={[{ value: '简单', label: '简单' }, { value: '中等', label: '中等' }, { value: '困难', label: '困难' }]} />
+          <Form.Item label="难度（1 最易，5 最难）" name="difficulty" rules={[{ required: true, message: '请选择难度' }]}>
+            <Select options={difficultyLevelSelectOptions} />
           </Form.Item>
           <Form.Item label="知识点标签" name="knowledgePoints">
             <Select mode="tags" placeholder="输入后回车创建标签" />
@@ -2948,12 +3248,16 @@ function QuestionBankPage() {
         </Space>
       </Modal>
 
-      <Modal open={openPreview} title="题目预览" onCancel={() => setOpenPreview(false)} onOk={() => setOpenPreview(false)}>
-        <Typography.Title level={5}>题干</Typography.Title>
-        <Typography.Paragraph>已知函数 f(x)=x^2+2x+1，下列说法正确的是...</Typography.Paragraph>
-        <Typography.Title level={5}>解析</Typography.Title>
-        <Typography.Paragraph>利用完全平方公式可得 f(x)=(x+1)^2 ...</Typography.Paragraph>
-      </Modal>
+      <QuestionPreviewModal
+        open={openPreview}
+        title={`题目预览（已选 ${selectedQuestionIds.length} 道）`}
+        loading={previewLoading}
+        items={previewItems}
+        onClose={() => {
+          setOpenPreview(false)
+          setPreviewItems([])
+        }}
+      />
     </Card>
   )
 }
@@ -3027,6 +3331,9 @@ function ExamPage() {
     defaultDurationMinutes: 60,
     defaultQuestionScore: 1,
   })
+  const [examQuestionPreviewOpen, setExamQuestionPreviewOpen] = useState(false)
+  const [examQuestionPreviewLoading, setExamQuestionPreviewLoading] = useState(false)
+  const [examQuestionPreviewItems, setExamQuestionPreviewItems] = useState<QuestionPreviewDetail[]>([])
   const [examTab, setExamTab] = useState<'pending' | 'active' | 'done'>('pending')
   const [examPage, setExamPage] = useState(1)
   const [examPageSize, setExamPageSize] = useState(20)
@@ -3048,7 +3355,7 @@ function ExamPage() {
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
       params.set('manageableOnly', '1')
-      const response = await fetch(`${API_BASE_URL}/api/exams?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -3089,14 +3396,55 @@ function ExamPage() {
     }
   }
 
+  const deleteExamWithConfirm = async (row: { id: number }, confirmMessage: string) => {
+    if (!CAN_USE_API) return
+    if (!window.confirm(confirmMessage)) return
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}`, {
+        method: 'DELETE',
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+      message.success('考试已删除')
+      await loadExams()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除考试失败')
+    }
+  }
+
+  const openExamQuestionPreview = async () => {
+    if (!CAN_USE_API) {
+      message.error('未配置 VITE_API_BASE_URL，无法预览')
+      return
+    }
+    if (selectedQuestionIds.length === 0) {
+      message.warning('请先勾选要预览的题目')
+      return
+    }
+    setExamQuestionPreviewOpen(true)
+    setExamQuestionPreviewLoading(true)
+    setExamQuestionPreviewItems([])
+    try {
+      const { items, errorCount } = await fetchQuestionPreviewDetails([...selectedQuestionIds])
+      setExamQuestionPreviewItems(items)
+      if (errorCount > 0) message.warning(`${errorCount} 道题目加载失败`)
+      if (items.length === 0 && errorCount === selectedQuestionIds.length) message.error('预览数据加载失败')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '预览加载失败')
+    } finally {
+      setExamQuestionPreviewLoading(false)
+    }
+  }
+
   const loadInitOptions = async () => {
     if (!CAN_USE_API) return
     try {
       const [classRes, subjectRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/classes`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/classes`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
-        fetch(`${API_BASE_URL}/api/subjects`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
       ])
@@ -3143,7 +3491,7 @@ function ExamPage() {
       }
       if (keyword?.trim()) query.set('keyword', keyword.trim())
       const url = `${API_BASE_URL}/api/questions${query.toString() ? `?${query.toString()}` : ''}`
-      const response = await fetch(url, {
+      const response = await teacherAdminFetch(url, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -3178,7 +3526,7 @@ function ExamPage() {
     const loadExamDefaults = async () => {
       if (!CAN_USE_API) return
       try {
-        const response = await fetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -3273,7 +3621,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
                                     method: 'POST',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3293,7 +3641,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}`, {
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
                                   const payload = await response.json().catch(() => ({}))
@@ -3337,7 +3685,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/publish`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/publish`, {
                                     method: 'PATCH',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3355,23 +3703,12 @@ function ExamPage() {
                             <Button
                               danger
                               type="link"
-                              onClick={async () => {
-                                if (!CAN_USE_API) return
-                                const ok = window.confirm('确认删除该未开始考试吗？删除后不可恢复。')
-                                if (!ok) return
-                                try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}`, {
-                                    method: 'DELETE',
-                                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-                                  })
-                                  const payload = await response.json().catch(() => ({}))
-                                  if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
-                                  message.success('考试已删除')
-                                  await loadExams()
-                                } catch (error) {
-                                  message.error(error instanceof Error ? error.message : '删除考试失败')
-                                }
-                              }}
+                              onClick={() =>
+                                void deleteExamWithConfirm(
+                                  row,
+                                  '确认删除该考试吗？删除后考试与答卷数据不可恢复，题库中的题目仍保留，之后可单独删除题目。',
+                                )
+                              }
                             >
                               删除
                             </Button>
@@ -3416,7 +3753,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
                                     method: 'POST',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3434,10 +3771,22 @@ function ExamPage() {
                             <Button
                               danger
                               type="link"
+                              onClick={() =>
+                                void deleteExamWithConfirm(
+                                  row,
+                                  '确认删除该进行中的考试吗？将删除考试及关联答卷等数据且不可恢复，题库中的题目仍保留，之后可单独删除题目。',
+                                )
+                              }
+                            >
+                              删除
+                            </Button>
+                            <Button
+                              danger
+                              type="link"
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/finish`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/finish`, {
                                     method: 'PATCH',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3493,7 +3842,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/copy`, {
                                     method: 'POST',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3513,7 +3862,7 @@ function ExamPage() {
                               onClick={async () => {
                                 if (!CAN_USE_API) return
                                 try {
-                                  const response = await fetch(`${API_BASE_URL}/api/exams/${row.id}/reopen`, {
+                                  const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}/reopen`, {
                                     method: 'PATCH',
                                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                                   })
@@ -3527,6 +3876,18 @@ function ExamPage() {
                               }}
                             >
                               再开启
+                            </Button>
+                            <Button
+                              danger
+                              type="link"
+                              onClick={() =>
+                                void deleteExamWithConfirm(
+                                  row,
+                                  '确认删除该已结束考试吗？答卷记录将被删除且不可恢复，题库中的题目仍保留，之后可单独删除题目。',
+                                )
+                              }
+                            >
+                              删除
                             </Button>
                           </Space>
                         )
@@ -3598,7 +3959,7 @@ function ExamPage() {
             }
             try {
               setSubmitLoading(true)
-              const response = await fetch(
+              const response = await teacherAdminFetch(
                 editingExamId ? `${API_BASE_URL}/api/exams/${editingExamId}` : `${API_BASE_URL}/api/exams`,
                 {
                 method: editingExamId ? 'PUT' : 'POST',
@@ -3680,7 +4041,7 @@ function ExamPage() {
         <Card
           title={`选题组卷（已选 ${selectedQuestionIds.length} 题，总分 ${selectedQuestionIds.reduce((sum, id) => sum + (questionScoreMap[id] ?? examDefaults.defaultQuestionScore), 0)}）`}
         >
-          <Space style={{ marginBottom: 12 }}>
+          <Space style={{ marginBottom: 12 }} wrap>
             <Input.Search
               value={questionKeyword}
               onChange={(event) => setQuestionKeyword(event.target.value)}
@@ -3689,6 +4050,9 @@ function ExamPage() {
               allowClear
               style={{ width: 280 }}
             />
+            <Button disabled={selectedQuestionIds.length === 0} onClick={() => void openExamQuestionPreview()}>
+              预览已选
+            </Button>
             <Typography.Text type="secondary">仅展示当前科目题目</Typography.Text>
           </Space>
           <Table
@@ -3769,6 +4133,16 @@ function ExamPage() {
           />
         </Card>
       </Modal>
+      <QuestionPreviewModal
+        open={examQuestionPreviewOpen}
+        title={`预览已选题目（${selectedQuestionIds.length} 道）`}
+        loading={examQuestionPreviewLoading}
+        items={examQuestionPreviewItems}
+        onClose={() => {
+          setExamQuestionPreviewOpen(false)
+          setExamQuestionPreviewItems([])
+        }}
+      />
     </Space>
   )
 }
@@ -3830,7 +4204,7 @@ function ExamDetailPage() {
       if (!CAN_USE_API || !examId) return
       try {
         setLoading(true)
-        const response = await fetch(`${API_BASE_URL}/api/exams/${examId}`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${examId}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -4225,7 +4599,7 @@ function AnalyticsPage() {
   const loadSubjectOptions = async () => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/subjects`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4250,7 +4624,7 @@ function AnalyticsPage() {
       if (query?.subjectId) params.set('subjectId', String(query.subjectId))
       if (query?.startTime) params.set('startTime', query.startTime)
       if (query?.endTime) params.set('endTime', query.endTime)
-      const response = await fetch(`${API_BASE_URL}/api/analytics/class-performance?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/class-performance?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4283,7 +4657,7 @@ function AnalyticsPage() {
       if (query?.startTime) params.set('startTime', query.startTime)
       if (query?.endTime) params.set('endTime', query.endTime)
       params.set('limit', '30')
-      const response = await fetch(`${API_BASE_URL}/api/analytics/question-insights?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/question-insights?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4311,7 +4685,7 @@ function AnalyticsPage() {
       if (query?.endTime) params.set('endTime', query.endTime)
       if (query?.warningLevel) params.set('warningLevel', query.warningLevel)
       if (query?.handleStatus) params.set('handleStatus', query.handleStatus)
-      const response = await fetch(`${API_BASE_URL}/api/analytics/student-warnings?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/student-warnings?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4339,7 +4713,7 @@ function AnalyticsPage() {
       if (query?.endTime) params.set('endTime', query.endTime)
       if (query?.warningLevel) params.set('warningLevel', query.warningLevel)
       if (query?.handleStatus) params.set('handleStatus', query.handleStatus)
-      const response = await fetch(`${API_BASE_URL}/api/analytics/student-warnings/overview?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/student-warnings/overview?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4367,7 +4741,7 @@ function AnalyticsPage() {
       if (query?.subjectId) params.set('subjectId', String(query.subjectId))
       if (query?.startTime) params.set('startTime', query.startTime)
       if (query?.endTime) params.set('endTime', query.endTime)
-      const response = await fetch(`${API_BASE_URL}/api/analytics/exam-quality-overview?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/exam-quality-overview?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4393,7 +4767,7 @@ function AnalyticsPage() {
   const loadExamItemQuality = async (examId?: number) => {
     if (!CAN_USE_API || !examId) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analytics/exam-item-quality?examId=${examId}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/exam-item-quality?examId=${examId}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4425,7 +4799,7 @@ function AnalyticsPage() {
   const loadExamClassRanking = async (examId?: number) => {
     if (!CAN_USE_API || !examId) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/analytics/exam-class-ranking?examId=${examId}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/exam-class-ranking?examId=${examId}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -4725,7 +5099,7 @@ function AnalyticsPage() {
     try {
       const values = await warningHandleForm.validateFields()
       setWarningHandleLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/analytics/student-warnings/handle`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/analytics/student-warnings/handle`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -5571,7 +5945,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const loadMeta = async () => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/resources/meta`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/meta`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -5613,7 +5987,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       if (effectiveKeyword.trim()) params.set('keyword', effectiveKeyword.trim())
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
-      const response = await fetch(`${API_BASE_URL}/api/resources?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -5677,7 +6051,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       if (kw.trim()) params.set('keyword', kw.trim())
       if (st) params.set('startTime', st)
       if (et) params.set('endTime', et)
-      const response = await fetch(`${API_BASE_URL}/api/resources/download-logs?${params.toString()}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/download-logs?${params.toString()}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -5725,7 +6099,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
         if (auditKeyword.trim()) params.set('keyword', auditKeyword.trim())
         if (auditStartTime) params.set('startTime', auditStartTime)
         if (auditEndTime) params.set('endTime', auditEndTime)
-        const response = await fetch(`${API_BASE_URL}/api/resources/download-logs?${params.toString()}`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/download-logs?${params.toString()}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -5774,7 +6148,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
     try {
       const values = await createForm.validateFields()
       setSaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/resources`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -5805,7 +6179,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const deleteResource = async (id: number) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/resources/${id}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/${id}`, {
         method: 'DELETE',
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
@@ -5821,7 +6195,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const downloadResource = async (row: { id: number; name: string }) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/resources/${row.id}/download`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/${row.id}/download`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       if (!response.ok) {
@@ -5845,7 +6219,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const moveResourceFolder = async (id: number, folder: string) => {
     if (!CAN_USE_API) return
     try {
-      const response = await fetch(`${API_BASE_URL}/api/resources/${id}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -5879,7 +6253,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
     try {
       const values = await visibilityForm.validateFields()
       setSaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/resources/${visibilityResource.id}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/${visibilityResource.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -5932,7 +6306,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       formData.append('file', file)
       try {
         setUploading(true)
-        const response = await fetch(`${API_BASE_URL}/api/resources/upload`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/upload`, {
           method: 'POST',
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           body: formData,
@@ -6262,10 +6636,10 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
     try {
       setLoading(true)
       const [userRes, subjectRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/users`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/users`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
-        fetch(`${API_BASE_URL}/api/subjects`, {
+        teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         }),
       ])
@@ -6324,7 +6698,7 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
         roles: isAdmin ? values.roles : ['subject_teacher'],
         subjectIds: values.roles?.includes('subject_teacher') || !isAdmin ? values.subjectIds || [] : [],
       }
-      const response = await fetch(`${API_BASE_URL}/api/users`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -6400,7 +6774,7 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
                       onChange={async (checked) => {
                         if (!CAN_USE_API) return
                         try {
-                          const response = await fetch(`${API_BASE_URL}/api/users/${record.id}/status`, {
+                          const response = await teacherAdminFetch(`${API_BASE_URL}/api/users/${record.id}/status`, {
                             method: 'PATCH',
                             headers: {
                               'Content-Type': 'application/json',
@@ -6441,7 +6815,7 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
                           onOk: async () => {
                             if (!CAN_USE_API) return
                             try {
-                              const response = await fetch(`${API_BASE_URL}/api/users/${record.id}/reset-password`, {
+                              const response = await teacherAdminFetch(`${API_BASE_URL}/api/users/${record.id}/reset-password`, {
                                 method: 'POST',
                                 headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
                               })
@@ -6538,7 +6912,7 @@ function SystemSettingsPage() {
     if (!CAN_USE_API) return
     try {
       setSubjectLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/subjects`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -6580,7 +6954,7 @@ function SystemSettingsPage() {
       if (nextEndTime) query.set('endTime', nextEndTime)
       query.set('page', String(nextPage))
       query.set('pageSize', String(nextPageSize))
-      const response = await fetch(`${API_BASE_URL}/api/operation-logs${query.toString() ? `?${query.toString()}` : ''}`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/operation-logs${query.toString() ? `?${query.toString()}` : ''}`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -6605,7 +6979,7 @@ function SystemSettingsPage() {
     if (!CAN_USE_API) return
     try {
       setConfigLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -6626,7 +7000,7 @@ function SystemSettingsPage() {
     if (!CAN_USE_API) return
     try {
       setConfigLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/system-configs/warning-rule`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/system-configs/warning-rule`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -6657,7 +7031,7 @@ function SystemSettingsPage() {
       return
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/subjects`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -6685,7 +7059,7 @@ function SystemSettingsPage() {
       onOk: async () => {
         if (!CAN_USE_API) return
         try {
-          const response = await fetch(`${API_BASE_URL}/api/subjects/${id}`, {
+          const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${id}`, {
             method: 'DELETE',
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           })
@@ -6812,7 +7186,7 @@ function SystemSettingsPage() {
         if (logEndTime) query.set('endTime', logEndTime)
         query.set('page', String(page))
         query.set('pageSize', String(pageSize))
-        const response = await fetch(`${API_BASE_URL}/api/operation-logs?${query.toString()}`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/operation-logs?${query.toString()}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
         const payload = await response.json().catch(() => ({}))
@@ -6937,7 +7311,7 @@ function SystemSettingsPage() {
                 onClick={async () => {
                   if (!CAN_USE_API) return
                   try {
-                    const response = await fetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
+                    const response = await teacherAdminFetch(`${API_BASE_URL}/api/system-configs/exam-default`, {
                       method: 'PUT',
                       headers: {
                         'Content-Type': 'application/json',
@@ -7028,7 +7402,7 @@ function SystemSettingsPage() {
                 onClick={async () => {
                   if (!CAN_USE_API) return
                   try {
-                    const response = await fetch(`${API_BASE_URL}/api/system-configs/warning-rule`, {
+                    const response = await teacherAdminFetch(`${API_BASE_URL}/api/system-configs/warning-rule`, {
                       method: 'PUT',
                       headers: {
                         'Content-Type': 'application/json',
@@ -7233,7 +7607,7 @@ function AppLayout({
     if (!CAN_USE_API) return
     try {
       setProfileLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/auth/me`, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       })
       const payload = await response.json().catch(() => ({}))
@@ -7262,7 +7636,7 @@ function AppLayout({
     try {
       const values = await profileForm.validateFields()
       setProfileSaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/auth/me`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -7300,7 +7674,7 @@ function AppLayout({
         return
       }
       setPwdSaving(true)
-      const response = await fetch(`${API_BASE_URL}/api/auth/me/password`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/auth/me/password`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -7332,7 +7706,7 @@ function AppLayout({
       const formData = new FormData()
       formData.append('file', file)
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/me/avatar-upload`, {
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/auth/me/avatar-upload`, {
           method: 'POST',
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
           body: formData,
@@ -7561,6 +7935,7 @@ function AppLayout({
 }
 
 function App() {
+  const navigate = useNavigate()
   const [authToken, setAuthToken] = useState<string>(() => localStorage.getItem(AUTH_TOKEN_KEY) || '')
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     const raw = localStorage.getItem(AUTH_USER_KEY)
@@ -7605,6 +7980,19 @@ function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_THEME_INDEX, String(themeIndex))
   }, [themeIndex])
+
+  useEffect(() => {
+    teacherAdminUnauthorizedHandler = () => {
+      setAuthToken('')
+      setAuthUser(null)
+      localStorage.removeItem(AUTH_TOKEN_KEY)
+      localStorage.removeItem(AUTH_USER_KEY)
+      navigate('/login', { replace: true })
+    }
+    return () => {
+      teacherAdminUnauthorizedHandler = null
+    }
+  }, [navigate])
 
   const handleNextTheme = () => {
     setThemeIndex((prev) => (prev + 1) % themeOptions.length)

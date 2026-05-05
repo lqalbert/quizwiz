@@ -134,7 +134,7 @@ CREATE TABLE questions (
   stem TEXT NOT NULL,                      -- 题干（分列）
   answer_text TEXT NOT NULL,               -- 答案（分列）
   explanation TEXT,                        -- 解析（分列）
-  difficulty SMALLINT NOT NULL DEFAULT 2,  -- 1易 2中 3难
+  difficulty SMALLINT NOT NULL DEFAULT 3,  -- 1–5 难度等级，数值越大越难（默认 3）
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
