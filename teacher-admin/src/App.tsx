@@ -213,14 +213,28 @@ const mapQuestionTypeFromApi = (type: string | number) => {
   return String(type)
 }
 
-/** 难度：库存为 1–5（1 最易，5 最难）；兼容旧版中文 */
+/** 难度：库存为 1–5（1 最易，5 最难）；兼容旧版中英文、纯星标串、小数 */
 const mapDifficultyFromApi = (difficulty: string | number) => {
-  const n = typeof difficulty === 'number' ? difficulty : Number(String(difficulty).trim())
-  if (Number.isInteger(n) && n >= 1 && n <= 5) return String(n)
-  const s = String(difficulty ?? '').trim()
-  if (s === '简单') return '2'
-  if (s === '中等') return '3'
-  if (s === '困难') return '4'
+  if (difficulty == null || difficulty === '') return '3'
+  if (typeof difficulty === 'number' && !Number.isNaN(difficulty)) {
+    const r = Math.round(difficulty)
+    if (r >= 1 && r <= 5) return String(r)
+  }
+  const s = String(difficulty).trim()
+  if (!s) return '3'
+  const starMatches = s.match(/[⭐★]/g)
+  if (starMatches && starMatches.length >= 1 && /^\s*[⭐★\s]+\s*$/.test(s)) {
+    return String(Math.min(5, Math.max(1, starMatches.length)))
+  }
+  const lower = s.toLowerCase()
+  if (s === '简单' || lower === 'easy') return '2'
+  if (s === '中等' || lower === 'medium') return '3'
+  if (s === '困难' || lower === 'hard') return '4'
+  const n = Number(s)
+  if (!Number.isNaN(n)) {
+    const r = Math.round(n)
+    if (r >= 1 && r <= 5) return String(r)
+  }
   return '3'
 }
 
@@ -230,14 +244,17 @@ const previewTextWithLineBreaks = (raw: string | undefined | null) =>
     .replace(/\r\n/g, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
 
-/** 按规范后的难度等级（1–5）显示对应颗数的星标 */
+/** 按规范后的难度等级（1–5）显示对应颗数的星标（使用 ★ 避免部分字体下 ⭐ 过宽被表格裁切） */
 function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number }) {
   const levelStr = mapDifficultyFromApi(difficulty)
-  const n = Number(levelStr)
-  const count = Number.isInteger(n) && n >= 1 && n <= 5 ? n : 3
+  const n = parseInt(levelStr, 10)
+  const count = Number.isFinite(n) && n >= 1 && n <= 5 ? n : 3
   return (
-    <span title={`难度 ${count}（1 最易，5 最难）`} style={{ whiteSpace: 'nowrap', letterSpacing: 1 }}>
-      {'⭐'.repeat(count)}
+    <span
+      title={`难度 ${count}/5（1 最易，5 最难）`}
+      style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 1, lineHeight: 1.35, maxWidth: '100%' }}
+    >
+      {'★'.repeat(count)}
     </span>
   )
 }
@@ -1715,7 +1732,10 @@ function QuestionBankPage() {
           id: Number(item.id ?? 0),
           type: mapQuestionTypeFromApi(item.question_type as string | number),
           content: String(item.stem ?? item.content ?? '').slice(0, 50),
-          difficulty: String(item.difficulty_text ?? mapDifficultyFromApi(item.difficulty as string | number)),
+          difficulty: (() => {
+            const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
+            return t || mapDifficultyFromApi(item.difficulty as string | number)
+          })(),
           updatedAt: String(item.updated_at ?? item.updatedAt ?? '').slice(0, 10),
         }),
       )
@@ -3600,7 +3620,10 @@ function ExamPage() {
           id: Number(item.id),
           type: String(item.question_type_text ?? ''),
           stem: String(item.stem ?? ''),
-          difficulty: String(item.difficulty_text ?? ''),
+          difficulty: (() => {
+            const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
+            return t || mapDifficultyFromApi(item.difficulty as string | number)
+          })(),
         })),
       )
     } catch (error) {

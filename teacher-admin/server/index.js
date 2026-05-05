@@ -150,8 +150,11 @@ const parseDifficultyLevel = (value) => {
   return null
 }
 
-/** API 展示的 difficulty_text：与库存数值一致为 "1"…"5" */
+/** API 展示的 difficulty_text：与库存数值一致为 "1"…"5"；兼容旧版中英文（与 parseDifficultyLevel 一致） */
 const difficultyTextFromDb = (d) => {
+  if (d == null || d === '') return '3'
+  const parsed = parseDifficultyLevel(d)
+  if (parsed != null) return String(parsed)
   const n = Number(d)
   return Number.isInteger(n) && n >= 1 && n <= 5 ? String(n) : '3'
 }
