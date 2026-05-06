@@ -353,7 +353,48 @@ const ensureKnowledgeUnitSchema = async () => {
   await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS subject_id BIGINT REFERENCES subjects(id) ON DELETE CASCADE`)
   await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0`)
   await pool.query(`ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(`ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS knowledge_units_name_key`)
   await pool.query(`DROP INDEX IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(`DROP INDEX IF EXISTS knowledge_units_name_key`)
+  /**
+   * 旧版曾在整表上 UNIQUE(name)，导致不同科目下知识单元不能重名、插入误报「已存在」。
+   * 清理遗留的唯一约束 / 非条件唯一索引（保留带 WHERE 的 partial unique 与主键）。
+   */
+  await pool.query(`
+DO $migration$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT c.conname
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE t.relname = 'knowledge_units'
+      AND n.nspname = 'public'
+      AND c.contype = 'u'
+      AND pg_get_constraintdef(c.oid) !~* 'subject_id'
+      AND pg_get_constraintdef(c.oid) ~* 'unique.*\\(name\\)'
+  LOOP
+    EXECUTE format('ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS %I', r.conname);
+  END LOOP;
+
+  FOR r IN
+    SELECT indexname
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename = 'knowledge_units'
+      AND indexname <> 'knowledge_units_pkey'
+      AND indexdef ~* '^CREATE UNIQUE INDEX'
+      AND indexdef !~* 'WHERE'
+      AND indexdef ~* 'USING btree \\(name\\)'
+      AND indexdef !~* 'subject_id'
+  LOOP
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', 'public', r.indexname);
+  END LOOP;
+END
+$migration$;
+  `)
   await pool.query(
     `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_global_name_uidx ON knowledge_units (name) WHERE subject_id IS NULL`,
   )
@@ -1567,7 +1608,18 @@ const createKnowledgeUnitHandler = async (req, res, subjectIdRaw) => {
     return res.status(201).json({ data: result.rows[0] })
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
-      return res.status(409).json({ message: '该科目下已存在同名「知识单元」（与科目名称无关，请换单元名或检查是否重复添加）' })
+      const c = 'constraint' in error ? String(error.constraint || '') : ''
+      const legacyGlobalName =
+        c === 'knowledge_units_name_key' ||
+        c === 'knowledge_units_name_uidx' ||
+        (/knowledge_units/i.test(c) &&
+          /name/i.test(c) &&
+          !/subject_id|subject_name|global_name/i.test(c))
+      return res.status(409).json({
+        message: legacyGlobalName
+          ? '知识单元名称与库内其他记录冲突：数据库可能仍为「全局按名称唯一」的旧结构。请重启后端以执行迁移（去掉全局 UNIQUE(name)，改为按科目唯一）；或临时换一个全局未出现过的名称。'
+          : '该科目下已存在同名「知识单元」（与科目名称无关，请换单元名或勿重复添加「未分类」）。',
+      })
     }
     return res.status(500).json({ message: '新增知识单元失败', detail: error instanceof Error ? error.message : String(error) })
   }

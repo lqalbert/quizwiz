@@ -336,32 +336,53 @@ function parseKnowledgeUnitListFromSubjectsApi(
   }
 }
 
+type KnowledgeUnitsFetchResult = {
+  rows: Array<Record<string, unknown>>
+  /** 全部 URL 均为 404/405（常见于网关未转发部分路径），按空列表处理且不弹错误 */
+  silentEmpty?: boolean
+}
+
 /**
- * 部分网关会丢掉 GET /api/subjects 的查询串，导致误返回科目列表；POST 的 query 往往仍保留。
- * 依次尝试扁平路径，与 server 中 listKnowledgeUnitsForSubjectHandler 的挂载点一致。
+ * 部分网关会丢掉 GET /api/subjects 的查询串；另有一些环境未暴露 /api/knowledge-units。
+ * 优先路径参数 `/api/subjects/:id/knowledge-units`（与 POST 同源前缀），再试 query 与 scope。
  */
 async function fetchKnowledgeUnitsRowsForSubject(
   subjectId: number,
   authToken: string | null | undefined,
-): Promise<Array<Record<string, unknown>>> {
-  const sid = encodeURIComponent(String(subjectId))
+): Promise<KnowledgeUnitsFetchResult> {
+  const sidNum = Number(subjectId)
+  if (!Number.isInteger(sidNum) || sidNum <= 0) {
+    throw new Error('科目ID不合法')
+  }
+  const sidQ = encodeURIComponent(String(sidNum))
   const candidates = [
-    `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${sid}`,
-    `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${sid}`,
-    `${API_BASE_URL}/api/knowledge-units?subjectId=${sid}`,
+    `${API_BASE_URL}/api/subjects/${sidNum}/knowledge-units`,
+    `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${sidQ}`,
+    `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${sidQ}`,
+    `${API_BASE_URL}/api/knowledge-units?subjectId=${sidQ}`,
   ]
   const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+  let onlyNotFound = true
   let lastMessage = '加载知识单元失败'
   for (const url of candidates) {
     const response = await teacherAdminFetch(url, { headers })
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
     if (!response.ok) {
+      if (response.status !== 404 && response.status !== 405) {
+        onlyNotFound = false
+      }
       lastMessage = String(payload?.message || `加载知识单元失败(${response.status})`)
       continue
     }
+    onlyNotFound = false
     const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, subjectId)
-    if (parsed.ok) return parsed.rows
+    if (parsed.ok) {
+      return { rows: parsed.rows }
+    }
     lastMessage = parsed.ok === false ? parsed.message : lastMessage
+  }
+  if (onlyNotFound) {
+    return { rows: [], silentEmpty: true }
   }
   throw new Error(lastMessage)
 }
@@ -1993,7 +2014,7 @@ function QuestionBankPage() {
     }
     setKnowledgeUnitsLoading(true)
     try {
-      const list = await fetchKnowledgeUnitsRowsForSubject(sid, authToken)
+      const { rows: list } = await fetchKnowledgeUnitsRowsForSubject(sid, authToken)
       setKnowledgeUnitSelectOptions(
         list.map((u: Record<string, unknown>) => ({
           value: String(u.name ?? ''),
@@ -7457,7 +7478,7 @@ function SystemSettingsPage() {
     }
     try {
       setUnitDictLoading(true)
-      const rows = await fetchKnowledgeUnitsRowsForSubject(subjectId, authToken)
+      const { rows } = await fetchKnowledgeUnitsRowsForSubject(subjectId, authToken)
       setUnitDictRows(
         rows.map((r) => ({
           id: Number(r.id),
