@@ -18,7 +18,6 @@ import {
   Checkbox,
   Col,
   ConfigProvider,
-  Divider,
   Drawer,
   Empty,
   Popover,
@@ -7414,7 +7413,7 @@ function SystemSettingsPage() {
   const createKnowledgeUnit = async () => {
     if (!CAN_USE_API) return
     const sid = unitDictSubjectId
-    if (!sid) {
+    if (sid == null || !Number.isInteger(sid) || sid <= 0) {
       message.warning('请先选择要维护的科目')
       return
     }
@@ -7802,23 +7801,36 @@ function SystemSettingsPage() {
               </List.Item>
             )}
           />
-          <Divider titlePlacement="left">知识单元字典（按科目）</Divider>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-            题库与考试选题中的「知识单元」须从此处维护；每科默认含「未分类」，不可删除。
+        </Space>
+      ),
+    },
+    {
+      key: 'knowledge-units',
+      label: '知识单元字典',
+      children: (
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            为题库、考试选题提供按科目的知识单元选项；每科默认含「未分类」，不可删除。请先选择科目再维护列表。
           </Typography.Paragraph>
-          <Space wrap style={{ marginBottom: 12 }}>
+          <Space wrap>
             <Select
               allowClear
               placeholder="选择要维护的科目"
               style={{ width: 220 }}
               value={unitDictSubjectId}
               onChange={(value) => {
-                const next = typeof value === 'number' ? value : undefined
+                if (value === undefined || value === null) {
+                  setUnitDictSubjectId(undefined)
+                  setUnitDictRows([])
+                  return
+                }
+                const n = Number(value)
+                const next = Number.isInteger(n) && n > 0 ? n : undefined
                 setUnitDictSubjectId(next)
                 if (next) void loadUnitDictRows(next)
                 else setUnitDictRows([])
               }}
-              options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+              options={subjects.map((s) => ({ value: Number(s.id), label: s.name }))}
             />
             <Input
               placeholder="新知识单元名称"
@@ -7830,6 +7842,7 @@ function SystemSettingsPage() {
             <Button type="primary" onClick={() => void createKnowledgeUnit()}>
               添加知识单元
             </Button>
+            <Button onClick={() => void loadSubjects()}>刷新科目列表</Button>
           </Space>
           <Table
             size="small"
