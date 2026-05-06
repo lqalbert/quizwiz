@@ -303,18 +303,23 @@ function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number })
 }
 
 const questionColumns = [
-  { title: '题型', dataIndex: 'type', width: 90 },
-  { title: '题干摘要', dataIndex: 'content', ellipsis: true },
+  { title: '题型', dataIndex: 'type', width: 72 },
+  {
+    title: '题干摘要',
+    dataIndex: 'content',
+    width: 220,
+    ellipsis: { showTitle: true },
+  },
   {
     title: '知识单元',
     dataIndex: 'knowledgeUnit',
-    width: 120,
+    width: 96,
     ellipsis: { showTitle: false },
     render: (v: string) => {
       const t = v && String(v).trim() ? String(v).trim() : ''
       if (!t) return <Typography.Text type="secondary">—</Typography.Text>
       return (
-        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 112, display: 'block' }}>
+        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 88, display: 'block' }}>
           {t}
         </Typography.Text>
       )
@@ -323,13 +328,13 @@ const questionColumns = [
   {
     title: '知识点',
     dataIndex: 'knowledgePoints',
-    width: 200,
+    width: 150,
     ellipsis: { showTitle: false },
     render: (v: string) => {
       const t = v && String(v).trim() ? String(v).trim() : ''
       if (!t) return <Typography.Text type="secondary">—</Typography.Text>
       return (
-        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 192, display: 'block' }}>
+        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 142, display: 'block' }}>
           {t}
         </Typography.Text>
       )
@@ -338,7 +343,7 @@ const questionColumns = [
   {
     title: '难度',
     dataIndex: 'difficulty',
-    width: 130,
+    width: 100,
     render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
   },
 ]
@@ -1822,7 +1827,7 @@ function QuestionBankPage() {
           key: String(item.id ?? `api-${index}`),
           id: Number(item.id ?? 0),
           type: mapQuestionTypeFromApi(item.question_type as string | number),
-          content: String(item.stem ?? item.content ?? '').slice(0, 50),
+          content: String(item.stem ?? item.content ?? '').slice(0, 40),
           difficulty: (() => {
             const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
             return t || mapDifficultyFromApi(item.difficulty as string | number)
@@ -2138,7 +2143,7 @@ function QuestionBankPage() {
         key: `import-${Date.now()}-${index}`,
         id: 0,
         type,
-        content: stem.slice(0, 50),
+        content: stem.slice(0, 40),
         difficulty: difficultyLevel,
         knowledgeUnit: effectiveKnowledgeUnit,
         knowledgePoints: knowledgeText
@@ -2983,14 +2988,14 @@ function QuestionBankPage() {
         </Form.Item>
       </Form>
       <Table
-        scroll={{ x: 1100 }}
+        tableLayout="fixed"
+        style={{ width: '100%' }}
         columns={[
           ...questionColumns,
           {
             title: '操作',
             key: 'action',
-            width: 160,
-            fixed: 'right' as const,
+            width: 168,
             render: (_: unknown, row: QuestionListItem) => (
               <Space>
                 <Button type="link" onClick={() => void openEditDrawer(row.id)}>
@@ -7797,7 +7802,7 @@ function SystemSettingsPage() {
               </List.Item>
             )}
           />
-          <Divider orientation="left">知识单元字典（按科目）</Divider>
+          <Divider titlePlacement="left">知识单元字典（按科目）</Divider>
           <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
             题库与考试选题中的「知识单元」须从此处维护；每科默认含「未分类」，不可删除。
           </Typography.Paragraph>
