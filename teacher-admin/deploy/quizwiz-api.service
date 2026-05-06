@@ -1,16 +1,17 @@
 [Unit]
 Description=QuizWiz teacher-admin API (Node + Express)
-Documentation=file:///srv/quizwiz/teacher-admin/deploy/DEPLOY.md
+# 将下面所有 /home/ubuntu/QuizWiz 中的 ubuntu 换成你的 SSH 登录用户名；若用独立系统用户再改 User/Group
+Documentation=file:///home/ubuntu/QuizWiz/teacher-admin/deploy/DEPLOY.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=quizwiz
-Group=quizwiz
-WorkingDirectory=/srv/quizwiz/teacher-admin
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/QuizWiz/teacher-admin
 Environment=NODE_ENV=production
-EnvironmentFile=/srv/quizwiz/teacher-admin/.env
+EnvironmentFile=/home/ubuntu/QuizWiz/teacher-admin/.env
 ExecStart=/usr/bin/node server/index.js
 Restart=on-failure
 RestartSec=5

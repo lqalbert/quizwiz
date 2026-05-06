@@ -1,7 +1,7 @@
 【部署包说明】本目录随代码上传到服务器后按顺序操作。
 
 1) 环境变量
-   cd /srv/quizwiz/teacher-admin
+   cd ~/QuizWiz/teacher-admin
    cp deploy/env.example .env
    nano .env
    填好 DATABASE_URL、JWT_SECRET、WECHAT_MINI_APPID、WECHAT_MINI_SECRET 后保存。
@@ -10,7 +10,7 @@
    npm install
    npm run build
 
-3) PM2 启动 API（路径已写死为 /srv/quizwiz/teacher-admin，若你目录不同请先改 ecosystem.config.cjs 里的 cwd）
+3) PM2 启动 API（默认 cwd 见 ecosystem.config.cjs，一般为 /home/ubuntu/QuizWiz/teacher-admin，请改成你的路径）
    pm2 delete quizwiz-api 2>/dev/null
    pm2 start deploy/ecosystem.config.cjs
    pm2 save

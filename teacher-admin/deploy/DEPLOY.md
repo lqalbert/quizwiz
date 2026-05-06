@@ -33,22 +33,22 @@ sudo apt-get install -y nodejs
 
 ---
 
-## 3. 操作系统用户与目录
+## 3. 代码放哪一层？（不必再建小写 `quizwiz`）
+
+仓库根目录名已是 **`QuizWiz`** 时，**不要**再人为套一层 `/srv/quizwiz/QuizWiz` 之类，否则路径容易混。推荐在服务器上：
+
+```text
+/home/你的SSH用户名/QuizWiz/teacher-admin/
+/home/你的SSH用户名/QuizWiz/student-front/
+```
+
+即：**家目录 → `QuizWiz` 仓库根 → 子目录 `teacher-admin` / `student-front`**。下文示例用 **`ubuntu`** 用户、路径 **`/home/ubuntu/QuizWiz/teacher-admin`**，请按你的实际登录名替换。
+
+可选：创建上传目录并改属主（在仓库已放到 `~/QuizWiz` 后执行）：
 
 ```bash
 sudo bash teacher-admin/deploy/first-time-setup.sh
-```
-
-默认创建用户 `quizwiz`、目录 `/srv/quizwiz`。将项目 **`teacher-admin`** 整目录放到：
-
-```text
-/srv/quizwiz/teacher-admin/
-```
-
-并保证 `quizwiz` 用户对代码目录、`uploads/` 可写：
-
-```bash
-sudo chown -R quizwiz:quizwiz /srv/quizwiz/teacher-admin
+# 或指定路径：INSTALL_ROOT=/home/ubuntu/QuizWiz sudo -E bash teacher-admin/deploy/first-time-setup.sh
 ```
 
 ---
@@ -83,8 +83,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f init_v3.sql
 复制模板并编辑：
 
 ```bash
-cp deploy/env.server.template /srv/quizwiz/teacher-admin/.env
-chmod 600 /srv/quizwiz/teacher-admin/.env
+cp deploy/env.server.template /home/ubuntu/QuizWiz/teacher-admin/.env
+chmod 600 /home/ubuntu/QuizWiz/teacher-admin/.env
 ```
 
 至少配置：
@@ -99,7 +99,7 @@ chmod 600 /srv/quizwiz/teacher-admin/.env
 生产构建**必须**能解析到 `VITE_API_BASE_URL`，否则打包后 `CAN_USE_API` 为 false，页面无法请求接口。
 
 ```bash
-cd /srv/quizwiz/teacher-admin
+cd /home/ubuntu/QuizWiz/teacher-admin
 cp deploy/env.vite-build.template .env.production
 # 编辑 .env.production ，例如：
 # VITE_API_BASE_URL=https://www.quizwiz.cn
@@ -112,7 +112,7 @@ cp deploy/env.vite-build.template .env.production
 ## 6. 安装依赖与构建
 
 ```bash
-cd /srv/quizwiz/teacher-admin
+cd /home/ubuntu/QuizWiz/teacher-admin
 npm ci
 npm run build
 ```
@@ -158,7 +158,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ## 9. 部署后校验
 
 ```bash
-cd /srv/quizwiz/teacher-admin
+cd /home/ubuntu/QuizWiz/teacher-admin
 bash deploy/verify.sh https://www.quizwiz.cn
 ```
 
@@ -197,7 +197,7 @@ bash deploy/verify.sh https://www.quizwiz.cn
 2. **服务器：PostgreSQL + 初始化**  
    按上文 §4 建库并执行 `init_v3.sql`（需要演示账号可再执行 `seed_v3.sql`）。
 
-3. **服务器：Node 环境变量 `.env`**（`/srv/quizwiz/teacher-admin/.env`）  
+3. **服务器：Node 环境变量 `.env`**（`/home/ubuntu/QuizWiz/teacher-admin/.env`）  
    - `DATABASE_URL`：连本机或内网 Postgres。  
    - `JWT_SECRET`：强随机串。  
    - **`UPLOAD_PUBLIC_BASE=https://你的域名`**（须与浏览器访问的协议+主机一致，**不要**带路径末尾 `/`）。  
@@ -239,7 +239,7 @@ bash deploy/verify.sh https://www.quizwiz.cn
 ## 11. 更新发版（已有环境）
 
 ```bash
-cd /srv/quizwiz/teacher-admin
+cd /home/ubuntu/QuizWiz/teacher-admin
 git pull
 npm ci
 npm run build

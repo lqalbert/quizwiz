@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在服务器 /srv/quizwiz/teacher-admin 内执行：拉代码、安装依赖、构建、重启 API
+# 在服务器 teacher-admin 目录内执行（例如 cd ~/QuizWiz/teacher-admin）：拉代码、安装依赖、构建、重启 API
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
