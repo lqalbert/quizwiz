@@ -1411,8 +1411,9 @@ app.delete('/api/subjects/:id', authRequired, async (req, res) => {
   }
 })
 
-app.get('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
-  const subjectId = Number(req.params.id)
+/** 列表：扁平路径优先（部分网关对 /api/subjects/:id/knowledge-units 返回 404） */
+const listKnowledgeUnitsForSubjectHandler = async (req, res, subjectIdRaw) => {
+  const subjectId = Number(subjectIdRaw)
   if (!Number.isInteger(subjectId) || subjectId <= 0) {
     return res.status(400).json({ message: '科目ID不合法' })
   }
@@ -1434,13 +1435,28 @@ app.get('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: '知识单元列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
+}
+
+app.get('/api/knowledge-units', authRequired, async (req, res) => {
+  const raw = req.query?.subjectId ?? req.query?.subject_id
+  return listKnowledgeUnitsForSubjectHandler(req, res, raw)
 })
 
-app.post('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
+/** 与 GET /api/subjects 同前缀，便于只放行了 /api/subjects/* 的网关 */
+app.get('/api/subjects/knowledge-units', authRequired, async (req, res) => {
+  const raw = req.query?.subjectId ?? req.query?.subject_id
+  return listKnowledgeUnitsForSubjectHandler(req, res, raw)
+})
+
+app.get('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
+  return listKnowledgeUnitsForSubjectHandler(req, res, req.params.id)
+})
+
+const createKnowledgeUnitHandler = async (req, res, subjectIdRaw) => {
   if (!hasRole(req, 'admin')) {
     return res.status(403).json({ message: '仅管理员可维护知识单元字典' })
   }
-  const subjectId = Number(req.params.id)
+  const subjectId = Number(subjectIdRaw)
   if (!Number.isInteger(subjectId) || subjectId <= 0) {
     return res.status(400).json({ message: '科目ID不合法' })
   }
@@ -1484,6 +1500,20 @@ app.post('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => 
     }
     return res.status(500).json({ message: '新增知识单元失败', detail: error instanceof Error ? error.message : String(error) })
   }
+}
+
+app.post('/api/knowledge-units', authRequired, async (req, res) => {
+  const sid = req.body?.subjectId ?? req.body?.subject_id
+  return createKnowledgeUnitHandler(req, res, sid)
+})
+
+app.post('/api/subjects/knowledge-units', authRequired, async (req, res) => {
+  const sid = req.body?.subjectId ?? req.body?.subject_id
+  return createKnowledgeUnitHandler(req, res, sid)
+})
+
+app.post('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
+  return createKnowledgeUnitHandler(req, res, req.params.id)
 })
 
 app.delete('/api/knowledge-units/:id', authRequired, async (req, res) => {

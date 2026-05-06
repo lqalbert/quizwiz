@@ -1928,9 +1928,12 @@ function QuestionBankPage() {
     }
     setKnowledgeUnitsLoading(true)
     try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${sid}/knowledge-units`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      })
+      const response = await teacherAdminFetch(
+        `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${encodeURIComponent(String(sid))}`,
+        {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        },
+      )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
       const list = Array.isArray(payload?.data) ? payload.data : []
@@ -7396,9 +7399,12 @@ function SystemSettingsPage() {
     }
     try {
       setUnitDictLoading(true)
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${subjectId}/knowledge-units`, {
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      })
+      const response = await teacherAdminFetch(
+        `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${encodeURIComponent(String(subjectId))}`,
+        {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        },
+      )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
       setUnitDictRows(Array.isArray(payload?.data) ? payload.data : [])
@@ -7423,13 +7429,13 @@ function SystemSettingsPage() {
       return
     }
     try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${sid}/knowledge-units`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/knowledge-units`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ subjectId: sid, name }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)
