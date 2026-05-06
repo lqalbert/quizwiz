@@ -1929,7 +1929,7 @@ function QuestionBankPage() {
     setKnowledgeUnitsLoading(true)
     try {
       const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${encodeURIComponent(String(sid))}`,
+        `${API_BASE_URL}/api/subjects?knowledgeUnitsSubjectId=${encodeURIComponent(String(sid))}`,
         {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
@@ -7400,7 +7400,7 @@ function SystemSettingsPage() {
     try {
       setUnitDictLoading(true)
       const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${encodeURIComponent(String(subjectId))}`,
+        `${API_BASE_URL}/api/subjects?knowledgeUnitsSubjectId=${encodeURIComponent(String(subjectId))}`,
         {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
@@ -7429,13 +7429,13 @@ function SystemSettingsPage() {
       return
     }
     try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/knowledge-units`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ subjectId: sid, name }),
+        body: JSON.stringify({ _kind: 'knowledge_unit', subjectId: sid, name }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)

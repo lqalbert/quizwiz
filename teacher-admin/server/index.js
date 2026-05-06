@@ -1162,7 +1162,13 @@ app.post('/api/auth/me/avatar-upload', authRequired, (req, res) => {
   })
 })
 
-app.get('/api/subjects', authRequired, async (_req, res) => {
+app.get('/api/subjects', authRequired, async (req, res) => {
+  /** 与科目列表同一路径，避免网关只放行「精确 /api/subjects」时子路径 404 */
+  const kuSubjectRaw =
+    req.query?.knowledgeUnitsSubjectId ?? req.query?.knowledge_units_subject_id ?? req.query?.knowledgeUnitsFor
+  if (kuSubjectRaw != null && String(kuSubjectRaw).trim() !== '') {
+    return listKnowledgeUnitsForSubjectHandler(req, res, kuSubjectRaw)
+  }
   try {
     const { rows } = await pool.query(
       `
@@ -1341,6 +1347,10 @@ app.put('/api/system-configs/warning-rule', authRequired, async (req, res) => {
 app.post('/api/subjects', authRequired, async (req, res) => {
   if (!hasRole(req, 'admin')) {
     return res.status(403).json({ message: '仅管理员可新增科目' })
+  }
+  if (req.body?._kind === 'knowledge_unit') {
+    const sid = req.body?.subjectId ?? req.body?.subject_id
+    return createKnowledgeUnitHandler(req, res, sid)
   }
   const name = String(req.body?.name || '').trim()
   if (!name) {
