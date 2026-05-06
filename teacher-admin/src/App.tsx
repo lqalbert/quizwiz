@@ -321,12 +321,18 @@ function parseKnowledgeUnitListFromSubjectsApi(
   if (meta?.resource === 'knowledge_units') {
     return { ok: true, rows }
   }
-  if (rows.length > 0 && rows.every((r) => Number(r.subject_id) === expectedSubjectId)) {
+  /** 该科目下暂无单元时多为 []；旧后端可能不带 meta、行里也无 subject_id，不能误判为失败 */
+  if (rows.length === 0) {
+    return { ok: true, rows }
+  }
+  const subjectIdOf = (r: Record<string, unknown>) => Number(r.subject_id ?? r.subjectId)
+  if (rows.every((r) => Number.isFinite(subjectIdOf(r)) && subjectIdOf(r) === expectedSubjectId)) {
     return { ok: true, rows }
   }
   return {
     ok: false,
-    message: '接口未返回可识别的知识单元数据（缺少 meta.resource 或行内 subject_id）。请升级后端。',
+    message:
+      '接口返回的数据无法确认为「当前科目的知识单元列表」（例如仍返回了科目列表，或行内缺少 subject_id）。请部署最新后端，并确认请求 URL 含 scope=knowledge_units 与 subjectId。',
   }
 }
 
