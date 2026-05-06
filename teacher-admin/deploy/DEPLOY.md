@@ -143,6 +143,23 @@ curl -sS http://127.0.0.1:3000/api/health
 
 ## 8. Nginx + HTTPS
 
+### 8.1 首次申请证书（证书还不存在时）
+
+若 Nginx 配置里已写了 `ssl_certificate /etc/letsencrypt/live/...`，但证书**尚未签发**，会出现 `nginx -t` / `certbot --nginx` 均失败（找不到 `fullchain.pem`）。请**先用仅 HTTP 的配置**：
+
+```bash
+cd ~/QuizWiz/teacher-admin
+sudo cp deploy/nginx-www.quizwiz.cn.http-only.conf /etc/nginx/sites-available/quizwiz.conf
+# 若用户名不是 ubuntu：sudo nano ... 把 root 改成你的 /home/你的用户/QuizWiz/teacher-admin/dist
+sudo ln -sf /etc/nginx/sites-available/quizwiz.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d www.quizwiz.cn
+```
+
+`certbot` 成功后会自动为站点增加 443 与证书路径；之后再 `sudo nginx -t && sudo systemctl reload nginx`。若需与仓库里完整模板对齐，可参考 **`deploy/nginx-server-www.quizwiz.cn.conf`**（此时证书文件已存在，`nginx -t` 才能通过）。
+
+### 8.2 证书已存在后的维护
+
 1. 将 **`deploy/nginx-server-www.quizwiz.cn.conf`** 合并进站点配置（或整文件放入 `sites-available` 再 `ln -s`）。
 2. 将证书路径改为 certbot 实际路径：`sudo certbot certificates`
 3. 测试并重载：
@@ -266,7 +283,8 @@ bash deploy/verify.sh https://www.quizwiz.cn
 
 | 文件 | 用途 |
 |------|------|
-| `deploy/nginx-server-www.quizwiz.cn.conf` | 完整站点（含 `/api`、`/uploads`） |
+| `deploy/nginx-server-www.quizwiz.cn.conf` | 完整站点（含 `/api`、`/uploads`；**需已有证书**） |
+| `deploy/nginx-www.quizwiz.cn.http-only.conf` | **首次**仅 80 端口，用于 certbot 签发前避免证书路径错误 |
 | `deploy/nginx-api-location.snippet.conf` | 仅反代片段，嵌入已有 server |
 | `deploy/quizwiz-api.service` | systemd 单元 |
 | `deploy/env.server.template` | 服务端 `.env` 模板 |
