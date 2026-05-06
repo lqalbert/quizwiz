@@ -336,6 +336,36 @@ function parseKnowledgeUnitListFromSubjectsApi(
   }
 }
 
+/**
+ * 部分网关会丢掉 GET /api/subjects 的查询串，导致误返回科目列表；POST 的 query 往往仍保留。
+ * 依次尝试扁平路径，与 server 中 listKnowledgeUnitsForSubjectHandler 的挂载点一致。
+ */
+async function fetchKnowledgeUnitsRowsForSubject(
+  subjectId: number,
+  authToken: string | null | undefined,
+): Promise<Array<Record<string, unknown>>> {
+  const sid = encodeURIComponent(String(subjectId))
+  const candidates = [
+    `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${sid}`,
+    `${API_BASE_URL}/api/subjects/knowledge-units?subjectId=${sid}`,
+    `${API_BASE_URL}/api/knowledge-units?subjectId=${sid}`,
+  ]
+  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+  let lastMessage = '加载知识单元失败'
+  for (const url of candidates) {
+    const response = await teacherAdminFetch(url, { headers })
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    if (!response.ok) {
+      lastMessage = String(payload?.message || `加载知识单元失败(${response.status})`)
+      continue
+    }
+    const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, subjectId)
+    if (parsed.ok) return parsed.rows
+    lastMessage = parsed.ok === false ? parsed.message : lastMessage
+  }
+  throw new Error(lastMessage)
+}
+
 const questionColumns = [
   { title: '题型', dataIndex: 'type', width: 72 },
   {
@@ -1963,19 +1993,7 @@ function QuestionBankPage() {
     }
     setKnowledgeUnitsLoading(true)
     try {
-      const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${encodeURIComponent(String(sid))}`,
-        {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        },
-      )
-      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
-      if (!response.ok) throw new Error(String(payload?.message || `加载知识单元失败(${response.status})`))
-      const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, sid)
-      if (parsed.ok === false) {
-        throw new Error(parsed.message)
-      }
-      const list = parsed.rows
+      const list = await fetchKnowledgeUnitsRowsForSubject(sid, authToken)
       setKnowledgeUnitSelectOptions(
         list.map((u: Record<string, unknown>) => ({
           value: String(u.name ?? ''),
@@ -7439,20 +7457,9 @@ function SystemSettingsPage() {
     }
     try {
       setUnitDictLoading(true)
-      const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${encodeURIComponent(String(subjectId))}`,
-        {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        },
-      )
-      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
-      if (!response.ok) throw new Error(String(payload?.message || `加载知识单元失败(${response.status})`))
-      const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, subjectId)
-      if (parsed.ok === false) {
-        throw new Error(parsed.message)
-      }
+      const rows = await fetchKnowledgeUnitsRowsForSubject(subjectId, authToken)
       setUnitDictRows(
-        parsed.rows.map((r) => ({
+        rows.map((r) => ({
           id: Number(r.id),
           name: String(r.name ?? ''),
           sort_order: Number(r.sort_order ?? 0),
