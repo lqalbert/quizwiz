@@ -1348,11 +1348,27 @@ app.post('/api/subjects', authRequired, async (req, res) => {
   if (!hasRole(req, 'admin')) {
     return res.status(403).json({ message: '仅管理员可新增科目' })
   }
-  if (req.body?._kind === 'knowledge_unit') {
-    const sid = req.body?.subjectId ?? req.body?.subject_id
-    return createKnowledgeUnitHandler(req, res, sid)
+  const nameTrim = String(req.body?.name || '').trim()
+  const sidRaw = req.body?.subjectId ?? req.body?.subject_id
+  const sidNum = Number(sidRaw)
+  const hasParentSubject = Number.isInteger(sidNum) && sidNum > 0
+  const kuExplicit =
+    req.body?._kind === 'knowledge_unit' ||
+    req.body?.kind === 'knowledge_unit' ||
+    req.body?.action === 'create_knowledge_unit'
+  /** 仅新增科目：显式 intent，避免与「科目 id + 单元名」混淆 */
+  const forceNewSubjectOnly = req.body?.intent === 'subject' || req.body?.createSubject === true
+  /**
+   * 在科目下新增知识单元：须带所属科目 id + 单元名称。
+   * 部分网关会去掉以下划线开头的字段，故不能单靠 _kind；只要 body 里带合法 subjectId 且有 name，即视为知识单元（新增科目请求只发 { name }，不带 subjectId）。
+   */
+  if (!forceNewSubjectOnly && (kuExplicit || (hasParentSubject && nameTrim))) {
+    if (!hasParentSubject) {
+      return res.status(400).json({ message: '新增知识单元须指定 subjectId（所属科目）' })
+    }
+    return createKnowledgeUnitHandler(req, res, sidNum)
   }
-  const name = String(req.body?.name || '').trim()
+  const name = nameTrim
   if (!name) {
     return res.status(400).json({ message: '科目名称不能为空' })
   }

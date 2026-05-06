@@ -7435,7 +7435,7 @@ function SystemSettingsPage() {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ _kind: 'knowledge_unit', subjectId: sid, name }),
+        body: JSON.stringify({ kind: 'knowledge_unit', subjectId: sid, name }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)
@@ -7584,7 +7584,7 @@ function SystemSettingsPage() {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, intent: 'subject' }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)
