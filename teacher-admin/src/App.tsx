@@ -18,6 +18,7 @@ import {
   Checkbox,
   Col,
   ConfigProvider,
+  Divider,
   Drawer,
   Empty,
   Popover,
@@ -108,7 +109,8 @@ const initialQuestionData = [
     type: '单选',
     content: '已知函数 f(x)=x^2+2x+1，下列说法正确的是...',
     difficulty: '3',
-    knowledgePoints: '函数、二次函数',
+    knowledgeUnit: '函数',
+    knowledgePoints: '二次函数、图像',
     updatedAt: '2026-04-20',
   },
   {
@@ -117,12 +119,26 @@ const initialQuestionData = [
     type: '填空',
     content: '求抛物线 y=x^2 的顶点坐标',
     difficulty: '2',
+    knowledgeUnit: '',
     knowledgePoints: '',
     updatedAt: '2026-04-22',
   },
 ]
 
-const excelTemplateHeaders = ['科目', '题型', '题干', '选项A', '选项B', '选项C', '选项D', '答案', '解析', '难度', '知识点']
+const excelTemplateHeaders = [
+  '科目',
+  '题型',
+  '题干',
+  '选项A',
+  '选项B',
+  '选项C',
+  '选项D',
+  '答案',
+  '解析',
+  '难度',
+  '知识单元',
+  '知识点',
+]
 const validQuestionTypes = new Set(['单选', '多选', '判断', '填空', '简答'])
 const validDifficulties = new Set(['1', '2', '3', '4', '5'])
 const difficultyLevelSelectOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
@@ -169,6 +185,7 @@ type QuestionListItem = {
   type: string
   content: string
   difficulty: string
+  knowledgeUnit: string
   knowledgePoints: string
   updatedAt: string
 }
@@ -184,6 +201,7 @@ type ImportPayloadRow = {
   answer: string
   explanation: string
   difficulty: string
+  knowledgeUnit: string
   knowledgePoints: string[]
 }
 
@@ -288,15 +306,30 @@ const questionColumns = [
   { title: '题型', dataIndex: 'type', width: 90 },
   { title: '题干摘要', dataIndex: 'content', ellipsis: true },
   {
-    title: '知识点',
-    dataIndex: 'knowledgePoints',
-    width: 220,
+    title: '知识单元',
+    dataIndex: 'knowledgeUnit',
+    width: 120,
     ellipsis: { showTitle: false },
     render: (v: string) => {
       const t = v && String(v).trim() ? String(v).trim() : ''
       if (!t) return <Typography.Text type="secondary">—</Typography.Text>
       return (
-        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 212, display: 'block' }}>
+        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 112, display: 'block' }}>
+          {t}
+        </Typography.Text>
+      )
+    },
+  },
+  {
+    title: '知识点',
+    dataIndex: 'knowledgePoints',
+    width: 200,
+    ellipsis: { showTitle: false },
+    render: (v: string) => {
+      const t = v && String(v).trim() ? String(v).trim() : ''
+      if (!t) return <Typography.Text type="secondary">—</Typography.Text>
+      return (
+        <Typography.Text ellipsis={{ tooltip: t }} style={{ maxWidth: 192, display: 'block' }}>
           {t}
         </Typography.Text>
       )
@@ -319,6 +352,7 @@ type QuestionPreviewDetail = {
   answerDisplay: string
   explanation: string
   difficultyText: string
+  knowledgeUnit: string
   knowledgePoints: string[]
 }
 
@@ -350,6 +384,7 @@ const buildQuestionPreviewDetailFromApi = (detail: Record<string, unknown>): Que
     answerDisplay,
     explanation: String(detail.explanation || ''),
     difficultyText: mapDifficultyFromApi(detail.difficulty as string | number),
+    knowledgeUnit: String(detail.knowledgeUnit ?? '').trim(),
     knowledgePoints: Array.isArray(detail.knowledgePoints) ? detail.knowledgePoints.map((x) => String(x)) : [],
   }
 }
@@ -1583,6 +1618,11 @@ function QuestionPreviewPanelBody({ item }: { item: QuestionPreviewDetail }) {
           </Typography.Paragraph>
         </>
       ) : null}
+      {item.knowledgeUnit ? (
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
+          知识单元：{item.knowledgeUnit}
+        </Typography.Paragraph>
+      ) : null}
       {item.knowledgePoints.length > 0 ? (
         <Space wrap size={4}>
           {item.knowledgePoints.map((name) => (
@@ -1728,7 +1768,9 @@ function QuestionBankPage() {
   const [importPreviewRows, setImportPreviewRows] = useState<QuestionListItem[]>([])
   const [importPayloadRows, setImportPayloadRows] = useState<ImportPayloadRow[]>([])
   const [importErrors, setImportErrors] = useState<string[]>([])
-  const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: string; id: number }>>([])
+  const [knowledgeUnitSelectOptions, setKnowledgeUnitSelectOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [knowledgeUnitsLoading, setKnowledgeUnitsLoading] = useState(false)
 
   const loadQuestionList = async (overrides?: {
     subject?: string
@@ -1785,6 +1827,7 @@ function QuestionBankPage() {
             const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
             return t || mapDifficultyFromApi(item.difficulty as string | number)
           })(),
+          knowledgeUnit: String(item.knowledgeUnit ?? item.knowledge_unit ?? '').trim(),
           knowledgePoints: (() => {
             const tags = item.knowledgePointTags
             if (Array.isArray(tags) && tags.length > 0) return tags.map((t) => String(t).trim()).filter(Boolean).join('、')
@@ -1858,6 +1901,7 @@ function QuestionBankPage() {
           (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => ({
             label: String(item.name ?? ''),
             value: String(item.name ?? ''),
+            id: Number(item.id ?? 0),
           })),
         )
       } catch (error) {
@@ -1866,6 +1910,39 @@ function QuestionBankPage() {
     }
     void loadSubjectOptions()
   }, [authToken])
+
+  const loadKnowledgeUnitsForSubjectName = async (subjectName: string) => {
+    if (!CAN_USE_API || !String(subjectName || '').trim()) {
+      setKnowledgeUnitSelectOptions([])
+      return
+    }
+    const row = subjectOptions.find((o) => o.value === subjectName || o.label === subjectName)
+    const sid = row?.id
+    if (!sid) {
+      setKnowledgeUnitSelectOptions([])
+      return
+    }
+    setKnowledgeUnitsLoading(true)
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${sid}/knowledge-units`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
+      const list = Array.isArray(payload?.data) ? payload.data : []
+      setKnowledgeUnitSelectOptions(
+        list.map((u: Record<string, unknown>) => ({
+          value: String(u.name ?? ''),
+          label: String(u.name ?? ''),
+        })),
+      )
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载知识单元字典失败')
+      setKnowledgeUnitSelectOptions([])
+    } finally {
+      setKnowledgeUnitsLoading(false)
+    }
+  }
 
   const downloadTemplate = async () => {
     const exampleRows: Array<Record<string, string>> = [
@@ -1880,7 +1957,8 @@ function QuestionBankPage() {
         答案: 'A',
         解析: 'y=(x+1)^2，最小值为0',
         难度: '3',
-        知识点: '函数;二次函数',
+        知识单元: '函数',
+        知识点: '二次函数;图像',
       },
       {
         科目: '英语',
@@ -1893,6 +1971,7 @@ function QuestionBankPage() {
         答案: 'goes',
         解析: '第三人称单数用 goes',
         难度: '2',
+        知识单元: '语法',
         知识点: '一般现在时',
       },
     ]
@@ -1935,7 +2014,7 @@ function QuestionBankPage() {
       exampleRows.forEach((row) => {
         sheet.addRow(excelTemplateHeaders.map((h) => String(row[h] ?? '')))
       })
-      const colWidths: number[] = [10, 8, 44, 18, 18, 18, 18, 10, 28, 8, 22]
+      const colWidths: number[] = [10, 8, 44, 18, 18, 18, 18, 10, 28, 8, 14, 22]
       excelTemplateHeaders.forEach((_, i) => {
         sheet.getColumn(i + 1).width = colWidths[i] ?? 14
       })
@@ -2026,7 +2105,9 @@ function QuestionBankPage() {
       const optionD = String(row['选项D'] ?? '').trim()
       const subject = String(row['科目'] ?? '').trim()
       const explanation = String(row['解析'] ?? '').trim()
+      const knowledgeUnitCol = String(row['知识单元'] ?? '').trim()
       const knowledgeText = String(row['知识点'] ?? '').trim()
+      const effectiveKnowledgeUnit = knowledgeUnitCol || (knowledgeText ? '未分类' : '')
 
       if (!validQuestionTypes.has(type)) {
         errors.push(`第 ${rowNo} 行：题型非法（${type || '空'}）`)
@@ -2059,6 +2140,7 @@ function QuestionBankPage() {
         type,
         content: stem.slice(0, 50),
         difficulty: difficultyLevel,
+        knowledgeUnit: effectiveKnowledgeUnit,
         knowledgePoints: knowledgeText
           ? knowledgeText.split(/[;；,，\s]+/).filter(Boolean).slice(0, 8).join('、')
           : '',
@@ -2075,6 +2157,7 @@ function QuestionBankPage() {
         answer,
         explanation,
         difficulty: difficultyLevel,
+        knowledgeUnit: effectiveKnowledgeUnit,
         knowledgePoints: knowledgeText
           ? knowledgeText
               .split(';')
@@ -2186,6 +2269,7 @@ function QuestionBankPage() {
         answer: normalizedAnswer,
         explanation: String(values.explanation || '').trim(),
         difficulty: String(values.difficulty || '3').trim(),
+        knowledgeUnit: String(values.knowledgeUnit || '').trim(),
         knowledgePoints: Array.isArray(values.knowledgePoints) ? values.knowledgePoints.map((item: unknown) => String(item).trim()).filter(Boolean) : [],
       }
       const endpoint = editingQuestionId ? `${API_BASE_URL}/api/questions/${editingQuestionId}` : `${API_BASE_URL}/api/questions`
@@ -2211,8 +2295,18 @@ function QuestionBankPage() {
 
   const openCreateDrawer = () => {
     setEditingQuestionId(null)
+    setKnowledgeUnitSelectOptions([])
     createForm.resetFields()
-    createForm.setFieldsValue({ type: 'single', difficulty: '3', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' })
+    createForm.setFieldsValue({
+      type: 'single',
+      difficulty: '3',
+      knowledgeUnit: '',
+      knowledgePoints: [],
+      optionA: '',
+      optionB: '',
+      optionC: '',
+      optionD: '',
+    })
     setOpenDrawer(true)
   }
 
@@ -2235,8 +2329,9 @@ function QuestionBankPage() {
       })
       setEditingQuestionId(id)
       setOpenDrawer(true)
+      const subj = String(detail.subject || '')
       createForm.setFieldsValue({
-        subject: String(detail.subject || ''),
+        subject: subj,
         type,
         stem: String(detail.stem || ''),
         optionA: optionMap.A || '',
@@ -2246,8 +2341,10 @@ function QuestionBankPage() {
         answer: String(detail.answer || ''),
         explanation: String(detail.explanation || ''),
         difficulty: mapDifficultyFromApi(detail.difficulty as string | number),
+        knowledgeUnit: String(detail.knowledgeUnit ?? '').trim(),
         knowledgePoints: Array.isArray(detail.knowledgePoints) ? detail.knowledgePoints : [],
       })
+      void loadKnowledgeUnitsForSubjectName(subj)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载题目详情失败')
     }
@@ -2674,11 +2771,18 @@ function QuestionBankPage() {
     if (!CAN_USE_API || selectedQuestionIds.length === 0) return
     try {
       const values = await batchForm.validateFields()
+      const addKnowledgePoints = Array.isArray(values.addKnowledgePoints) ? values.addKnowledgePoints : []
+      const addKnowledgeUnit = String(values.addKnowledgeUnit || '').trim()
+      if (addKnowledgePoints.length > 0 && !addKnowledgeUnit) {
+        message.warning('批量新增知识点时请先填写「批量新增所属知识单元」')
+        return
+      }
       const payload = {
         ids: selectedQuestionIds,
         subject: String(values.subject || '').trim(),
         difficulty: String(values.difficulty || '').trim(),
-        addKnowledgePoints: Array.isArray(values.addKnowledgePoints) ? values.addKnowledgePoints : [],
+        addKnowledgeUnit,
+        addKnowledgePoints,
         removeKnowledgePoints: Array.isArray(values.removeKnowledgePoints) ? values.removeKnowledgePoints : [],
       }
       if (!payload.subject && !payload.difficulty && payload.addKnowledgePoints.length === 0 && payload.removeKnowledgePoints.length === 0) {
@@ -3042,7 +3146,7 @@ function QuestionBankPage() {
               render: (_: unknown, row: { id: number }) => (
                 <Popconfirm
                   title="确认回滚到该版本？"
-                  description="将覆盖当前题目内容（题干/选项/答案/解析/难度/知识点）"
+                  description="将覆盖当前题目内容（题干/选项/答案/解析/难度/知识单元/知识点）"
                   okText="回滚"
                   cancelText="取消"
                   onConfirm={() => {
@@ -3249,6 +3353,13 @@ function QuestionBankPage() {
           <Form.Item label="批量修改难度" name="difficulty">
             <Select allowClear placeholder="不修改请留空" options={difficultyLevelSelectOptions} />
           </Form.Item>
+          <Form.Item
+            label="批量新增所属知识单元"
+            name="addKnowledgeUnit"
+            extra="各题科目可能不同：名称须在对应科目的「系统设置 → 科目字典 → 知识单元」中均已配置。"
+          >
+            <Input placeholder="须与各题所属科目的系统字典一致，如：函数" allowClear />
+          </Form.Item>
           <Form.Item label="批量新增知识点标签" name="addKnowledgePoints">
             <Select mode="tags" placeholder="输入后回车，可留空" />
           </Form.Item>
@@ -3270,8 +3381,21 @@ function QuestionBankPage() {
         <Form
           form={createForm}
           layout="vertical"
-          initialValues={{ type: 'single', difficulty: '3', knowledgePoints: [], optionA: '', optionB: '', optionC: '', optionD: '' }}
+          initialValues={{
+            type: 'single',
+            difficulty: '3',
+            knowledgeUnit: '',
+            knowledgePoints: [],
+            optionA: '',
+            optionB: '',
+            optionC: '',
+            optionD: '',
+          }}
           onValuesChange={(changedValues) => {
+            if (Object.prototype.hasOwnProperty.call(changedValues, 'subject')) {
+              createForm.setFieldsValue({ knowledgeUnit: undefined, knowledgePoints: [] })
+              void loadKnowledgeUnitsForSubjectName(String(changedValues.subject || ''))
+            }
             if (!Object.prototype.hasOwnProperty.call(changedValues, 'type')) return
             const nextType = changedValues.type
             if (nextType === 'judge') {
@@ -3417,8 +3541,35 @@ function QuestionBankPage() {
           <Form.Item label="难度（1 最易，5 最难）" name="difficulty" rules={[{ required: true, message: '请选择难度' }]}>
             <Select options={difficultyLevelSelectOptions} />
           </Form.Item>
+          <Form.Item
+            label="知识单元"
+            name="knowledgeUnit"
+            dependencies={['knowledgePoints']}
+            rules={[
+              {
+                validator: async (_, v) => {
+                  const pts = createForm.getFieldValue('knowledgePoints') as unknown[] | undefined
+                  const list = Array.isArray(pts) ? pts.map((x) => String(x).trim()).filter(Boolean) : []
+                  if (list.length > 0 && !String(v || '').trim()) {
+                    return Promise.reject(new Error('已填写知识点时须填写知识单元'))
+                  }
+                  return Promise.resolve()
+                },
+              },
+            ]}
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请先选择科目，再从字典中选择"
+              loading={knowledgeUnitsLoading}
+              options={knowledgeUnitSelectOptions}
+              notFoundContent={knowledgeUnitsLoading ? <Spin size="small" /> : '无数据，请先在系统设置维护该科目的知识单元'}
+            />
+          </Form.Item>
           <Form.Item label="知识点标签" name="knowledgePoints">
-            <Select mode="tags" placeholder="输入后回车创建标签" />
+            <Select mode="tags" placeholder="输入后回车；多个标签同属上方知识单元" />
           </Form.Item>
           <Button type="primary" block onClick={() => void submitCreateQuestion()}>
             {editingQuestionId ? '保存修改' : '保存题目'}
@@ -3539,6 +3690,9 @@ function ExamPage() {
   const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: number }>>([])
   const [questionOptions, setQuestionOptions] = useState<Array<{ key: string; id: number; type: string; stem: string; difficulty: string }>>([])
   const [questionKeyword, setQuestionKeyword] = useState('')
+  /** 考试选题：按知识单元 / 知识点（标签名）筛选，对应 GET /api/questions 的 knowledgeUnit、knowledgeTag */
+  const [examKnowledgeUnit, setExamKnowledgeUnit] = useState('')
+  const [examKnowledgeTag, setExamKnowledgeTag] = useState('')
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([])
   const [questionScoreMap, setQuestionScoreMap] = useState<Record<number, number>>({})
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | undefined>(undefined)
@@ -3697,15 +3851,17 @@ function ExamPage() {
     }
   }
 
-  const loadQuestions = async (subjectId?: number, keyword?: string) => {
+  const loadQuestions = async () => {
     if (!CAN_USE_API) return
     try {
       const query = new URLSearchParams()
-      if (subjectId) {
-        const subject = subjectOptions.find((item) => item.value === subjectId)?.label
+      if (selectedSubjectId) {
+        const subject = subjectOptions.find((item) => item.value === selectedSubjectId)?.label
         if (subject) query.set('subject', subject)
       }
-      if (keyword?.trim()) query.set('keyword', keyword.trim())
+      if (questionKeyword.trim()) query.set('keyword', questionKeyword.trim())
+      if (examKnowledgeUnit.trim()) query.set('knowledgeUnit', examKnowledgeUnit.trim())
+      if (examKnowledgeTag.trim()) query.set('knowledgeTag', examKnowledgeTag.trim())
       const url = `${API_BASE_URL}/api/questions${query.toString() ? `?${query.toString()}` : ''}`
       const response = await teacherAdminFetch(url, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
@@ -3763,9 +3919,9 @@ function ExamPage() {
 
   useEffect(() => {
     if (!openCreate) return
-    void loadQuestions(selectedSubjectId, questionKeyword)
+    void loadQuestions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openCreate, selectedSubjectId, questionKeyword, subjectOptions.length])
+  }, [openCreate, selectedSubjectId, subjectOptions.length])
 
   const baseColumns: Array<Record<string, unknown>> = [
     {
@@ -3800,6 +3956,8 @@ function ExamPage() {
                 setQuestionScoreMap({})
                 setSelectedSubjectId(undefined)
                 setQuestionKeyword('')
+                setExamKnowledgeUnit('')
+                setExamKnowledgeTag('')
                 setDateTimeMin(getLocalDateTimeMin())
                 form.resetFields()
                 form.setFieldValue('duration', examDefaults.defaultDurationMinutes)
@@ -3879,6 +4037,9 @@ function ExamPage() {
                                   setSelectedSubjectId(Number(exam?.subject_id))
                                   setSelectedQuestionIds(questionIds)
                                   setQuestionScoreMap(nextScoreMap)
+                                  setQuestionKeyword('')
+                                  setExamKnowledgeUnit('')
+                                  setExamKnowledgeTag('')
                                   setDateTimeMin(getLocalDateTimeMin())
                                   form.setFieldsValue({
                                     title: String(exam?.title || ''),
@@ -4225,6 +4386,8 @@ function ExamPage() {
                     setSelectedSubjectId(value)
                     setSelectedQuestionIds([])
                     setQuestionScoreMap({})
+                    setExamKnowledgeUnit('')
+                    setExamKnowledgeTag('')
                   }}
                 />
               </Form.Item>
@@ -4260,19 +4423,38 @@ function ExamPage() {
         <Card
           title={`选题组卷（已选 ${selectedQuestionIds.length} 题，总分 ${selectedQuestionIds.reduce((sum, id) => sum + (questionScoreMap[id] ?? examDefaults.defaultQuestionScore), 0)}）`}
         >
-          <Space style={{ marginBottom: 12 }} wrap>
+          <Space style={{ marginBottom: 12 }} wrap align="start">
             <Input.Search
               value={questionKeyword}
               onChange={(event) => setQuestionKeyword(event.target.value)}
-              onSearch={(value) => setQuestionKeyword(value)}
-              placeholder="按题干关键词筛选"
+              onSearch={() => void loadQuestions()}
+              placeholder="题干关键词"
               allowClear
-              style={{ width: 280 }}
+              style={{ width: 220 }}
             />
+            <Input.Search
+              value={examKnowledgeUnit}
+              onChange={(event) => setExamKnowledgeUnit(event.target.value)}
+              onSearch={() => void loadQuestions()}
+              placeholder="知识单元（名称包含）"
+              allowClear
+              style={{ width: 200 }}
+            />
+            <Input.Search
+              value={examKnowledgeTag}
+              onChange={(event) => setExamKnowledgeTag(event.target.value)}
+              onSearch={() => void loadQuestions()}
+              placeholder="知识点（标签名包含）"
+              allowClear
+              style={{ width: 200 }}
+            />
+            <Button type="default" onClick={() => void loadQuestions()}>
+              查询题目
+            </Button>
             <Button disabled={selectedQuestionIds.length === 0} onClick={() => void openExamQuestionPreview()}>
               预览已选
             </Button>
-            <Typography.Text type="secondary">仅展示当前科目题目</Typography.Text>
+            <Typography.Text type="secondary">仅当前科目；单元与知识点为「且」关系，可与题干关键词组合</Typography.Text>
           </Space>
           <Table
             columns={[
@@ -7142,6 +7324,10 @@ function SystemSettingsPage() {
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const [subjects, setSubjects] = useState<Array<{ id: number; name: string; sort_order: number }>>([])
   const [subjectLoading, setSubjectLoading] = useState(false)
+  const [unitDictSubjectId, setUnitDictSubjectId] = useState<number | undefined>(undefined)
+  const [unitDictRows, setUnitDictRows] = useState<Array<{ id: number; name: string; sort_order: number }>>([])
+  const [unitDictLoading, setUnitDictLoading] = useState(false)
+  const [newKnowledgeUnitName, setNewKnowledgeUnitName] = useState('')
   const [newSubject, setNewSubject] = useState('')
   const [logLoading, setLogLoading] = useState(false)
   const [logRows, setLogRows] = useState<
@@ -7183,12 +7369,97 @@ function SystemSettingsPage() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载科目失败(${response.status})`)
-      setSubjects(Array.isArray(payload?.data) ? payload.data : [])
+      const next = Array.isArray(payload?.data) ? payload.data : []
+      setSubjects(next)
+      setUnitDictSubjectId((prev) => {
+        if (prev != null && !next.some((s: { id: number }) => Number(s.id) === prev)) {
+          setUnitDictRows([])
+          return undefined
+        }
+        return prev
+      })
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载科目失败')
     } finally {
       setSubjectLoading(false)
     }
+  }
+
+  const loadUnitDictRows = async (subjectId: number) => {
+    if (!CAN_USE_API || !Number.isInteger(subjectId) || subjectId <= 0) {
+      setUnitDictRows([])
+      return
+    }
+    try {
+      setUnitDictLoading(true)
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${subjectId}/knowledge-units`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
+      setUnitDictRows(Array.isArray(payload?.data) ? payload.data : [])
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载知识单元失败')
+      setUnitDictRows([])
+    } finally {
+      setUnitDictLoading(false)
+    }
+  }
+
+  const createKnowledgeUnit = async () => {
+    if (!CAN_USE_API) return
+    const sid = unitDictSubjectId
+    if (!sid) {
+      message.warning('请先选择要维护的科目')
+      return
+    }
+    const name = newKnowledgeUnitName.trim()
+    if (!name) {
+      message.warning('请输入知识单元名称')
+      return
+    }
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/${sid}/knowledge-units`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ name }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)
+      message.success('知识单元已添加')
+      setNewKnowledgeUnitName('')
+      await loadUnitDictRows(sid)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '新增知识单元失败')
+    }
+  }
+
+  const deleteKnowledgeUnit = (unitId: number, unitName: string) => {
+    Modal.confirm({
+      title: '确认删除知识单元',
+      content: `删除后不可恢复：${unitName}`,
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        if (!CAN_USE_API) return
+        try {
+          const response = await teacherAdminFetch(`${API_BASE_URL}/api/knowledge-units/${unitId}`, {
+            method: 'DELETE',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+          message.success('知识单元已删除')
+          if (unitDictSubjectId) await loadUnitDictRows(unitDictSubjectId)
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '删除知识单元失败')
+        }
+      },
+    })
   }
 
   useEffect(() => {
@@ -7350,6 +7621,8 @@ function SystemSettingsPage() {
     'exam.delete': '删除考试',
     'subject.create': '新增科目',
     'subject.delete': '删除科目',
+    'knowledge_unit.create': '新增知识单元',
+    'knowledge_unit.delete': '删除知识单元',
     'user.reset_password': '重置密码',
     'user.self_profile_update': '修改个人资料',
     'user.self_password_change': '修改登录密码',
@@ -7369,6 +7642,7 @@ function SystemSettingsPage() {
   const targetLabelMap: Record<string, string> = {
     exam: '考试',
     subject: '科目',
+    knowledge_unit: '知识单元',
     user: '用户',
     system_config: '系统参数',
     class: '班级',
@@ -7389,6 +7663,12 @@ function SystemSettingsPage() {
     }
     if (row.action === 'subject.create' || row.action === 'subject.delete') {
       return `科目：${String(detail.name || '-')}`
+    }
+    if (row.action === 'knowledge_unit.create') {
+      return `科目ID ${String(detail.subject_id || '-')}，单元：${String(detail.name || '-')}`
+    }
+    if (row.action === 'knowledge_unit.delete') {
+      return `科目ID ${String(detail.subject_id || '-')}，单元：${String(detail.name || '-')}`
     }
     if (row.action === 'user.update_status') {
       return Number(detail.status) === 1 ? '账号状态：启用' : '账号状态：禁用'
@@ -7516,6 +7796,63 @@ function SystemSettingsPage() {
                 {item.sort_order}. {item.name}
               </List.Item>
             )}
+          />
+          <Divider orientation="left">知识单元字典（按科目）</Divider>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            题库与考试选题中的「知识单元」须从此处维护；每科默认含「未分类」，不可删除。
+          </Typography.Paragraph>
+          <Space wrap style={{ marginBottom: 12 }}>
+            <Select
+              allowClear
+              placeholder="选择要维护的科目"
+              style={{ width: 220 }}
+              value={unitDictSubjectId}
+              onChange={(value) => {
+                const next = typeof value === 'number' ? value : undefined
+                setUnitDictSubjectId(next)
+                if (next) void loadUnitDictRows(next)
+                else setUnitDictRows([])
+              }}
+              options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+            />
+            <Input
+              placeholder="新知识单元名称"
+              value={newKnowledgeUnitName}
+              onChange={(e) => setNewKnowledgeUnitName(e.target.value)}
+              style={{ width: 200 }}
+              onPressEnter={() => void createKnowledgeUnit()}
+            />
+            <Button type="primary" onClick={() => void createKnowledgeUnit()}>
+              添加知识单元
+            </Button>
+          </Space>
+          <Table
+            size="small"
+            loading={unitDictLoading}
+            rowKey="id"
+            pagination={false}
+            dataSource={unitDictRows}
+            locale={{ emptyText: unitDictSubjectId ? '暂无知识单元' : '请先选择科目' }}
+            columns={[
+              { title: '排序', dataIndex: 'sort_order', width: 72 },
+              { title: '名称', dataIndex: 'name' },
+              {
+                title: '操作',
+                key: 'op',
+                width: 100,
+                render: (_: unknown, row: { id: number; name: string }) => (
+                  <Button
+                    type="link"
+                    danger
+                    size="small"
+                    disabled={row.name === '未分类'}
+                    onClick={() => deleteKnowledgeUnit(row.id, row.name)}
+                  >
+                    删除
+                  </Button>
+                ),
+              },
+            ]}
           />
         </Space>
       ),

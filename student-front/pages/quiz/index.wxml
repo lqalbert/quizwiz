@@ -17,8 +17,8 @@
   <block wx:elif="{{step === 'tags'}}">
     <text class="h1">知识点</text>
     <text class="lead muted">可不选（全科目）；多选时为「任一」匹配</text>
-    <view wx:for="{{tags}}" wx:key="name" class="cell" bindtap="onToggleTag" data-name="{{item.name}}">
-      <text class="cell-title">{{item.name}}</text>
+    <view wx:for="{{tags}}" wx:key="key" class="cell" bindtap="onToggleTag" data-name="{{item.name}}">
+      <text class="cell-title">{{item.unit_name}}{{item.unit_name ? ' · ' : ''}}{{item.name}}</text>
       <text class="check">{{tg.includes(selectedTags, item.name) ? '✓' : ''}}</text>
     </view>
     <view class="btn-primary mt" bindtap="fromTagsNext">下一步</view>
@@ -59,7 +59,7 @@
 
   <block wx:elif="{{step === 'section'}}">
     <text class="h1">选一个小节</text>
-    <view wx:for="{{tags}}" wx:key="name" class="cell" bindtap="onPickSectionTag" data-name="{{item.name}}">
+    <view wx:for="{{tags}}" wx:key="key" class="cell" bindtap="onPickSectionTag" data-name="{{item.name}}">
       <text class="cell-title">{{item.name}}</text>
       <text class="cell-arrow">›</text>
     </view>
@@ -69,7 +69,7 @@
     <text class="h1">分配题数</text>
     <text class="lead muted">每个知识点抽题数量</text>
     <view wx:for="{{mockRows}}" wx:key="name" class="mock-row">
-      <text class="mock-name">{{item.name}}</text>
+      <text class="mock-name">{{item.displayLabel}}</text>
       <input class="mock-input" type="number" value="{{item.countInput}}" data-name="{{item.name}}" bindinput="onMockCountInput" />
     </view>
     <view class="btn-primary mt" bindtap="fromMockNext">下一步</view>

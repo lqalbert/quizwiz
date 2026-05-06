@@ -24,7 +24,7 @@ const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads')
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || `http://localhost:${API_PORT}`
 const UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024
 /** 接口契约版本：递增表示行为变更。线上与本地 curl /api/health 对比此字段可确认是否已部署同一套 API。 */
-const API_REVISION = 2
+const API_REVISION = 4
 
 if (!fs.existsSync(UPLOAD_ROOT)) {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
@@ -113,6 +113,73 @@ const pool = new Pool(
         database: process.env.PGDATABASE || 'quizwiz',
       },
 )
+
+/** 知识点所属知识单元；题目同一批标签须落在同一单元下 */
+const DEFAULT_KNOWLEDGE_UNIT_NAME = '未分类'
+
+/** 按科目解析知识单元 id（须已在字典中存在；全局仅「未分类」subject_id 为空） */
+const resolveKnowledgeUnitId = async (executor, subjectId, unitNameRaw) => {
+  const name = String(unitNameRaw || '').trim() || DEFAULT_KNOWLEDGE_UNIT_NAME
+  const sid = Number(subjectId)
+  if (Number.isInteger(sid) && sid > 0) {
+    const r = await executor.query(
+      `
+      SELECT id
+      FROM knowledge_units
+      WHERE name = $1 AND (subject_id = $2 OR (subject_id IS NULL AND name = $3))
+      ORDER BY CASE WHEN subject_id = $2 THEN 0 ELSE 1 END
+      LIMIT 1
+      `,
+      [name, sid, DEFAULT_KNOWLEDGE_UNIT_NAME],
+    )
+    return r.rows[0]?.id != null ? Number(r.rows[0].id) : null
+  }
+  const g = await executor.query(
+    `
+    SELECT id FROM knowledge_units WHERE name = $1 AND subject_id IS NULL LIMIT 1
+    `,
+    [name],
+  )
+  return g.rows[0]?.id != null ? Number(g.rows[0].id) : null
+}
+
+const upsertKnowledgePointTagAndLink = async (client, questionId, unitId, rawTag) => {
+  const point = String(rawTag || '').trim()
+  if (!point) return
+  const tagResult = await client.query(
+    `
+    INSERT INTO question_tags (unit_id, name)
+    VALUES ($1, $2)
+    ON CONFLICT (unit_id, name) DO UPDATE SET name = EXCLUDED.name
+    RETURNING id
+    `,
+    [unitId, point],
+  )
+  const tagId = tagResult.rows[0]?.id
+  if (tagId) {
+    await client.query(
+      `
+      INSERT INTO question_tag_rel (question_id, tag_id)
+      VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
+      `,
+      [questionId, tagId],
+    )
+  }
+}
+
+const linkKnowledgePointsForQuestion = async (client, questionId, subjectId, unitNameRaw, pointNames) => {
+  const names = Array.isArray(pointNames) ? pointNames : []
+  if (names.length === 0) return
+  const unitId = await resolveKnowledgeUnitId(client, subjectId, unitNameRaw)
+  if (!unitId) {
+    const err = new Error('KNOWLEDGE_UNIT_NOT_IN_DICTIONARY')
+    throw err
+  }
+  for (const raw of names) {
+    await upsertKnowledgePointTagAndLink(client, questionId, unitId, raw)
+  }
+}
 
 const questionTypeMap = {
   '单选': 1,
@@ -268,6 +335,63 @@ const writeOperationLog = async ({
     VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
     `,
     [operatorId || null, action, targetType || null, targetId || null, JSON.stringify(detail || {})],
+  )
+}
+
+const ensureKnowledgeUnitSchema = async () => {
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS knowledge_units (
+      id BIGSERIAL PRIMARY KEY,
+      name VARCHAR(128) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT knowledge_units_name_uidx UNIQUE (name)
+    )
+    `,
+  )
+  await pool.query(
+    `
+    INSERT INTO knowledge_units (name, subject_id, sort_order)
+    SELECT $1, NULL, 0
+    WHERE NOT EXISTS (SELECT 1 FROM knowledge_units WHERE name = $1 AND subject_id IS NULL)
+    `,
+    [DEFAULT_KNOWLEDGE_UNIT_NAME],
+  )
+  await pool.query(`ALTER TABLE question_tags ADD COLUMN IF NOT EXISTS unit_id BIGINT REFERENCES knowledge_units(id) ON DELETE RESTRICT`)
+  await pool.query(
+    `
+    UPDATE question_tags qt
+    SET unit_id = ku.id
+    FROM knowledge_units ku
+    WHERE qt.unit_id IS NULL AND ku.name = $1
+    `,
+    [DEFAULT_KNOWLEDGE_UNIT_NAME],
+  )
+  await pool.query(`ALTER TABLE question_tags ALTER COLUMN unit_id SET NOT NULL`)
+  await pool.query(`ALTER TABLE question_tags DROP CONSTRAINT IF EXISTS question_tags_name_key`)
+  await pool.query(`DROP INDEX IF EXISTS question_tags_name_key`)
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS question_tags_unit_id_name_uidx ON question_tags (unit_id, name)`,
+  )
+  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS subject_id BIGINT REFERENCES subjects(id) ON DELETE CASCADE`)
+  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(`DROP INDEX IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_global_name_uidx ON knowledge_units (name) WHERE subject_id IS NULL`,
+  )
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_subject_name_uidx ON knowledge_units (subject_id, name) WHERE subject_id IS NOT NULL`,
+  )
+  await pool.query(
+    `
+    INSERT INTO knowledge_units (name, subject_id, sort_order)
+    SELECT '未分类', s.id, 0
+    FROM subjects s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM knowledge_units ku WHERE ku.subject_id = s.id AND ku.name = '未分类'
+    )
+    `,
   )
 }
 
@@ -590,14 +714,18 @@ const getQuestionSnapshot = async (executor, questionId) => {
   )
   const tagsResult = await executor.query(
     `
-    SELECT t.name
+    SELECT COALESCE(ku.name, '') AS unit_name, t.name AS point_name
     FROM question_tag_rel r
     JOIN question_tags t ON t.id = r.tag_id
+    LEFT JOIN knowledge_units ku ON ku.id = t.unit_id
     WHERE r.question_id = $1
-    ORDER BY t.name ASC
+    ORDER BY ku.name ASC NULLS LAST, t.name ASC
     `,
     [questionId],
   )
+  const unitNames = [...new Set(tagsResult.rows.map((item) => String(item.unit_name || '').trim()).filter(Boolean))]
+  const knowledgeUnit = unitNames.length === 1 ? unitNames[0] : unitNames[0] || DEFAULT_KNOWLEDGE_UNIT_NAME
+  const knowledgePoints = tagsResult.rows.map((item) => String(item.point_name || '').trim()).filter(Boolean)
   return {
     id: row.id,
     subject_id: row.subject_id,
@@ -614,7 +742,8 @@ const getQuestionSnapshot = async (executor, questionId) => {
       option_text: item.option_text,
       sort_order: item.sort_order,
     })),
-    knowledge_points: tagsResult.rows.map((item) => String(item.name)),
+    knowledge_unit: knowledgeUnit,
+    knowledge_points: knowledgePoints,
   }
 }
 
@@ -1224,6 +1353,15 @@ app.post('/api/subjects', authRequired, async (req, res) => {
       `,
       [name, nextSort],
     )
+    const newSubjectId = Number(result.rows[0]?.id)
+    await pool.query(
+      `
+      INSERT INTO knowledge_units (name, subject_id, sort_order)
+      SELECT '未分类', $1, 0
+      WHERE NOT EXISTS (SELECT 1 FROM knowledge_units WHERE subject_id = $1 AND name = '未分类')
+      `,
+      [newSubjectId],
+    )
     await writeOperationLog({
       operatorId: req.auth?.userId,
       action: 'subject.create',
@@ -1266,6 +1404,149 @@ app.delete('/api/subjects/:id', authRequired, async (req, res) => {
       return res.status(400).json({ message: '该科目已被使用，无法删除' })
     }
     return res.status(500).json({ message: '删除科目失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
+  const subjectId = Number(req.params.id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: '科目ID不合法' })
+  }
+  try {
+    const subjectCheck = await pool.query(`SELECT id FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subjectCheck.rows[0]) {
+      return res.status(404).json({ message: '科目不存在' })
+    }
+    const { rows } = await pool.query(
+      `
+      SELECT id, name, sort_order
+      FROM knowledge_units
+      WHERE subject_id = $1
+      ORDER BY sort_order ASC, id ASC
+      `,
+      [subjectId],
+    )
+    return res.json({ data: rows })
+  } catch (error) {
+    return res.status(500).json({ message: '知识单元列表查询失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.post('/api/subjects/:id/knowledge-units', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可维护知识单元字典' })
+  }
+  const subjectId = Number(req.params.id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: '科目ID不合法' })
+  }
+  const name = String(req.body?.name || '').trim()
+  if (!name) {
+    return res.status(400).json({ message: '知识单元名称不能为空' })
+  }
+  if (name.length > 128) {
+    return res.status(400).json({ message: '知识单元名称过长' })
+  }
+  const sortOrder = Math.max(0, parseInt(String(req.body?.sortOrder ?? '0'), 10) || 0)
+  try {
+    const subjectCheck = await pool.query(`SELECT id, name FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subjectCheck.rows[0]) {
+      return res.status(404).json({ message: '科目不存在' })
+    }
+    const maxResult = await pool.query(
+      `SELECT COALESCE(MAX(sort_order), 0)::int AS max_sort FROM knowledge_units WHERE subject_id = $1`,
+      [subjectId],
+    )
+    const nextSort = sortOrder > 0 ? sortOrder : Number(maxResult.rows[0]?.max_sort || 0) + 1
+    const result = await pool.query(
+      `
+      INSERT INTO knowledge_units (name, subject_id, sort_order)
+      VALUES ($1, $2, $3)
+      RETURNING id, name, sort_order
+      `,
+      [name, subjectId, nextSort],
+    )
+    await writeOperationLog({
+      operatorId: req.auth?.userId,
+      action: 'knowledge_unit.create',
+      targetType: 'knowledge_unit',
+      targetId: String(result.rows[0]?.id || ''),
+      detail: { subject_id: subjectId, subject_name: subjectCheck.rows[0]?.name || '', name },
+    })
+    return res.status(201).json({ data: result.rows[0] })
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+      return res.status(409).json({ message: '该科目下已存在同名知识单元' })
+    }
+    return res.status(500).json({ message: '新增知识单元失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.delete('/api/knowledge-units/:id', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可删除知识单元' })
+  }
+  const unitId = Number(req.params.id)
+  if (!Number.isInteger(unitId) || unitId <= 0) {
+    return res.status(400).json({ message: '知识单元ID不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const rowResult = await client.query(
+      `SELECT id, name, subject_id FROM knowledge_units WHERE id = $1 LIMIT 1`,
+      [unitId],
+    )
+    const row = rowResult.rows[0]
+    if (!row) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '知识单元不存在' })
+    }
+    if (row.subject_id == null) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '系统保留的全局知识单元不可删除' })
+    }
+    if (String(row.name || '') === DEFAULT_KNOWLEDGE_UNIT_NAME) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '默认「未分类」知识单元不可删除' })
+    }
+    const useResult = await client.query(
+      `
+      SELECT COUNT(*)::int AS c
+      FROM question_tag_rel qtr
+      INNER JOIN question_tags qt ON qt.id = qtr.tag_id
+      WHERE qt.unit_id = $1
+      `,
+      [unitId],
+    )
+    const used = Number(useResult.rows[0]?.c || 0)
+    if (used > 0) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '该知识单元下已有题目关联的知识点，无法删除' })
+    }
+    const orphanTags = await client.query(`SELECT COUNT(*)::int AS c FROM question_tags WHERE unit_id = $1`, [unitId])
+    if (Number(orphanTags.rows[0]?.c || 0) > 0) {
+      await client.query(`DELETE FROM question_tags WHERE unit_id = $1`, [unitId])
+    }
+    await client.query(`DELETE FROM knowledge_units WHERE id = $1`, [unitId])
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'knowledge_unit.delete',
+      targetType: 'knowledge_unit',
+      targetId: String(unitId),
+      detail: { name: row.name, subject_id: row.subject_id },
+    })
+    await client.query('COMMIT')
+    return res.json({ data: { id: unitId } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23503') {
+      return res.status(400).json({ message: '该知识单元仍被引用，无法删除' })
+    }
+    return res.status(500).json({ message: '删除知识单元失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
   }
 })
 
@@ -2115,16 +2396,25 @@ app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
-      SELECT DISTINCT qt.name AS name
+      SELECT DISTINCT COALESCE(ku.name, '') AS unit_name, qt.name AS name
       FROM question_tags qt
       JOIN question_tag_rel qtr ON qtr.tag_id = qt.id
       JOIN questions q ON q.id = qtr.question_id
+      LEFT JOIN knowledge_units ku ON ku.id = qt.unit_id
       WHERE q.subject_id = $1 AND q.deleted_at IS NULL
-      ORDER BY qt.name ASC
+      ORDER BY unit_name ASC, qt.name ASC
       `,
       [subjectId],
     )
-    return res.json({ data: rows.map((r) => ({ name: String(r.name || '') })).filter((r) => r.name) })
+    return res.json({
+      data: rows
+        .map((r, idx) => ({
+          name: String(r.name || ''),
+          unit_name: String(r.unit_name || ''),
+          key: `${String(r.unit_name || '')}::${String(r.name || '')}::${idx}`,
+        }))
+        .filter((r) => r.name),
+    })
   } catch (error) {
     return res.status(500).json({ message: '加载知识点失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -2272,14 +2562,18 @@ app.get('/api/student/questions/:id', studentAuthRequired, async (req, res) => {
     )
     const tagsResult = await pool.query(
       `
-      SELECT t.name
+      SELECT COALESCE(ku.name, '') AS unit_name, t.name AS point_name
       FROM question_tag_rel r
       JOIN question_tags t ON t.id = r.tag_id
+      LEFT JOIN knowledge_units ku ON ku.id = t.unit_id
       WHERE r.question_id = $1
-      ORDER BY t.name ASC
+      ORDER BY ku.name ASC NULLS LAST, t.name ASC
       `,
       [questionId],
     )
+    const unitNames = [...new Set(tagsResult.rows.map((item) => String(item.unit_name || '').trim()).filter(Boolean))]
+    const knowledgeUnit = unitNames.length === 1 ? unitNames[0] : unitNames[0] || ''
+    const knowledgePoints = tagsResult.rows.map((item) => String(item.point_name || '').trim()).filter(Boolean)
     return res.json({
       data: {
         id: row.id,
@@ -2289,7 +2583,8 @@ app.get('/api/student/questions/:id', studentAuthRequired, async (req, res) => {
         stem: row.stem,
         difficulty: row.difficulty,
         options: optionsResult.rows,
-        knowledge_points: tagsResult.rows.map((item) => String(item.name)),
+        knowledge_unit: knowledgeUnit,
+        knowledge_points: knowledgePoints,
       },
     })
   } catch (error) {
@@ -5190,7 +5485,7 @@ app.get('/api/health', async (_req, res) => {
       service: 'quizwiz-teacher-admin',
       auth_profile_me: true,
       api_revision: API_REVISION,
-      /** api_revision >= 2 时 GET /api/questions 列表体含 knowledge_points / knowledgePoints / knowledgePointTags */
+      /** api_revision >= 2 时 GET /api/questions 列表体含 knowledge_points；>=3 增加 knowledge_unit */
       questions_list_knowledge_fields: true,
     })
   } catch (error) {
@@ -5738,6 +6033,10 @@ app.get('/api/questions', authRequired, async (req, res) => {
   try {
     const { subject, type, keyword } = req.query
     const knowledgePoint = String(req.query?.knowledgePoint ?? req.query?.knowledge ?? '').trim()
+    /** 仅按知识单元名称（knowledge_units.name）筛选 */
+    const knowledgeUnitOnly = String(req.query?.knowledgeUnit ?? '').trim()
+    /** 仅按知识点标签名（question_tags.name）筛选，与 knowledgePoint 区分：后者兼容题库模糊（单元或点） */
+    const knowledgeTagOnly = String(req.query?.knowledgeTag ?? req.query?.tagName ?? '').trim()
     const values = []
     const conditions = []
 
@@ -5768,6 +6067,33 @@ app.get('/api/questions', authRequired, async (req, res) => {
           SELECT 1
           FROM question_tag_rel qtr
           JOIN question_tags qt ON qt.id = qtr.tag_id
+          LEFT JOIN knowledge_units ku ON ku.id = qt.unit_id
+          WHERE qtr.question_id = q.id
+            AND (qt.name ILIKE $${values.length} OR COALESCE(ku.name, '') ILIKE $${values.length})
+        )`,
+      )
+    }
+
+    if (knowledgeUnitOnly) {
+      values.push(`%${knowledgeUnitOnly}%`)
+      conditions.push(
+        `EXISTS (
+          SELECT 1
+          FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          JOIN knowledge_units ku ON ku.id = qt.unit_id
+          WHERE qtr.question_id = q.id AND ku.name ILIKE $${values.length}
+        )`,
+      )
+    }
+
+    if (knowledgeTagOnly) {
+      values.push(`%${knowledgeTagOnly}%`)
+      conditions.push(
+        `EXISTS (
+          SELECT 1
+          FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
           WHERE qtr.question_id = q.id AND qt.name ILIKE $${values.length}
         )`,
       )
@@ -5791,6 +6117,16 @@ app.get('/api/questions', authRequired, async (req, res) => {
           q.stem,
           q.difficulty,
           q.updated_at,
+          COALESCE(
+            (
+              SELECT MIN(ku.name)
+              FROM question_tag_rel qtr
+              JOIN question_tags qt ON qt.id = qtr.tag_id
+              LEFT JOIN knowledge_units ku ON ku.id = qt.unit_id
+              WHERE qtr.question_id = q.id
+            ),
+            ''
+          ) AS knowledge_unit,
           COALESCE(
             (
               SELECT string_agg(qt.name, '、' ORDER BY qt.name)
@@ -5818,6 +6154,7 @@ app.get('/api/questions', authRequired, async (req, res) => {
     res.json({
       meta: { api_revision: API_REVISION },
       data: rows.map((row) => {
+        const ku = String(row?.knowledge_unit ?? row?.knowledgeUnit ?? '').trim()
         const kp = String(
           row?.knowledge_points ??
             row?.Knowledge_points ??
@@ -5840,6 +6177,8 @@ app.get('/api/questions', authRequired, async (req, res) => {
           difficulty: row?.difficulty,
           difficulty_text: difficultyTextFromDb(row?.difficulty),
           /** 列表与详情对齐：字符串摘要 + 标签名数组（无标签时为空串 / 空数组） */
+          knowledge_unit: ku,
+          knowledgeUnit: ku,
           knowledge_points: kp,
           knowledgePoints: kp,
           knowledgePointTags: tagList,
@@ -6095,6 +6434,7 @@ app.post('/api/questions', authRequired, async (req, res) => {
   const optionB = String(req.body?.optionB || '').trim()
   const optionC = String(req.body?.optionC || '').trim()
   const optionD = String(req.body?.optionD || '').trim()
+  const knowledgeUnit = String(req.body?.knowledgeUnit ?? '').trim()
   const knowledgePoints = Array.isArray(req.body?.knowledgePoints) ? req.body.knowledgePoints : []
 
   if (!subjectName) {
@@ -6114,6 +6454,9 @@ app.post('/api/questions', authRequired, async (req, res) => {
   const difficulty = parseDifficultyLevel(difficultyRaw === '' ? '3' : difficultyRaw)
   if (difficulty === null) {
     return res.status(400).json({ message: '难度不合法，请使用 1–5 的整数（1 最易，5 最难；仍兼容 简单/中等/困难）' })
+  }
+  if (knowledgePoints.length > 0 && !knowledgeUnit) {
+    return res.status(400).json({ message: '填写知识点时须同时填写知识单元' })
   }
   const optionMap = {
     A: optionA,
@@ -6218,30 +6561,7 @@ app.post('/api/questions', authRequired, async (req, res) => {
       }
     }
 
-    for (const rawTag of knowledgePoints) {
-      const tag = String(rawTag || '').trim()
-      if (!tag) continue
-      const tagResult = await client.query(
-        `
-        INSERT INTO question_tags (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        `,
-        [tag],
-      )
-      const tagId = tagResult.rows[0]?.id
-      if (tagId) {
-        await client.query(
-          `
-          INSERT INTO question_tag_rel (question_id, tag_id)
-          VALUES ($1, $2)
-          ON CONFLICT DO NOTHING
-          `,
-          [questionId, tagId],
-        )
-      }
-    }
+    await linkKnowledgePointsForQuestion(client, questionId, subjectId, knowledgeUnit, knowledgePoints)
 
     await writeOperationLog({
       client,
@@ -6277,6 +6597,11 @@ app.post('/api/questions', authRequired, async (req, res) => {
     })
   } catch (error) {
     await client.query('ROLLBACK')
+    if (error instanceof Error && error.message === 'KNOWLEDGE_UNIT_NOT_IN_DICTIONARY') {
+      return res.status(400).json({
+        message: '知识单元不在该科目的字典中，请先在「系统设置 → 科目字典 → 知识单元」中配置后再选题',
+      })
+    }
     return res.status(500).json({ message: '新增题目失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
@@ -6320,14 +6645,18 @@ app.get('/api/questions/:id', authRequired, async (req, res) => {
     )
     const tagsResult = await pool.query(
       `
-      SELECT t.name
+      SELECT COALESCE(ku.name, '') AS unit_name, t.name AS point_name
       FROM question_tag_rel r
       JOIN question_tags t ON t.id = r.tag_id
+      LEFT JOIN knowledge_units ku ON ku.id = t.unit_id
       WHERE r.question_id = $1
-      ORDER BY t.name ASC
+      ORDER BY ku.name ASC NULLS LAST, t.name ASC
       `,
       [questionId],
     )
+    const unitNames = [...new Set(tagsResult.rows.map((item) => String(item.unit_name || '').trim()).filter(Boolean))]
+    const knowledgeUnit = unitNames.length === 1 ? unitNames[0] : unitNames[0] || ''
+    const knowledgePoints = tagsResult.rows.map((item) => String(item.point_name || '').trim()).filter(Boolean)
     return res.json({
       data: {
         id: row.id,
@@ -6339,7 +6668,8 @@ app.get('/api/questions/:id', authRequired, async (req, res) => {
         difficulty: row.difficulty,
         updated_at: row.updated_at,
         options: optionsResult.rows,
-        knowledgePoints: tagsResult.rows.map((item) => String(item.name)),
+        knowledgeUnit,
+        knowledgePoints,
       },
     })
   } catch (error) {
@@ -6421,6 +6751,7 @@ app.post('/api/questions/:id/versions/:versionId/restore', authRequired, async (
     const explanation = String(snapshot.explanation || '').trim()
     const difficulty = Number(snapshot.difficulty || 0)
     const options = Array.isArray(snapshot.options) ? snapshot.options : []
+    const knowledgeUnit = String(snapshot.knowledge_unit || '').trim()
     const knowledgePoints = Array.isArray(snapshot.knowledge_points) ? snapshot.knowledge_points : []
     if (!subjectId || !questionType || !stem || !answerText || ![1, 2, 3, 4, 5].includes(difficulty)) {
       await client.query('ROLLBACK')
@@ -6454,30 +6785,7 @@ app.post('/api/questions/:id/versions/:versionId/restore', authRequired, async (
       )
     }
     await client.query(`DELETE FROM question_tag_rel WHERE question_id = $1`, [questionId])
-    for (const rawTag of knowledgePoints) {
-      const tag = String(rawTag || '').trim()
-      if (!tag) continue
-      const tagResult = await client.query(
-        `
-        INSERT INTO question_tags (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        `,
-        [tag],
-      )
-      const tagId = tagResult.rows[0]?.id
-      if (tagId) {
-        await client.query(
-          `
-          INSERT INTO question_tag_rel (question_id, tag_id)
-          VALUES ($1, $2)
-          ON CONFLICT DO NOTHING
-          `,
-          [questionId, tagId],
-        )
-      }
-    }
+    await linkKnowledgePointsForQuestion(client, questionId, subjectId, knowledgeUnit, knowledgePoints)
     await writeOperationLog({
       client,
       operatorId: req.auth?.userId,
@@ -6497,6 +6805,11 @@ app.post('/api/questions/:id/versions/:versionId/restore', authRequired, async (
     return res.json({ data: { id: questionId, version_id: versionId } })
   } catch (error) {
     await client.query('ROLLBACK')
+    if (error instanceof Error && error.message === 'KNOWLEDGE_UNIT_NOT_IN_DICTIONARY') {
+      return res.status(400).json({
+        message: '快照中的知识单元已不在当前科目字典中，请先在系统设置维护知识单元后再回滚',
+      })
+    }
     return res.status(500).json({ message: '版本回滚失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
@@ -6518,6 +6831,7 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
   const optionB = String(req.body?.optionB || '').trim()
   const optionC = String(req.body?.optionC || '').trim()
   const optionD = String(req.body?.optionD || '').trim()
+  const knowledgeUnit = String(req.body?.knowledgeUnit ?? '').trim()
   const knowledgePoints = Array.isArray(req.body?.knowledgePoints) ? req.body.knowledgePoints : []
 
   if (!subjectName) return res.status(400).json({ message: '科目不能为空' })
@@ -6529,6 +6843,9 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
   const difficulty = parseDifficultyLevel(difficultyRaw === '' ? '3' : difficultyRaw)
   if (difficulty === null) {
     return res.status(400).json({ message: '难度不合法，请使用 1–5 的整数（仍兼容 简单/中等/困难）' })
+  }
+  if (knowledgePoints.length > 0 && !knowledgeUnit) {
+    return res.status(400).json({ message: '填写知识点时须同时填写知识单元' })
   }
 
   const optionMap = { A: optionA, B: optionB, C: optionC, D: optionD }
@@ -6602,30 +6919,7 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
     }
 
     await client.query(`DELETE FROM question_tag_rel WHERE question_id = $1`, [questionId])
-    for (const rawTag of knowledgePoints) {
-      const tag = String(rawTag || '').trim()
-      if (!tag) continue
-      const tagResult = await client.query(
-        `
-        INSERT INTO question_tags (name)
-        VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        `,
-        [tag],
-      )
-      const tagId = tagResult.rows[0]?.id
-      if (tagId) {
-        await client.query(
-          `
-          INSERT INTO question_tag_rel (question_id, tag_id)
-          VALUES ($1, $2)
-          ON CONFLICT DO NOTHING
-          `,
-          [questionId, tagId],
-        )
-      }
-    }
+    await linkKnowledgePointsForQuestion(client, questionId, subjectId, knowledgeUnit, knowledgePoints)
 
     await writeOperationLog({
       client,
@@ -6647,6 +6941,11 @@ app.put('/api/questions/:id', authRequired, async (req, res) => {
     return res.json({ data: { id: questionId } })
   } catch (error) {
     await client.query('ROLLBACK')
+    if (error instanceof Error && error.message === 'KNOWLEDGE_UNIT_NOT_IN_DICTIONARY') {
+      return res.status(400).json({
+        message: '知识单元不在该科目的字典中，请先在「系统设置 → 科目字典 → 知识单元」中配置',
+      })
+    }
     return res.status(500).json({ message: '编辑题目失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
@@ -7251,10 +7550,14 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0) : []
   const subjectName = String(req.body?.subject || '').trim()
   const difficultyValue = String(req.body?.difficulty || '').trim()
+  const addKnowledgeUnit = String(req.body?.addKnowledgeUnit || '').trim()
   const addKnowledgePoints = Array.isArray(req.body?.addKnowledgePoints) ? req.body.addKnowledgePoints : []
   const removeKnowledgePoints = Array.isArray(req.body?.removeKnowledgePoints) ? req.body.removeKnowledgePoints : []
   if (ids.length === 0) {
     return res.status(400).json({ message: 'ids 不能为空' })
+  }
+  if (addKnowledgePoints.length > 0 && !addKnowledgeUnit) {
+    return res.status(400).json({ message: '批量新增知识点时须在请求体中提供 addKnowledgeUnit（知识单元名称）' })
   }
   const hasUpdates = Boolean(subjectName || difficultyValue || addKnowledgePoints.length > 0 || removeKnowledgePoints.length > 0)
   if (!hasUpdates) {
@@ -7308,29 +7611,10 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
         values,
       )
 
-      for (const rawTag of addKnowledgePoints) {
-        const tag = String(rawTag || '').trim()
-        if (!tag) continue
-        const tagResult = await client.query(
-          `
-          INSERT INTO question_tags (name)
-          VALUES ($1)
-          ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-          RETURNING id
-          `,
-          [tag],
-        )
-        const tagId = tagResult.rows[0]?.id
-        if (tagId) {
-          await client.query(
-            `
-            INSERT INTO question_tag_rel (question_id, tag_id)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING
-            `,
-            [questionId, tagId],
-          )
-        }
+      if (addKnowledgePoints.length > 0) {
+        const sidRow = await client.query(`SELECT subject_id FROM questions WHERE id = $1 LIMIT 1`, [questionId])
+        const qSubjectId = Number(sidRow.rows[0]?.subject_id)
+        await linkKnowledgePointsForQuestion(client, questionId, qSubjectId, addKnowledgeUnit, addKnowledgePoints)
       }
       for (const rawTag of removeKnowledgePoints) {
         const tag = String(rawTag || '').trim()
@@ -7338,7 +7622,12 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
         await client.query(
           `
           DELETE FROM question_tag_rel
-          WHERE question_id = $1 AND tag_id IN (SELECT id FROM question_tags WHERE name = $2)
+          WHERE question_id = $1 AND tag_id IN (
+            SELECT qtr.tag_id
+            FROM question_tag_rel qtr
+            JOIN question_tags qt ON qt.id = qtr.tag_id
+            WHERE qtr.question_id = $1 AND qt.name = $2
+          )
           `,
           [questionId, tag],
         )
@@ -7354,6 +7643,7 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
       detail: {
         subject_id: subjectId,
         difficulty,
+        add_knowledge_unit: addKnowledgeUnit,
         add_knowledge_points: addKnowledgePoints,
         remove_knowledge_points: removeKnowledgePoints,
         success_count: successIds.length,
@@ -7368,6 +7658,7 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
         meta: {
           subject_id: subjectId,
           difficulty,
+          add_knowledge_unit: addKnowledgeUnit,
           add_knowledge_points: addKnowledgePoints,
           remove_knowledge_points: removeKnowledgePoints,
         },
@@ -7383,6 +7674,11 @@ app.patch('/api/questions/batch-attrs', authRequired, async (req, res) => {
     })
   } catch (error) {
     await client.query('ROLLBACK')
+    if (error instanceof Error && error.message === 'KNOWLEDGE_UNIT_NOT_IN_DICTIONARY') {
+      return res.status(400).json({
+        message: '批量新增失败：知识单元不在对应题目的科目字典中，请先在系统设置中配置',
+      })
+    }
     return res.status(500).json({ message: '批量更新题目属性失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
@@ -7413,6 +7709,7 @@ app.post('/api/questions/import', authRequired, async (req, res) => {
       const answer = String(row.answer || '').trim()
       const explanation = String(row.explanation || '').trim()
       const difficultyValue = String(row.difficulty || '').trim() || '3'
+      const knowledgeUnit = String(row.knowledgeUnit || '').trim()
       const knowledgePoints = Array.isArray(row.knowledgePoints) ? row.knowledgePoints : []
 
       const subjectId = subjectMap.get(subjectAliasMap[subjectName.toLowerCase()] || subjectName)
@@ -7437,6 +7734,10 @@ app.post('/api/questions/import', authRequired, async (req, res) => {
       }
       if (!answer) {
         errors.push(`第${rowNo}行: 答案为空`)
+        continue
+      }
+      if (knowledgePoints.length > 0 && !knowledgeUnit) {
+        errors.push(`第${rowNo}行: 填写知识点时须同时填写知识单元`)
         continue
       }
 
@@ -7481,29 +7782,16 @@ app.post('/api/questions/import', authRequired, async (req, res) => {
         }
       }
 
-      for (const rawTag of knowledgePoints) {
-        const tag = String(rawTag || '').trim()
-        if (!tag) continue
-        const tagResult = await client.query(
-          `
-          INSERT INTO question_tags (name)
-          VALUES ($1)
-          ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-          RETURNING id
-          `,
-          [tag],
-        )
-        const tagId = tagResult.rows[0]?.id
-        if (tagId) {
-          await client.query(
-            `
-            INSERT INTO question_tag_rel (question_id, tag_id)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING
-            `,
-            [questionId, tagId],
-          )
+      try {
+        await linkKnowledgePointsForQuestion(client, questionId, subjectId, knowledgeUnit, knowledgePoints)
+      } catch (linkErr) {
+        if (linkErr instanceof Error && linkErr.message === 'KNOWLEDGE_UNIT_NOT_IN_DICTIONARY') {
+          await client.query(`DELETE FROM question_options WHERE question_id = $1`, [questionId])
+          await client.query(`DELETE FROM questions WHERE id = $1`, [questionId])
+          errors.push(`第${rowNo}行: 知识单元不在该科目字典中，请先在系统设置中配置`)
+          continue
         }
+        throw linkErr
       }
 
       successRows += 1
@@ -7529,18 +7817,22 @@ app.post('/api/questions/import', authRequired, async (req, res) => {
   }
 })
 
-const bootPromise = Promise.all([
-  ensureSystemConfigTable(),
-  ensureClassInviteSchema(),
-  ensureStudentWarningSchema(),
-  ensureQuestionDuplicateMarkSchema(),
-  ensureQuestionRecycleSchema(),
-  ensureQuestionVersionSchema(),
-  ensureUserProfileSchema(),
-  ensureResourceSchema(),
-  ensureStudentPracticeSchema(),
-  ensureStudentWechatSchema(),
-])
+/** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
+const runBootMigrations = async () => {
+  await ensureKnowledgeUnitSchema()
+  await ensureSystemConfigTable()
+  await ensureClassInviteSchema()
+  await ensureStudentWarningSchema()
+  await ensureQuestionDuplicateMarkSchema()
+  await ensureQuestionRecycleSchema()
+  await ensureQuestionVersionSchema()
+  await ensureUserProfileSchema()
+  await ensureResourceSchema()
+  await ensureStudentPracticeSchema()
+  await ensureStudentWechatSchema()
+}
+
+const bootPromise = runBootMigrations()
 
 export const appReady = bootPromise
 

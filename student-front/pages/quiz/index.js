@@ -105,7 +105,17 @@ Page({
         wx.showToast({ title: "暂无知识点标签，请先为题目标注知识点", icon: "none" });
         return;
       }
-      const mockRows = names.map((name) => ({ name, countInput: "3" }));
+      const tags = this.data.tags || [];
+      const tagLabel = (name) => {
+        const found = tags.find((t) => String(t.name) === String(name));
+        const u = found && found.unit_name ? String(found.unit_name).trim() : "";
+        return u ? `${u} · ${name}` : String(name);
+      };
+      const mockRows = names.map((name) => ({
+        name,
+        displayLabel: tagLabel(name),
+        countInput: "3",
+      }));
       this.setData({ mockRows, step: "mock" });
       return;
     }

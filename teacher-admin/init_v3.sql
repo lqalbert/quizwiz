@@ -151,10 +151,27 @@ CREATE TABLE question_options (
 );
 CREATE INDEX idx_question_options_question_id ON question_options(question_id);
 
--- 12) 标签
+-- 12) 知识单元 + 知识点（按科目字典；subject_id 为空为全局保留项「未分类」）
+CREATE TABLE knowledge_units (
+  id BIGSERIAL PRIMARY KEY,
+  subject_id BIGINT REFERENCES subjects(id) ON DELETE CASCADE,
+  name VARCHAR(128) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX knowledge_units_global_name_uidx ON knowledge_units (name) WHERE subject_id IS NULL;
+CREATE UNIQUE INDEX knowledge_units_subject_name_uidx ON knowledge_units (subject_id, name) WHERE subject_id IS NOT NULL;
+
+INSERT INTO knowledge_units (name, subject_id, sort_order) VALUES ('未分类', NULL, 0);
+
+INSERT INTO knowledge_units (name, subject_id, sort_order)
+SELECT '未分类', id, 0 FROM subjects;
+
 CREATE TABLE question_tags (
   id BIGSERIAL PRIMARY KEY,
-  name VARCHAR(64) NOT NULL UNIQUE
+  unit_id BIGINT NOT NULL REFERENCES knowledge_units(id) ON DELETE RESTRICT,
+  name VARCHAR(64) NOT NULL,
+  CONSTRAINT question_tags_unit_id_name_uidx UNIQUE (unit_id, name)
 );
 
 CREATE TABLE question_tag_rel (
