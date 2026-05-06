@@ -301,6 +301,35 @@ function DifficultyStarsDisplay({ difficulty }: { difficulty: string | number })
   )
 }
 
+/** 校验 GET /api/subjects?scope=knowledge_units 的响应，避免误把科目列表当知识单元 */
+function parseKnowledgeUnitListFromSubjectsApi(
+  payload: Record<string, unknown> | undefined,
+  expectedSubjectId: number,
+):
+  | { ok: true; rows: Array<Record<string, unknown>> }
+  | { ok: false; message: string } {
+  if (!payload) return { ok: false, message: '接口返回为空' }
+  const meta = payload.meta as { resource?: string } | undefined
+  if (meta?.resource === 'subjects') {
+    return {
+      ok: false,
+      message:
+        '当前返回的是科目列表而不是知识单元。请确认请求带 scope=knowledge_units 与 subjectId（科目数字 id），并已部署最新后端。',
+    }
+  }
+  const rows = Array.isArray(payload.data) ? (payload.data as Array<Record<string, unknown>>) : []
+  if (meta?.resource === 'knowledge_units') {
+    return { ok: true, rows }
+  }
+  if (rows.length > 0 && rows.every((r) => Number(r.subject_id) === expectedSubjectId)) {
+    return { ok: true, rows }
+  }
+  return {
+    ok: false,
+    message: '接口未返回可识别的知识单元数据（缺少 meta.resource 或行内 subject_id）。请升级后端。',
+  }
+}
+
 const questionColumns = [
   { title: '题型', dataIndex: 'type', width: 72 },
   {
@@ -1934,12 +1963,13 @@ function QuestionBankPage() {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
       )
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
-      if (payload?.meta?.resource !== 'knowledge_units') {
-        throw new Error('接口返回了非知识单元数据（请确认后端已部署 scope=knowledge_units 分支）')
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+      if (!response.ok) throw new Error(String(payload?.message || `加载知识单元失败(${response.status})`))
+      const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, sid)
+      if (parsed.ok === false) {
+        throw new Error(parsed.message)
       }
-      const list = Array.isArray(payload?.data) ? payload.data : []
+      const list = parsed.rows
       setKnowledgeUnitSelectOptions(
         list.map((u: Record<string, unknown>) => ({
           value: String(u.name ?? ''),
@@ -7409,12 +7439,19 @@ function SystemSettingsPage() {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
       )
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
-      if (payload?.meta?.resource !== 'knowledge_units') {
-        throw new Error('接口返回了非知识单元数据（请升级后端并确认请求带 scope=knowledge_units&subjectId）')
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+      if (!response.ok) throw new Error(String(payload?.message || `加载知识单元失败(${response.status})`))
+      const parsed = parseKnowledgeUnitListFromSubjectsApi(payload, subjectId)
+      if (parsed.ok === false) {
+        throw new Error(parsed.message)
       }
-      setUnitDictRows(Array.isArray(payload?.data) ? payload.data : [])
+      setUnitDictRows(
+        parsed.rows.map((r) => ({
+          id: Number(r.id),
+          name: String(r.name ?? ''),
+          sort_order: Number(r.sort_order ?? 0),
+        })),
+      )
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识单元失败')
       setUnitDictRows([])

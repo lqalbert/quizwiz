@@ -1162,22 +1162,33 @@ app.post('/api/auth/me/avatar-upload', authRequired, (req, res) => {
   })
 })
 
+/** Express 对重复 query 可能给出 string[]，取第一个非空值 */
+const firstQueryParam = (value) => {
+  if (value == null) return undefined
+  if (Array.isArray(value)) {
+    const hit = value.find((item) => item != null && String(item).trim() !== '')
+    return hit == null ? undefined : hit
+  }
+  return value
+}
+
 app.get('/api/subjects', authRequired, async (req, res) => {
   /**
    * 与科目列表同一路径；须显式 scope，避免误把「仅带其它 query」的请求当成知识单元（也避免与将来筛选参数混淆）。
    * 推荐：GET /api/subjects?scope=knowledge_units&subjectId=<科目id>
    * 兼容：knowledgeUnitsSubjectId=…（旧前端）
    */
-  const scope = String(req.query?.scope || '').trim()
+  const scope = String(firstQueryParam(req.query?.scope) ?? '').trim()
   if (scope === 'knowledge_units' || scope === 'units') {
-    const sid = req.query?.subjectId ?? req.query?.subject_id
+    const sid = firstQueryParam(req.query?.subjectId ?? req.query?.subject_id)
     if (sid == null || String(sid).trim() === '') {
       return res.status(400).json({ message: '查询知识单元须同时传 subjectId（所属科目 id）' })
     }
     return listKnowledgeUnitsForSubjectHandler(req, res, sid)
   }
-  const legacyKu =
-    req.query?.knowledgeUnitsSubjectId ?? req.query?.knowledge_units_subject_id ?? req.query?.knowledgeUnitsFor
+  const legacyKu = firstQueryParam(
+    req.query?.knowledgeUnitsSubjectId ?? req.query?.knowledge_units_subject_id ?? req.query?.knowledgeUnitsFor,
+  )
   if (legacyKu != null && String(legacyKu).trim() !== '') {
     return listKnowledgeUnitsForSubjectHandler(req, res, legacyKu)
   }
@@ -1462,7 +1473,7 @@ const listKnowledgeUnitsForSubjectHandler = async (req, res, subjectIdRaw) => {
     }
     const { rows } = await pool.query(
       `
-      SELECT id, name, sort_order
+      SELECT id, name, sort_order, subject_id
       FROM knowledge_units
       WHERE subject_id = $1
       ORDER BY sort_order ASC, id ASC
