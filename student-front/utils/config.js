@@ -1,10 +1,20 @@
 /**
  * API 根地址（与 teacher-admin Node 服务一致，不要末尾 /）
- * 优先级：app.globalData.apiBase > 本地存储 api_base > 本默认值
- * 真机/体验版一般只用默认值即可；开发者工具连本地时可在调试器 Storage 写入 api_base 覆盖。
+ * 优先级：app.globalData.apiBase > 本地存储 api_base > config/site.js > 下方兜底
+ * 真机连本地 API 时可在调试器 Storage 写入 api_base 覆盖。
  */
-/** 须与微信公众平台「服务器域名」request 列表完全一致（含是否带 www） */
-const DEFAULT_API_BASE = "https://www.quizwiz.cn";
+let siteDefaults = { defaultApiBase: "", expectedMiniProgramAppId: "" };
+try {
+  siteDefaults = require("../config/site.local.js");
+} catch (_) {
+  try {
+    siteDefaults = require("../config/site.js");
+  } catch (_) {
+    /* 使用下方兜底 */
+  }
+}
+const FALLBACK_API_BASE = "https://www.quizwiz.cn";
+const DEFAULT_API_BASE = String(siteDefaults.defaultApiBase || "").trim() || FALLBACK_API_BASE;
 
 function getApiBase() {
   try {
@@ -19,4 +29,8 @@ function getApiBase() {
   return String(DEFAULT_API_BASE || "").replace(/\/$/, "");
 }
 
-module.exports = { getApiBase };
+function getExpectedMiniProgramAppId() {
+  return String(siteDefaults.expectedMiniProgramAppId || "").trim();
+}
+
+module.exports = { getApiBase, getExpectedMiniProgramAppId };

@@ -1,0 +1,17 @@
+{
+  "name": "quizwiz",
+  "private": true,
+  "type": "module",
+  "description": "一键本地：Postgres + 教师端 API + Vite，并生成小程序 site.local.js",
+  "scripts": {
+    "setup": "npm install && cd teacher-admin && npm install",
+    "db:up": "docker compose -f docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f docker-compose.dev.yml down",
+    "db:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d",
+    "dev": "node scripts/dev.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv": "^17.4.2"
+  }
+}

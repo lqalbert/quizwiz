@@ -1,0 +1,23 @@
+[Unit]
+Description=QuizWiz teacher-admin API (Node + Express)
+Documentation=file:///srv/quizwiz/teacher-admin/deploy/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quizwiz
+Group=quizwiz
+WorkingDirectory=/srv/quizwiz/teacher-admin
+Environment=NODE_ENV=production
+EnvironmentFile=/srv/quizwiz/teacher-admin/.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# 大文件导入 / 导出时可适当加大（与 Nginx client_max_body_size 一致）
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

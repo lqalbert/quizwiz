@@ -1,73 +1,38 @@
-# React + TypeScript + Vite
+# QuizWiz 教师端（teacher-admin）
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+教师管理后台：题库、考试、班级、系统设置等；内置 **Node + Express** API（`server/index.js`）与 **PostgreSQL**。
 
-Currently, two official plugins are available:
+**推荐本地联调（含 Docker 数据库 + 小程序 `site.local.js`）**：在仓库根目录 **[../README.md](../README.md)** 使用 `npm run setup` 与 `npm run dev`。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 生产部署
 
-## React Compiler
+**必读：[deploy/DEPLOY.md](deploy/DEPLOY.md)**（Nginx、`/api` 与 **`/uploads`**、systemd、环境变量、数据库 `init_v3.sql`）。
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+快速索引：
 
-## Expanding the ESLint configuration
+- 站点与反代：`deploy/nginx-server-www.quizwiz.cn.conf`
+- 服务端环境模板：`deploy/env.server.template`
+- 前端构建环境模板：`deploy/env.vite-build.template`
+- 健康检查：`bash deploy/verify.sh https://你的域名`
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 本地开发
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp .env.example .env
+# 填写 DATABASE_URL 或 PG*、JWT_SECRET、VITE_API_BASE_URL=http://127.0.0.1:3000
+npm install
+npm run dev:api   # API 默认 :3000
+npm run dev       # Vite，/api 与 /uploads 代理见 vite.config.ts
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+构建：
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp deploy/env.vite-build.template .env.production
+# 设置 VITE_API_BASE_URL 为线上教师端访问源（如 https://www.quizwiz.cn）
+npm run build
 ```
+
+## 技术栈
+
+React 19、TypeScript、Vite、Ant Design、Express 5、PostgreSQL。

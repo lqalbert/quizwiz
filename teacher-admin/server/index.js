@@ -249,10 +249,16 @@ const extraCorsOrigins = String(process.env.CORS_EXTRA_ORIGINS || '')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean)
+/** 仅本地联调：微信开发者工具 / 局域网 IP 等任意 Origin（勿在线上 .env 开启） */
+const devCorsAny = String(process.env.QUIZWIZ_DEV_CORS_ANY || '').trim() === '1'
 app.use(
-  cors({
-    origin: [...defaultCorsOrigins, ...extraCorsOrigins],
-  }),
+  cors(
+    devCorsAny
+      ? { origin: true }
+      : {
+          origin: [...defaultCorsOrigins, ...extraCorsOrigins],
+        },
+  ),
 )
 app.use(express.json({ limit: '2mb' }))
 app.use('/uploads', express.static(UPLOAD_ROOT))

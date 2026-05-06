@@ -3,7 +3,7 @@ const { getApiBase } = require("./config.js");
 function request({ path, method = "GET", data, auth = true }) {
   const base = getApiBase();
   if (!base) {
-    return Promise.reject(new Error("未配置 API 地址：请修改 utils/config.js 中 DEFAULT_API_BASE"));
+    return Promise.reject(new Error("未配置 API 地址：请修改 config/site.js 中 defaultApiBase"));
   }
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
   const header = { "Content-Type": "application/json" };

@@ -1,0 +1,18 @@
+# 本地开发：PostgreSQL + 首次启动执行 init_v3.sql
+# 主机 5433 → 容器 5432，避免与本机已有 Postgres 冲突
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quizwiz
+      POSTGRES_PASSWORD: quizwiz_local
+      POSTGRES_DB: quizwiz
+    ports:
+      - "5433:5432"
+    volumes:
+      - quizwiz_pgdata_dev:/var/lib/postgresql/data
+      - ./teacher-admin/init_v3.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./teacher-admin/seed_v3.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+
+volumes:
+  quizwiz_pgdata_dev:
