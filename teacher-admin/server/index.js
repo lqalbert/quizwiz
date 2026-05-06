@@ -363,8 +363,11 @@ const ensureKnowledgeUnitSchema = async () => {
   await pool.query(
     `
     INSERT INTO knowledge_units (name, subject_id, sort_order)
-    SELECT $1, NULL, 0
-    WHERE NOT EXISTS (SELECT 1 FROM knowledge_units WHERE name = $1 AND subject_id IS NULL)
+    SELECT $1::varchar(128), NULL, 0
+    WHERE NOT EXISTS (
+      SELECT 1 FROM knowledge_units ku
+      WHERE ku.name = $1::varchar(128) AND ku.subject_id IS NULL
+    )
     `,
     [DEFAULT_KNOWLEDGE_UNIT_NAME],
   )
@@ -374,7 +377,7 @@ const ensureKnowledgeUnitSchema = async () => {
     UPDATE question_tags qt
     SET unit_id = ku.id
     FROM knowledge_units ku
-    WHERE qt.unit_id IS NULL AND ku.name = $1
+    WHERE qt.unit_id IS NULL AND ku.name = $1::varchar(128)
     `,
     [DEFAULT_KNOWLEDGE_UNIT_NAME],
   )
