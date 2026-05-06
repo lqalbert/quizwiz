@@ -1929,13 +1929,16 @@ function QuestionBankPage() {
     setKnowledgeUnitsLoading(true)
     try {
       const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects?knowledgeUnitsSubjectId=${encodeURIComponent(String(sid))}`,
+        `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${encodeURIComponent(String(sid))}`,
         {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
       )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
+      if (payload?.meta?.resource !== 'knowledge_units') {
+        throw new Error('接口返回了非知识单元数据（请确认后端已部署 scope=knowledge_units 分支）')
+      }
       const list = Array.isArray(payload?.data) ? payload.data : []
       setKnowledgeUnitSelectOptions(
         list.map((u: Record<string, unknown>) => ({
@@ -3552,6 +3555,7 @@ function QuestionBankPage() {
             label="知识单元"
             name="knowledgeUnit"
             dependencies={['knowledgePoints']}
+            extra="仅展示上方所选科目下的知识单元（系统设置 → 知识单元字典）。"
             rules={[
               {
                 validator: async (_, v) => {
@@ -7400,13 +7404,16 @@ function SystemSettingsPage() {
     try {
       setUnitDictLoading(true)
       const response = await teacherAdminFetch(
-        `${API_BASE_URL}/api/subjects?knowledgeUnitsSubjectId=${encodeURIComponent(String(subjectId))}`,
+        `${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${encodeURIComponent(String(subjectId))}`,
         {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         },
       )
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载知识单元失败(${response.status})`)
+      if (payload?.meta?.resource !== 'knowledge_units') {
+        throw new Error('接口返回了非知识单元数据（请升级后端并确认请求带 scope=knowledge_units&subjectId）')
+      }
       setUnitDictRows(Array.isArray(payload?.data) ? payload.data : [])
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识单元失败')
@@ -7816,7 +7823,7 @@ function SystemSettingsPage() {
       children: (
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            为题库、考试选题提供按科目的知识单元选项；每科默认含「未分类」，不可删除。请先选择科目再维护列表。
+            层级：科目 → 知识单元 → 知识点（题目里用标签挂在单元下）。请先在下拉框中选择一门科目，下表仅展示该科目下的知识单元；每科默认含「未分类」，不可删除。
           </Typography.Paragraph>
           <Space wrap>
             <Select

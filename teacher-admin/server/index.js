@@ -1163,11 +1163,23 @@ app.post('/api/auth/me/avatar-upload', authRequired, (req, res) => {
 })
 
 app.get('/api/subjects', authRequired, async (req, res) => {
-  /** 与科目列表同一路径，避免网关只放行「精确 /api/subjects」时子路径 404 */
-  const kuSubjectRaw =
+  /**
+   * 与科目列表同一路径；须显式 scope，避免误把「仅带其它 query」的请求当成知识单元（也避免与将来筛选参数混淆）。
+   * 推荐：GET /api/subjects?scope=knowledge_units&subjectId=<科目id>
+   * 兼容：knowledgeUnitsSubjectId=…（旧前端）
+   */
+  const scope = String(req.query?.scope || '').trim()
+  if (scope === 'knowledge_units' || scope === 'units') {
+    const sid = req.query?.subjectId ?? req.query?.subject_id
+    if (sid == null || String(sid).trim() === '') {
+      return res.status(400).json({ message: '查询知识单元须同时传 subjectId（所属科目 id）' })
+    }
+    return listKnowledgeUnitsForSubjectHandler(req, res, sid)
+  }
+  const legacyKu =
     req.query?.knowledgeUnitsSubjectId ?? req.query?.knowledge_units_subject_id ?? req.query?.knowledgeUnitsFor
-  if (kuSubjectRaw != null && String(kuSubjectRaw).trim() !== '') {
-    return listKnowledgeUnitsForSubjectHandler(req, res, kuSubjectRaw)
+  if (legacyKu != null && String(legacyKu).trim() !== '') {
+    return listKnowledgeUnitsForSubjectHandler(req, res, legacyKu)
   }
   try {
     const { rows } = await pool.query(
@@ -1177,7 +1189,7 @@ app.get('/api/subjects', authRequired, async (req, res) => {
       ORDER BY sort_order ASC, id ASC
       `,
     )
-    res.json({ data: rows })
+    res.json({ data: rows, meta: { resource: 'subjects' } })
   } catch (error) {
     res.status(500).json({ message: '科目列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -1457,7 +1469,10 @@ const listKnowledgeUnitsForSubjectHandler = async (req, res, subjectIdRaw) => {
       `,
       [subjectId],
     )
-    return res.json({ data: rows })
+    return res.json({
+      data: rows,
+      meta: { resource: 'knowledge_units', subjectId },
+    })
   } catch (error) {
     return res.status(500).json({ message: '知识单元列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
