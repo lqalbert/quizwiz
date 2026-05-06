@@ -1371,6 +1371,22 @@ app.post('/api/subjects', authRequired, async (req, res) => {
   if (!hasRole(req, 'admin')) {
     return res.status(403).json({ message: '仅管理员可新增科目' })
   }
+  /**
+   * 推荐：在科目下新增知识单元用查询串（与 GET 一样不易被网关剥 body 字段）
+   * POST /api/subjects?op=add_knowledge_unit&subjectId=<科目数字id>  Body: { "name": "单元名" }
+   */
+  const op = String(firstQueryParam(req.query?.op) ?? '')
+    .trim()
+    .toLowerCase()
+  const sidQRaw = firstQueryParam(req.query?.subjectId ?? req.query?.subject_id)
+  const sidQ = Number(sidQRaw)
+  if (op === 'add_knowledge_unit' || op === 'addknowledgeunit') {
+    if (!Number.isInteger(sidQ) || sidQ <= 0) {
+      return res.status(400).json({ message: '新增知识单元须在 URL 中附带 subjectId=所属科目数字 id（与 op=add_knowledge_unit 同时使用）' })
+    }
+    return createKnowledgeUnitHandler(req, res, sidQ)
+  }
+
   const nameTrim = String(req.body?.name || '').trim()
   const sidRaw = req.body?.subjectId ?? req.body?.subject_id
   const sidNum = Number(sidRaw)
@@ -1382,12 +1398,12 @@ app.post('/api/subjects', authRequired, async (req, res) => {
   /** 仅新增科目：显式 intent，避免与「科目 id + 单元名」混淆 */
   const forceNewSubjectOnly = req.body?.intent === 'subject' || req.body?.createSubject === true
   /**
-   * 在科目下新增知识单元：须带所属科目 id + 单元名称。
-   * 部分网关会去掉以下划线开头的字段，故不能单靠 _kind；只要 body 里带合法 subjectId 且有 name，即视为知识单元（新增科目请求只发 { name }，不带 subjectId）。
+   * 在科目下新增知识单元（兼容旧 body）：须带所属科目 id + 单元名称。
+   * 若网关会剥 JSON 里的 subjectId/kind，请改用 URL：?op=add_knowledge_unit&subjectId=…
    */
   if (!forceNewSubjectOnly && (kuExplicit || (hasParentSubject && nameTrim))) {
     if (!hasParentSubject) {
-      return res.status(400).json({ message: '新增知识单元须指定 subjectId（所属科目）' })
+      return res.status(400).json({ message: '新增知识单元须指定 subjectId（所属科目），或使用 URL ?op=add_knowledge_unit&subjectId=…' })
     }
     return createKnowledgeUnitHandler(req, res, sidNum)
   }
@@ -1425,7 +1441,10 @@ app.post('/api/subjects', authRequired, async (req, res) => {
     return res.status(201).json({ data: result.rows[0] })
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
-      return res.status(409).json({ message: '科目名称已存在' })
+      return res.status(409).json({
+        message:
+          '科目名称已存在。若您实际在添加「知识单元」却看到本提示，多半是请求被当成新增科目：请改用 POST /api/subjects?op=add_knowledge_unit&subjectId=科目id，且 JSON 体只传 name。',
+      })
     }
     return res.status(500).json({ message: '新增科目失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -1548,7 +1567,7 @@ const createKnowledgeUnitHandler = async (req, res, subjectIdRaw) => {
     return res.status(201).json({ data: result.rows[0] })
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
-      return res.status(409).json({ message: '该科目下已存在同名知识单元' })
+      return res.status(409).json({ message: '该科目下已存在同名「知识单元」（与科目名称无关，请换单元名或检查是否重复添加）' })
     }
     return res.status(500).json({ message: '新增知识单元失败', detail: error instanceof Error ? error.message : String(error) })
   }

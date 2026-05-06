@@ -7479,13 +7479,16 @@ function SystemSettingsPage() {
       return
     }
     try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects`, {
+      const qs = new URLSearchParams()
+      qs.set('op', 'add_knowledge_unit')
+      qs.set('subjectId', String(sid))
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects?${qs.toString()}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ kind: 'knowledge_unit', subjectId: sid, name }),
+        body: JSON.stringify({ name }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `新增失败(${response.status})`)
