@@ -509,7 +509,7 @@ const ensureClassInviteSchema = async () => {
 }
 
 const ensureStudentWarningSchema = async () => {
-  await pool.query(`ALTER TABLE student_warning_cases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
+  /** 须先建表再 ALTER：空库若先 ALTER 会报 relation does not exist */
   await pool.query(
     `
     CREATE TABLE IF NOT EXISTS student_warning_cases (
@@ -526,6 +526,7 @@ const ensureStudentWarningSchema = async () => {
     )
     `,
   )
+  await pool.query(`ALTER TABLE student_warning_cases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
   await pool.query(
     `
     CREATE INDEX IF NOT EXISTS idx_student_warning_cases_class_status
