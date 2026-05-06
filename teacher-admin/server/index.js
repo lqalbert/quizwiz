@@ -349,6 +349,17 @@ const ensureKnowledgeUnitSchema = async () => {
     )
     `,
   )
+  /** 须先于含 subject_id / sort_order 的 INSERT，且先于 question_tags 回填 unit_id（依赖全局「未分类」行） */
+  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS subject_id BIGINT REFERENCES subjects(id) ON DELETE CASCADE`)
+  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(`DROP INDEX IF EXISTS knowledge_units_name_uidx`)
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_global_name_uidx ON knowledge_units (name) WHERE subject_id IS NULL`,
+  )
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_subject_name_uidx ON knowledge_units (subject_id, name) WHERE subject_id IS NOT NULL`,
+  )
   await pool.query(
     `
     INSERT INTO knowledge_units (name, subject_id, sort_order)
@@ -372,16 +383,6 @@ const ensureKnowledgeUnitSchema = async () => {
   await pool.query(`DROP INDEX IF EXISTS question_tags_name_key`)
   await pool.query(
     `CREATE UNIQUE INDEX IF NOT EXISTS question_tags_unit_id_name_uidx ON question_tags (unit_id, name)`,
-  )
-  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS subject_id BIGINT REFERENCES subjects(id) ON DELETE CASCADE`)
-  await pool.query(`ALTER TABLE knowledge_units ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0`)
-  await pool.query(`ALTER TABLE knowledge_units DROP CONSTRAINT IF EXISTS knowledge_units_name_uidx`)
-  await pool.query(`DROP INDEX IF EXISTS knowledge_units_name_uidx`)
-  await pool.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_global_name_uidx ON knowledge_units (name) WHERE subject_id IS NULL`,
-  )
-  await pool.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_units_subject_name_uidx ON knowledge_units (subject_id, name) WHERE subject_id IS NOT NULL`,
   )
   await pool.query(
     `
@@ -7853,7 +7854,7 @@ if (isMainModule) {
       })
     })
     .catch((error) => {
-      console.error('Failed to init system config table:', error)
+      console.error('Failed to run boot migrations (schema / system config):', error)
       process.exit(1)
     })
 }
