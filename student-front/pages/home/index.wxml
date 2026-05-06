@@ -1,0 +1,21 @@
+<view class="page-wrap">
+  <text class="date muted">{{dateText}}</text>
+  <text class="h1 hero-title">今天练几题？</text>
+  <text class="tagline muted">小步坚持即可</text>
+
+  <view class="panel divider-top" bindtap="goQuiz">
+    <view class="panel-body">
+      <text class="panel-label">继续</text>
+      <text class="panel-desc muted">{{resumeHint}}</text>
+    </view>
+    <text class="panel-arrow muted">›</text>
+  </view>
+
+  <view class="row-actions">
+    <text class="text-btn muted" bindtap="goLogin">登录</text>
+    <text class="dot muted">·</text>
+    <text class="text-btn muted" bindtap="goStudy">学习目录</text>
+    <text class="dot muted">·</text>
+    <text class="text-btn muted" bindtap="hintWrong">错题本</text>
+  </view>
+</view>

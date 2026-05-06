@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
@@ -16,9 +17,14 @@ const app = express()
 
 const API_PORT = Number(process.env.API_PORT || 3000)
 const JWT_SECRET = process.env.JWT_SECRET || 'quizwiz-dev-secret'
+/** 小程序登录：微信公众平台 → 开发 → 开发管理 → 开发设置 */
+const WECHAT_MINI_APPID = String(process.env.WECHAT_MINI_APPID || '').trim()
+const WECHAT_MINI_SECRET = String(process.env.WECHAT_MINI_SECRET || '').trim()
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads')
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || `http://localhost:${API_PORT}`
 const UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024
+/** 接口契约版本：递增表示行为变更。线上与本地 curl /api/health 对比此字段可确认是否已部署同一套 API。 */
+const API_REVISION = 2
 
 if (!fs.existsSync(UPLOAD_ROOT)) {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
@@ -431,6 +437,132 @@ const ensureResourceSchema = async () => {
       PRIMARY KEY (resource_id, class_id)
     )
     `,
+  )
+}
+
+const ensureStudentPracticeSchema = async () => {
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS student_question_stats (
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      correct_count INTEGER NOT NULL DEFAULT 0,
+      wrong_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (student_id, question_id)
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_question_stats_student
+    ON student_question_stats(student_id, updated_at DESC)
+    `,
+  )
+}
+
+const ensureStudentWechatSchema = async () => {
+  await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_openid VARCHAR(128)`)
+  await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_unionid VARCHAR(128)`)
+  await pool.query(
+    `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_students_wechat_openid_unique
+    ON students(wechat_openid)
+    WHERE wechat_openid IS NOT NULL AND btrim(wechat_openid) <> ''
+    `,
+  )
+}
+
+const wechatMiniCode2Session = async (jsCode) => {
+  const appid = WECHAT_MINI_APPID
+  const secret = WECHAT_MINI_SECRET
+  if (!appid || !secret) {
+    throw new Error('服务端未配置 WECHAT_MINI_APPID / WECHAT_MINI_SECRET，无法使用微信登录')
+  }
+  const code = String(jsCode || '').trim()
+  if (!code) throw new Error('code 不能为空')
+  const url = `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appid)}&secret=${encodeURIComponent(secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`
+  const res = await fetch(url)
+  const json = await res.json().catch(() => ({}))
+  if (json.errcode) {
+    throw new Error(String(json.errmsg || `微信接口错误 ${json.errcode}`))
+  }
+  const openid = String(json.openid || '').trim()
+  if (!openid) throw new Error('微信未返回 openid')
+  return {
+    openid,
+    unionid: String(json.unionid || '').trim() || null,
+    session_key: json.session_key,
+  }
+}
+
+const studentNoFromWechatOpenid = (openid) => {
+  const h = crypto.createHash('sha256').update(openid, 'utf8').digest('hex').slice(0, 20)
+  const sn = `wx${h}`
+  return sn.length <= 64 ? sn : sn.slice(0, 64)
+}
+
+/** 学生作答是否与题库答案一致（与教师端题型约定一致） */
+const isStudentAnswerCorrect = (questionType, correctText, userRaw) => {
+  const c0 = String(correctText ?? '').trim()
+  const u0 = String(userRaw ?? '').trim()
+  const t = Number(questionType)
+  if (t === 1) {
+    const c = c0.toUpperCase().slice(0, 1)
+    const u = u0.toUpperCase().slice(0, 1)
+    if (!u) return false
+    return c === u
+  }
+  if (t === 2) {
+    const norm = (s) =>
+      Array.from(
+        new Set(
+          String(s || '')
+            .replace(/，/g, ',')
+            .split(',')
+            .map((x) => x.trim().toUpperCase())
+            .filter(Boolean),
+        ),
+      )
+        .sort()
+        .join(',')
+    if (!u0) return false
+    return norm(c0) === norm(u0)
+  }
+  if (t === 3) {
+    const normJudge = (s) => {
+      const x = String(s || '').trim()
+      if (x === '对' || x.toUpperCase() === 'A' || x === '正确' || x === 'TRUE' || x === 'T' || x === '1') return 'A'
+      if (x === '错' || x.toUpperCase() === 'B' || x === '错误' || x === 'FALSE' || x === 'F' || x === '0') return 'B'
+      return x.toUpperCase().slice(0, 1)
+    }
+    if (!u0) return false
+    return normJudge(c0) === normJudge(u0)
+  }
+  const soft = (s) =>
+    String(s || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+  if (!u0) return false
+  return soft(c0) === soft(u0)
+}
+
+const incrementStudentQuestionStats = async (client, studentId, questionId, isCorrect) => {
+  const correctInc = isCorrect ? 1 : 0
+  const wrongInc = isCorrect ? 0 : 1
+  await client.query(
+    `
+    INSERT INTO student_question_stats (student_id, question_id, attempts, correct_count, wrong_count, updated_at)
+    VALUES ($1, $2, 1, $3, $4, NOW())
+    ON CONFLICT (student_id, question_id) DO UPDATE SET
+      attempts = student_question_stats.attempts + 1,
+      correct_count = student_question_stats.correct_count + EXCLUDED.correct_count,
+      wrong_count = student_question_stats.wrong_count + EXCLUDED.wrong_count,
+      updated_at = NOW()
+    `,
+    [studentId, questionId, correctInc, wrongInc],
   )
 }
 
@@ -1586,6 +1718,239 @@ app.post('/api/public/student/login', async (req, res) => {
   }
 })
 
+app.post('/api/public/student/wechat-login', async (req, res) => {
+  const code = String(req.body?.code || '').trim()
+  const nickname = String(req.body?.nickname || '').trim().slice(0, 32)
+  try {
+    const { openid, unionid } = await wechatMiniCode2Session(code)
+    const displayName = nickname || '微信用户'
+    let studentRow = null
+    const found = await pool.query(
+      `SELECT id, name, student_no, wechat_openid FROM students WHERE wechat_openid = $1 LIMIT 1`,
+      [openid],
+    )
+    if (found.rows[0]) {
+      studentRow = found.rows[0]
+      const updates = []
+      const vals = []
+      if (unionid) {
+        vals.push(unionid)
+        updates.push(`wechat_unionid = COALESCE(NULLIF(wechat_unionid, ''), $${vals.length})`)
+      }
+      if (nickname) {
+        vals.push(displayName)
+        updates.push(`name = $${vals.length}`)
+      }
+      if (updates.length > 0) {
+        vals.push(studentRow.id)
+        await pool.query(`UPDATE students SET ${updates.join(', ')} WHERE id = $${vals.length}`, vals)
+        const again = await pool.query(`SELECT id, name, student_no FROM students WHERE id = $1`, [studentRow.id])
+        studentRow = again.rows[0]
+      }
+    } else {
+      const studentNo = studentNoFromWechatOpenid(openid)
+      try {
+        const ins = await pool.query(
+          `
+          INSERT INTO students (name, student_no, wechat_openid, wechat_unionid)
+          VALUES ($1, $2, $3, $4)
+          RETURNING id, name, student_no
+          `,
+          [displayName, studentNo, openid, unionid || null],
+        )
+        studentRow = ins.rows[0]
+      } catch (e) {
+        if (e && e.code === '23505') {
+          const dup = await pool.query(`SELECT id, name, student_no FROM students WHERE wechat_openid = $1 LIMIT 1`, [openid])
+          studentRow = dup.rows[0]
+        } else {
+          throw e
+        }
+      }
+    }
+    const studentId = Number(studentRow.id)
+    const classCountResult = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM class_members WHERE student_id = $1`,
+      [studentId],
+    )
+    const classCount = Number(classCountResult.rows[0]?.c || 0)
+    const classesResult = await pool.query(
+      `
+      SELECT c.id, c.name, c.grade
+      FROM class_members cm
+      JOIN classes c ON c.id = cm.class_id
+      WHERE cm.student_id = $1
+      ORDER BY c.name ASC
+      `,
+      [studentId],
+    )
+    const token = jwt.sign({ studentId, roles: ['student'] }, JWT_SECRET, { expiresIn: '30d' })
+    return res.json({
+      data: {
+        token,
+        need_join_class: classCount === 0,
+        student: {
+          id: studentId,
+          name: studentRow.name,
+          student_no: studentRow.student_no,
+        },
+        classes: classesResult.rows,
+      },
+    })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('未配置 WECHAT')) {
+      return res.status(503).json({ message: msg })
+    }
+    return res.status(400).json({ message: msg })
+  }
+})
+
+app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
+  try {
+    const studentId = req.studentAuth.studentId
+    const sres = await pool.query(`SELECT id, name, student_no, wechat_openid FROM students WHERE id = $1 LIMIT 1`, [studentId])
+    const student = sres.rows[0]
+    if (!student) return res.status(404).json({ message: '学生不存在' })
+    const classesResult = await pool.query(
+      `
+      SELECT c.id, c.name, c.grade
+      FROM class_members cm
+      JOIN classes c ON c.id = cm.class_id
+      WHERE cm.student_id = $1
+      ORDER BY c.name ASC
+      `,
+      [studentId],
+    )
+    const classes = classesResult.rows
+    return res.json({
+      data: {
+        student: {
+          id: student.id,
+          name: student.name,
+          student_no: student.student_no,
+          has_wechat: Boolean(String(student.wechat_openid || '').trim()),
+        },
+        classes,
+        need_join_class: classes.length === 0,
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载学生资料失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) => {
+  const inviteCode = String(req.body?.inviteCode || req.body?.invite_code || '').trim().toUpperCase()
+  if (!inviteCode) return res.status(400).json({ message: 'inviteCode 必填' })
+  const studentId = req.studentAuth.studentId
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const sres = await client.query(`SELECT id, name, student_no FROM students WHERE id = $1 LIMIT 1`, [studentId])
+    const student = sres.rows[0]
+    if (!student) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '学生不存在' })
+    }
+    const classResult = await client.query(
+      `
+      SELECT id, name, invite_code, invite_enabled, invite_expires_at, join_audit_mode
+      FROM classes
+      WHERE UPPER(btrim(invite_code)) = $1
+      LIMIT 1
+      `,
+      [inviteCode],
+    )
+    const classRow = classResult.rows[0]
+    if (!classRow) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '邀请码无效' })
+    }
+    if (!classRow.invite_enabled) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '该班级邀请码已停用' })
+    }
+    if (classRow.invite_expires_at && new Date(classRow.invite_expires_at).getTime() < Date.now()) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '该班级邀请码已过期' })
+    }
+    const member = await client.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classRow.id, studentId],
+    )
+    if (member.rows[0]) {
+      await client.query('COMMIT')
+      return res.json({
+        data: {
+          already_member: true,
+          class_id: Number(classRow.id),
+          class_name: classRow.name,
+        },
+      })
+    }
+    const joinMode = String(classRow.join_audit_mode || 'auto')
+    if (joinMode === 'manual') {
+      await client.query(
+        `
+        INSERT INTO class_join_requests (class_id, student_name, student_no, invite_code, status, source, requested_at)
+        VALUES ($1, $2, $3, $4, 'pending', 'mini_program_wechat', NOW())
+        `,
+        [classRow.id, student.name, student.student_no, inviteCode],
+      )
+      await writeOperationLog({
+        client,
+        operatorId: null,
+        action: 'class.join_request.submit',
+        targetType: 'class',
+        targetId: String(classRow.id),
+        detail: { studentId, student_no: student.student_no, source: 'mini_program_wechat' },
+      })
+      await client.query('COMMIT')
+      return res.status(201).json({
+        data: {
+          mode: 'manual',
+          class_id: Number(classRow.id),
+          class_name: classRow.name,
+          status: 'pending',
+          message: '已提交入班申请，请等待老师审核',
+        },
+      })
+    }
+    await upsertStudentAndJoinClass({
+      client,
+      classId: Number(classRow.id),
+      name: String(student.name || '微信用户'),
+      studentNo: String(student.student_no || ''),
+      operatorId: null,
+      inviteCode,
+      joinChannel: 'mini_program_wechat_auto',
+    })
+    await writeOperationLog({
+      client,
+      operatorId: null,
+      action: 'class.student.add',
+      targetType: 'class',
+      targetId: String(classRow.id),
+      detail: { studentId, student_no: student.student_no, source: 'mini_program_wechat_invite' },
+    })
+    await client.query('COMMIT')
+    return res.status(201).json({
+      data: {
+        mode: 'auto',
+        class_id: Number(classRow.id),
+        class_name: classRow.name,
+        status: 'joined',
+      },
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '加入班级失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
 app.get('/api/student/my-classes', studentAuthRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1728,6 +2093,375 @@ app.get('/api/student/resources/:id/download', studentAuthRequired, async (req, 
     return res.download(absPath, displayName)
   } catch (error) {
     return res.status(500).json({ message: '下载资料失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/student/subjects', studentAuthRequired, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, sort_order FROM subjects ORDER BY sort_order ASC, id ASC`,
+    )
+    return res.json({ data: rows })
+  } catch (error) {
+    return res.status(500).json({ message: '加载科目失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
+  const subjectId = Number(req.query.subject_id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subject_id 不合法' })
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT DISTINCT qt.name AS name
+      FROM question_tags qt
+      JOIN question_tag_rel qtr ON qtr.tag_id = qt.id
+      JOIN questions q ON q.id = qtr.question_id
+      WHERE q.subject_id = $1 AND q.deleted_at IS NULL
+      ORDER BY qt.name ASC
+      `,
+      [subjectId],
+    )
+    return res.json({ data: rows.map((r) => ({ name: String(r.name || '') })).filter((r) => r.name) })
+  } catch (error) {
+    return res.status(500).json({ message: '加载知识点失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.post('/api/student/practice/build', studentAuthRequired, async (req, res) => {
+  const subjectId = Number(req.body?.subject_id)
+  const tagNames = Array.isArray(req.body?.tag_names) ? req.body.tag_names.map((x) => String(x || '').trim()).filter(Boolean) : []
+  const practiceModule = String(req.body?.practice_module || '').trim()
+  const sectionTag = String(req.body?.section_tag || '').trim()
+  const mockAllocation = Array.isArray(req.body?.mock_allocation) ? req.body.mock_allocation : []
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.body?.limit || '25'), 10) || 25))
+
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subject_id 不合法' })
+  }
+  const allowedModules = new Set(['sequential', 'random', 'section', 'mock'])
+  if (!allowedModules.has(practiceModule)) {
+    return res.status(400).json({ message: 'practice_module 须为 sequential | random | section | mock' })
+  }
+  if (practiceModule === 'section' && !sectionTag) {
+    return res.status(400).json({ message: '知识小节练习须传 section_tag' })
+  }
+  if (practiceModule === 'mock') {
+    if (mockAllocation.length === 0) {
+      return res.status(400).json({ message: '模拟练习须传 mock_allocation，如 [{\"tag_name\":\"…\",\"count\":3}]' })
+    }
+  }
+
+  const tagAnyClause = (paramIndex) =>
+    `AND EXISTS (
+      SELECT 1 FROM question_tag_rel qtr
+      JOIN question_tags qt ON qt.id = qtr.tag_id
+      WHERE qtr.question_id = q.id AND qt.name = ANY($${paramIndex}::text[])
+    )`
+
+  const sectionClause = (paramIndex) =>
+    `AND EXISTS (
+      SELECT 1 FROM question_tag_rel qtr
+      JOIN question_tags qt ON qt.id = qtr.tag_id
+      WHERE qtr.question_id = q.id AND qt.name = $${paramIndex}
+    )`
+
+  try {
+    const subOk = await pool.query(`SELECT 1 FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subOk.rows[0]) return res.status(404).json({ message: '科目不存在' })
+
+    if (practiceModule === 'mock') {
+      const seen = new Set()
+      const orderedIds = []
+      for (const raw of mockAllocation) {
+        const tagName = String(raw?.tag_name ?? raw?.tagName ?? '').trim()
+        const cnt = Math.min(50, Math.max(0, parseInt(String(raw?.count ?? 0), 10) || 0))
+        if (!tagName || cnt <= 0) continue
+        const r = await pool.query(
+          `
+          SELECT q.id
+          FROM questions q
+          WHERE q.deleted_at IS NULL AND q.subject_id = $1
+            AND EXISTS (
+              SELECT 1 FROM question_tag_rel qtr
+              JOIN question_tags qt ON qt.id = qtr.tag_id
+              WHERE qtr.question_id = q.id AND qt.name = $2
+            )
+          ORDER BY random()
+          LIMIT $3
+          `,
+          [subjectId, tagName, cnt],
+        )
+        for (const row of r.rows) {
+          const id = Number(row.id)
+          if (!seen.has(id)) {
+            seen.add(id)
+            orderedIds.push(id)
+          }
+        }
+      }
+      if (orderedIds.length === 0) {
+        return res.status(400).json({ message: '未匹配到题目，请检查知识点名称与题量' })
+      }
+      const sliced = orderedIds.slice(0, limit)
+      return res.json({ data: { question_ids: sliced } })
+    }
+
+    const values = [subjectId]
+    let whereExtra = ''
+    if (practiceModule === 'section') {
+      values.push(sectionTag)
+      whereExtra = sectionClause(values.length)
+    } else if (tagNames.length > 0) {
+      values.push(tagNames)
+      whereExtra = tagAnyClause(values.length)
+    }
+
+    const orderSql =
+      practiceModule === 'random' ? 'ORDER BY random()' : 'ORDER BY q.id ASC'
+    values.push(limit)
+    const limitParam = values.length
+
+    const sql = `
+      SELECT q.id
+      FROM questions q
+      WHERE q.deleted_at IS NULL AND q.subject_id = $1
+      ${whereExtra}
+      ${orderSql}
+      LIMIT $${limitParam}
+    `
+    const { rows } = await pool.query(sql, values)
+    const questionIds = rows.map((row) => Number(row.id)).filter((id) => !Number.isNaN(id))
+    if (questionIds.length === 0) {
+      return res.status(400).json({ message: '当前条件下没有题目，请换科目或知识点' })
+    }
+    return res.json({ data: { question_ids: questionIds } })
+  } catch (error) {
+    return res.status(500).json({ message: '组卷失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/student/questions/:id', studentAuthRequired, async (req, res) => {
+  const questionId = Number(req.params.id)
+  if (!Number.isInteger(questionId) || questionId <= 0) {
+    return res.status(400).json({ message: '题目ID不合法' })
+  }
+  try {
+    const questionResult = await pool.query(
+      `
+      SELECT q.id, q.question_type, q.stem, q.difficulty, s.name AS subject_name
+      FROM questions q
+      JOIN subjects s ON s.id = q.subject_id
+      WHERE q.id = $1 AND q.deleted_at IS NULL
+      LIMIT 1
+      `,
+      [questionId],
+    )
+    const row = questionResult.rows[0]
+    if (!row) return res.status(404).json({ message: '题目不存在' })
+    const optionsResult = await pool.query(
+      `
+      SELECT option_key, option_text, sort_order
+      FROM question_options
+      WHERE question_id = $1
+      ORDER BY sort_order ASC, option_key ASC
+      `,
+      [questionId],
+    )
+    const tagsResult = await pool.query(
+      `
+      SELECT t.name
+      FROM question_tag_rel r
+      JOIN question_tags t ON t.id = r.tag_id
+      WHERE r.question_id = $1
+      ORDER BY t.name ASC
+      `,
+      [questionId],
+    )
+    return res.json({
+      data: {
+        id: row.id,
+        subject: row.subject_name,
+        question_type: row.question_type,
+        question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
+        stem: row.stem,
+        difficulty: row.difficulty,
+        options: optionsResult.rows,
+        knowledge_points: tagsResult.rows.map((item) => String(item.name)),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载题目失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.post('/api/student/questions/:id/check', studentAuthRequired, async (req, res) => {
+  const questionId = Number(req.params.id)
+  if (!Number.isInteger(questionId) || questionId <= 0) {
+    return res.status(400).json({ message: '题目ID不合法' })
+  }
+  const userAnswer = req.body?.user_answer ?? req.body?.userAnswer ?? ''
+  const client = await pool.connect()
+  try {
+    const qres = await client.query(
+      `SELECT question_type, answer_text, explanation FROM questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      [questionId],
+    )
+    const qrow = qres.rows[0]
+    if (!qrow) return res.status(404).json({ message: '题目不存在' })
+    const ok = isStudentAnswerCorrect(Number(qrow.question_type), qrow.answer_text, userAnswer)
+    await incrementStudentQuestionStats(client, req.studentAuth.studentId, questionId, ok)
+    return res.json({
+      data: {
+        correct: ok,
+        correct_answer: String(qrow.answer_text || ''),
+        explanation: String(qrow.explanation || ''),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '判题失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, res) => {
+  const answers = Array.isArray(req.body?.answers) ? req.body.answers : []
+  if (answers.length === 0) {
+    return res.status(400).json({ message: 'answers 不能为空' })
+  }
+  const client = await pool.connect()
+  try {
+    const results = []
+    for (const item of answers) {
+      const qid = Number(item?.question_id ?? item?.questionId)
+      const ua = item?.user_answer ?? item?.userAnswer ?? ''
+      if (!Number.isInteger(qid) || qid <= 0) continue
+      const qres = await client.query(
+        `SELECT question_type, stem, answer_text, explanation FROM questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [qid],
+      )
+      const qrow = qres.rows[0]
+      if (!qrow) {
+        results.push({ question_id: qid, missing: true })
+        continue
+      }
+      const ok = isStudentAnswerCorrect(Number(qrow.question_type), qrow.answer_text, ua)
+      await incrementStudentQuestionStats(client, req.studentAuth.studentId, qid, ok)
+      results.push({
+        question_id: qid,
+        correct: ok,
+        user_answer: String(ua),
+        correct_answer: String(qrow.answer_text || ''),
+        explanation: String(qrow.explanation || ''),
+        stem: String(qrow.stem || ''),
+        question_type: Number(qrow.question_type),
+      })
+    }
+    return res.json({ data: { results } })
+  } catch (error) {
+    return res.status(500).json({ message: '交卷失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+  const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
+  const offset = (page - 1) * pageSize
+  try {
+    const countResult = await pool.query(
+      `
+      SELECT COUNT(*)::int AS c
+      FROM student_question_stats s
+      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+      WHERE s.student_id = $1 AND s.wrong_count > 0
+      `,
+      [req.studentAuth.studentId],
+    )
+    const total = Number(countResult.rows[0]?.c || 0)
+    const { rows } = await pool.query(
+      `
+      SELECT
+        s.question_id,
+        s.attempts,
+        s.correct_count,
+        s.wrong_count,
+        s.updated_at,
+        q.stem,
+        q.question_type
+      FROM student_question_stats s
+      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+      WHERE s.student_id = $1 AND s.wrong_count > 0
+      ORDER BY s.updated_at DESC, s.question_id DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [req.studentAuth.studentId, pageSize, offset],
+    )
+    return res.json({
+      data: rows.map((row) => ({
+        question_id: row.question_id,
+        stem: row.stem,
+        question_type: row.question_type,
+        question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
+        attempts: row.attempts,
+        correct_count: row.correct_count,
+        wrong_count: row.wrong_count,
+        updated_at: row.updated_at,
+      })),
+      pagination: { total, page, pageSize },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载错题失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+  const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
+  const offset = (page - 1) * pageSize
+  try {
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM student_question_stats WHERE student_id = $1 AND attempts > 0`,
+      [req.studentAuth.studentId],
+    )
+    const total = Number(countResult.rows[0]?.c || 0)
+    const { rows } = await pool.query(
+      `
+      SELECT
+        s.question_id,
+        s.attempts,
+        s.correct_count,
+        s.wrong_count,
+        s.updated_at,
+        q.stem,
+        q.question_type
+      FROM student_question_stats s
+      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+      WHERE s.student_id = $1 AND s.attempts > 0
+      ORDER BY s.updated_at DESC, s.question_id DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [req.studentAuth.studentId, pageSize, offset],
+    )
+    return res.json({
+      data: rows.map((row) => ({
+        question_id: row.question_id,
+        stem: row.stem,
+        question_type: row.question_type,
+        question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
+        attempts: row.attempts,
+        correct_count: row.correct_count,
+        wrong_count: row.wrong_count,
+        updated_at: row.updated_at,
+      })),
+      pagination: { total, page, pageSize },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载已做题失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 
@@ -4451,7 +5185,14 @@ app.get('/api/health', async (_req, res) => {
     await pool.query('select 1')
     res.setHeader('Cache-Control', 'no-store')
     // 若 JSON 里没有 service/auth_profile_me，说明 3000 上不是本仓库当前版 API（端口被其它进程占用或未保存/未重启）
-    res.json({ ok: true, service: 'quizwiz-teacher-admin', auth_profile_me: true })
+    res.json({
+      ok: true,
+      service: 'quizwiz-teacher-admin',
+      auth_profile_me: true,
+      api_revision: API_REVISION,
+      /** api_revision >= 2 时 GET /api/questions 列表体含 knowledge_points / knowledgePoints / knowledgePointTags */
+      questions_list_knowledge_fields: true,
+    })
   } catch (error) {
     res.status(500).json({ ok: false, message: 'database unavailable' })
   }
@@ -5072,7 +5813,10 @@ app.get('/api/questions', authRequired, async (req, res) => {
     `
     const { rows } = await pool.query(sql, values)
     const total = rows.length > 0 ? Number(rows[0].__total ?? 0) : 0
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-QuizWiz-Api-Revision', String(API_REVISION))
     res.json({
+      meta: { api_revision: API_REVISION },
       data: rows.map((row) => {
         const kp = String(
           row?.knowledge_points ??
@@ -6794,6 +7538,8 @@ const bootPromise = Promise.all([
   ensureQuestionVersionSchema(),
   ensureUserProfileSchema(),
   ensureResourceSchema(),
+  ensureStudentPracticeSchema(),
+  ensureStudentWechatSchema(),
 ])
 
 export const appReady = bootPromise
@@ -6808,7 +7554,9 @@ if (isMainModule) {
         console.log(
           '[quizwiz-teacher-admin] 自检: curl -s http://127.0.0.1:' +
             API_PORT +
-            '/api/health 应含 "service":"quizwiz-teacher-admin"；GET /api/auth/me 无 Token 时应为 401 而非 404',
+            '/api/health 应含 service、api_revision>=' +
+            API_REVISION +
+            '；GET /api/auth/me 无 Token 时应为 401 而非 404',
         )
       })
     })

@@ -1,0 +1,210 @@
+.quiz-root {
+  padding-bottom: 200rpx;
+}
+
+.lead {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  margin-bottom: 8rpx;
+}
+
+.mt {
+  margin-top: 40rpx;
+}
+
+.check {
+  font-size: 30rpx;
+  color: #111;
+}
+
+.mock-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+
+.mock-name {
+  flex: 1;
+  font-size: 30rpx;
+}
+
+.mock-input {
+  width: 120rpx;
+  text-align: right;
+  font-size: 30rpx;
+}
+
+.play-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.play-num {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.progress-line {
+  height: 4rpx;
+  background: #e8e8e8;
+  border-radius: 2rpx;
+  margin-bottom: 32rpx;
+}
+
+.progress-inner {
+  height: 100%;
+  background: #111;
+  border-radius: 2rpx;
+}
+
+.type-line {
+  font-size: 22rpx;
+  letter-spacing: 0.06em;
+}
+
+.stem {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 30rpx;
+  line-height: 1.55;
+}
+
+.opt-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 26rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+
+.opt-k {
+  width: 40rpx;
+  font-weight: 600;
+  color: #8a8a8a;
+}
+
+.opt-t {
+  flex: 1;
+  padding-left: 12rpx;
+  font-size: 28rpx;
+}
+
+.opt-on .opt-k,
+.opt-on .opt-t {
+  color: #111;
+}
+
+.judge-row {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 32rpx;
+}
+
+.judge-btn {
+  flex: 1;
+  text-align: center;
+  padding: 28rpx 0;
+  border: 1rpx solid #e0e0e0;
+  border-radius: 8rpx;
+  font-size: 30rpx;
+}
+
+.judge-btn.opt-on {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+}
+
+.area {
+  margin-top: 24rpx;
+  width: 100%;
+  min-height: 160rpx;
+  padding: 16rpx;
+  box-sizing: border-box;
+  border: 1rpx solid #e5e5e5;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+.feedback {
+  margin-top: 32rpx;
+  padding-top: 24rpx;
+}
+
+.fb-line {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.fb-line.ok {
+  color: #1a7f37;
+}
+
+.fb-line.bad {
+  color: #c62828;
+}
+
+.fb-small {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+}
+
+.fb-exp {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.result-scroll {
+  max-height: 60vh;
+  margin-top: 24rpx;
+}
+
+.result-card {
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+
+.r-stem {
+  font-size: 28rpx;
+  line-height: 1.45;
+}
+
+.r-line {
+  display: block;
+  margin-top: 10rpx;
+  font-weight: 600;
+}
+
+.r-line.ok {
+  color: #1a7f37;
+}
+
+.r-line.bad {
+  color: #c62828;
+}
+
+.r-small {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+.r-exp {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
+.btn-primary.disabled {
+  background: #d0d0d0;
+  color: #fff;
+}

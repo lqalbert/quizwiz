@@ -1,0 +1,62 @@
+.date {
+  display: block;
+  font-size: 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.hero-title {
+  display: block;
+}
+
+.tagline {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+}
+
+.panel {
+  margin-top: 48rpx;
+  padding-top: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-label {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.panel-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+}
+
+.panel-arrow {
+  font-size: 40rpx;
+  padding-left: 24rpx;
+}
+
+.row-actions {
+  margin-top: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+}
+
+.text-btn {
+  font-size: 28rpx;
+  padding: 16rpx 8rpx;
+}
+
+.dot {
+  font-size: 28rpx;
+}

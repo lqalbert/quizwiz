@@ -1,0 +1,68 @@
+.mine-wrap {
+  padding-top: 32rpx;
+}
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 16rpx;
+}
+
+.avatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  background: #eee;
+  color: #111;
+  font-size: 44rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.name {
+  margin-top: 20rpx;
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.one-line {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+}
+
+.list-block {
+  margin-top: 48rpx;
+  padding-top: 8rpx;
+}
+
+.cell-title.plain {
+  font-weight: 400;
+}
+
+.cell-right {
+  display: flex;
+  align-items: center;
+}
+
+.extra {
+  font-size: 26rpx;
+  margin-right: 8rpx;
+}
+
+.logout {
+  margin-top: 64rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  border-radius: 8rpx;
+  background: transparent;
+  color: #8a8a8a;
+  font-size: 28rpx;
+  border: 1rpx solid #e0e0e0;
+}
+
+.logout::after {
+  border: none;
+}

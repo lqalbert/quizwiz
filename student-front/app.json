@@ -1,0 +1,44 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/quiz/index",
+    "pages/study/index",
+    "pages/mine/index",
+    "pages/login/index",
+    "pages/record-wrong/index",
+    "pages/record-done/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "题灵智库",
+    "navigationBarBackgroundColor": "#fafafa",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fafafa"
+  },
+  "tabBar": {
+    "color": "#b3b3b3",
+    "selectedColor": "#111111",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/quiz/index",
+        "text": "刷题"
+      },
+      {
+        "pagePath": "pages/study/index",
+        "text": "学习"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}
+

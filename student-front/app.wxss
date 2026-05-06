@@ -1,0 +1,85 @@
+/* 极简全局：少色、多留白、统一字号层级 */
+page {
+  background: #fafafa;
+  color: #111;
+  font-family: "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 28rpx;
+  line-height: 1.45;
+}
+
+.page-wrap {
+  padding: 48rpx 40rpx 200rpx;
+  box-sizing: border-box;
+}
+
+.muted {
+  color: #8a8a8a;
+}
+
+.h1 {
+  font-size: 44rpx;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.h2 {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.divider-top {
+  border-top: 1rpx solid #eee;
+}
+
+/* 主按钮：扁平黑底 */
+.btn-primary {
+  height: 96rpx;
+  border-radius: 8rpx;
+  background: #111;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary.disabled {
+  background: #d0d0d0;
+  color: #fff;
+}
+
+/* 列表行 */
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 36rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+
+.cell:last-child {
+  border-bottom: none;
+}
+
+.cell-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cell-title {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.cell-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  display: block;
+}
+
+.cell-arrow {
+  color: #c4c4c4;
+  font-size: 36rpx;
+  margin-left: 24rpx;
+}

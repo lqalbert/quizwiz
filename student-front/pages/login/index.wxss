@@ -1,0 +1,40 @@
+.login-wrap {
+  padding-top: 48rpx;
+}
+
+.lead {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+}
+
+.field {
+  margin-top: 36rpx;
+}
+
+.label {
+  display: block;
+  font-size: 24rpx;
+  margin-bottom: 12rpx;
+}
+
+.input {
+  border-bottom: 1rpx solid #e5e5e5;
+  padding: 16rpx 0;
+  font-size: 30rpx;
+}
+
+.login-action {
+  margin-top: 48rpx;
+}
+
+.join-btn {
+  margin-top: 48rpx;
+}
+
+.hint {
+  display: block;
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 26rpx;
+}

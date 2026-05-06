@@ -1,0 +1,9 @@
+<view class="page-wrap">
+  <text class="muted tip" wx:if="{{!list.length && !loading}}">暂无练习记录</text>
+  <view class="cell" wx:for="{{list}}" wx:key="question_id">
+    <view class="cell-main">
+      <text class="cell-title line-clamp">{{item.stem}}</text>
+      <text class="cell-sub muted">{{item.question_type_text}} · 共 {{item.attempts}} 次 · 对 {{item.correct_count}} · 错 {{item.wrong_count}}</text>
+    </view>
+  </view>
+</view>

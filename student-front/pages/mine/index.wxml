@@ -1,0 +1,33 @@
+<view class="page-wrap mine-wrap">
+  <view class="profile">
+    <view class="avatar">M</view>
+    <text class="name">同学</text>
+    <text class="one-line muted" wx:if="{{needJoinClass}}">尚未加入班级 · 请填写邀请码</text>
+    <text class="one-line muted" wx:else>学习记录与班级</text>
+  </view>
+
+  <view class="list-block divider-top">
+    <block wx:for="{{menus}}" wx:key="title">
+      <view class="cell" bindtap="onMenu" data-title="{{item.title}}" data-path="{{item.path}}">
+        <text class="cell-title plain">{{item.title}}</text>
+        <view class="cell-right">
+          <text wx:if="{{item.extra}}" class="extra muted">{{item.extra}}</text>
+          <text class="cell-arrow">›</text>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="list-block divider-top">
+    <view class="cell" bindtap="onPlaceholder" data-title="通知">
+      <text class="cell-title plain">通知</text>
+      <text class="cell-arrow">›</text>
+    </view>
+    <view class="cell" bindtap="onPlaceholder" data-title="关于">
+      <text class="cell-title plain">关于</text>
+      <text class="cell-arrow">›</text>
+    </view>
+  </view>
+
+  <button class="logout" bindtap="logout">退出登录</button>
+</view>

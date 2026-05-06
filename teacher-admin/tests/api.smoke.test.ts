@@ -12,6 +12,8 @@ describe('API smoke', () => {
     if (res.status === 200) {
       expect(res.body?.service).toBe('quizwiz-teacher-admin')
       expect(res.body?.ok).toBe(true)
+      expect(res.body?.api_revision).toBeGreaterThanOrEqual(2)
+      expect(res.body?.questions_list_knowledge_fields).toBe(true)
     } else {
       expect(res.status).toBe(500)
       expect(res.body?.ok).toBe(false)

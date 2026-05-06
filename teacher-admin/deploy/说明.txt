@@ -1,0 +1,29 @@
+【部署包说明】本目录随代码上传到服务器后按顺序操作。
+
+1) 环境变量
+   cd /srv/quizwiz/teacher-admin
+   cp deploy/env.example .env
+   nano .env
+   填好 DATABASE_URL、JWT_SECRET、WECHAT_MINI_APPID、WECHAT_MINI_SECRET 后保存。
+
+2) 依赖与前端构建
+   npm install
+   npm run build
+
+3) PM2 启动 API（路径已写死为 /srv/quizwiz/teacher-admin，若你目录不同请先改 ecosystem.config.cjs 里的 cwd）
+   pm2 delete quizwiz-api 2>/dev/null
+   pm2 start deploy/ecosystem.config.cjs
+   pm2 save
+
+4) Nginx
+   若已有 www 站点：只把 deploy/nginx-api-location.snippet.conf 里 location /api/ 整段粘进对应 server {}。
+   若是新站：可参考 deploy/nginx-server-www.quizwiz.cn.conf，注意改 ssl 证书路径与 root。
+   然后：sudo nginx -t && sudo systemctl reload nginx
+
+5) 验证
+   curl -s https://www.quizwiz.cn/api/health
+   curl -s -o /dev/null -w "%{http_code}\n" -X POST https://www.quizwiz.cn/api/public/student/wechat-login -H "Content-Type: application/json" -d "{\"code\":\"0\"}"
+   第二条约应返回 400 或 503，不应 404。
+
+6) 小程序
+   student-front/utils/config.js 中 DEFAULT_API_BASE 须与微信「request 合法域名」一致（当前为 https://www.quizwiz.cn）。

@@ -1,0 +1,32 @@
+<view class="page-wrap login-wrap">
+  <block wx:if="{{step === 'authed'}}">
+    <text class="h1">已登录</text>
+    <text class="lead muted">已进入班级，可以开始练习</text>
+    <view class="btn-primary login-action" bindtap="goHome">进入首页</view>
+    <text class="hint muted" bindtap="goJoinFromAuthed">加入其他班级</text>
+  </block>
+
+  <block wx:elif="{{step === 'login'}}">
+    <text class="h1">登录</text>
+    <text class="lead muted">使用微信登录；首次使用需用班级邀请码加入班级</text>
+
+    <view class="field divider-top">
+      <text class="label muted">昵称（可选）</text>
+      <input class="input" placeholder="展示给老师的名字" value="{{nicknameInput}}" bindinput="onNickInput" />
+    </view>
+
+    <view class="btn-primary login-action" bindtap="onWechatLogin">微信一键登录</view>
+    <text class="hint muted" bindtap="goHome">暂不登录，回首页</text>
+  </block>
+
+  <block wx:else>
+    <text class="h1">加入班级</text>
+    <text class="lead muted">向老师索取班级邀请码，填写后提交</text>
+    <view class="field divider-top">
+      <text class="label muted">邀请码</text>
+      <input class="input" placeholder="例如 ABC12X" value="{{inviteInput}}" bindinput="onInviteInput" />
+    </view>
+    <view class="btn-primary join-btn" bindtap="onJoinClass">加入班级</view>
+    <text class="hint muted" bindtap="onSkipJoin">稍后再说（仍可浏览，部分功能需入班）</text>
+  </block>
+</view>
