@@ -67,7 +67,7 @@ cd ~/QuizWiz/teacher-admin
 ```bash
 export DATABASE_URL="postgresql://quizwiz_app:${DB_PASS}@127.0.0.1:5432/quizwiz"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f init_v3.sql
-# 需要演示账号（管理员手机 13800000001 / 密码字面量 hash_admin）再执行：
+# 需要演示账号（四个手机号见 seed_v3.sql，统一密码 123456）再执行：
 # psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f seed_v3.sql
 ```
 

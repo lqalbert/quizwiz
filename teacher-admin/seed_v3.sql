@@ -6,13 +6,13 @@ BEGIN;
 -- =========================================
 
 -- 1) 用户
--- password_hash 这里先放占位，后续由后端用 bcrypt 真正生成
+-- 演示环境统一密码 123456（bcrypt，与 server 使用 bcryptjs 校验一致）
 INSERT INTO users (name, phone, password_hash, status)
 VALUES
-('系统管理员', '13800000001', 'hash_admin', 1),
-('高一班主任', '13800000002', 'hash_head_teacher', 1),
-('数学科任',   '13800000003', 'hash_math_teacher', 1),
-('英语科任',   '13800000004', 'hash_english_teacher', 1)
+('系统管理员', '13800000001', '$2b$10$jC2zBRE.eOhjRT1jR/I50OQOEExIucw5qjHKWsG0VelJqaZNCXfJO', 1),
+('高一班主任', '13800000002', '$2b$10$jC2zBRE.eOhjRT1jR/I50OQOEExIucw5qjHKWsG0VelJqaZNCXfJO', 1),
+('数学科任',   '13800000003', '$2b$10$jC2zBRE.eOhjRT1jR/I50OQOEExIucw5qjHKWsG0VelJqaZNCXfJO', 1),
+('英语科任',   '13800000004', '$2b$10$jC2zBRE.eOhjRT1jR/I50OQOEExIucw5qjHKWsG0VelJqaZNCXfJO', 1)
 ON CONFLICT (phone) DO NOTHING;
 
 -- 2) 用户角色
