@@ -40,6 +40,17 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
     }
+    /** Tab 页仅首次进会 onLoad：若曾未登录进刷题再登录，需在此补拉科目 */
+    const token = wx.getStorageSync("student_token");
+    if (!token) {
+      wx.navigateTo({ url: "/pages/login/index" });
+      return;
+    }
+    const subjects = this.data.subjects || [];
+    const atWizardEntry = this.data.step === "subject";
+    if (atWizardEntry && subjects.length === 0) {
+      this.bootstrap();
+    }
   },
 
   onLoad() {

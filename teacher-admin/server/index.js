@@ -2285,6 +2285,33 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   }
 })
 
+/** 学生修改在老师端展示的姓名（真实姓名 / 昵称） */
+app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
+  const raw = req.body?.name ?? req.body?.displayName
+  const name = String(raw ?? '').trim()
+  if (!name) return res.status(400).json({ message: '姓名不能为空' })
+  if (name.length > 64) return res.status(400).json({ message: '姓名不能超过 64 个字' })
+  try {
+    const r = await pool.query(
+      `UPDATE students SET name = $1 WHERE id = $2 RETURNING id, name, student_no`,
+      [name, req.studentAuth.studentId],
+    )
+    const row = r.rows[0]
+    if (!row) return res.status(404).json({ message: '学生不存在' })
+    return res.json({
+      data: {
+        student: {
+          id: row.id,
+          name: row.name,
+          student_no: row.student_no,
+        },
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '更新姓名失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || req.body?.invite_code || '').trim().toUpperCase()
   if (!inviteCode) return res.status(400).json({ message: 'inviteCode 必填' })

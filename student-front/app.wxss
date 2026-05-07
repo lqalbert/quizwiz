@@ -1,65 +1,159 @@
-/* 极简全局：少色、多留白、统一字号层级 */
+/* Apple 风格设计变量与全局组件（分组灰底 + 白卡片 + 系统蓝） */
 page {
-  background: #fafafa;
-  color: #111;
-  font-family: "PingFang SC", "Helvetica Neue", sans-serif;
+  --ios-bg-grouped: #f2f2f7;
+  --ios-fill: #ffffff;
+  --ios-label: #000000;
+  --ios-secondary: rgba(60, 60, 67, 0.6);
+  --ios-tertiary: rgba(60, 60, 67, 0.3);
+  --ios-separator: rgba(60, 60, 67, 0.12);
+  --ios-tint: #007aff;
+  --ios-green: #34c759;
+  --ios-red: #ff3b30;
+  --ios-radius-card: 24rpx;
+  --ios-radius-btn: 20rpx;
+  --ios-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
+
+  background: var(--ios-bg-grouped);
+  color: var(--ios-label);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Segoe UI", sans-serif;
   font-size: 28rpx;
-  line-height: 1.45;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
 }
 
 .page-wrap {
-  padding: 48rpx 40rpx 200rpx;
+  padding: 32rpx 32rpx 200rpx;
   box-sizing: border-box;
 }
 
 .muted {
-  color: #8a8a8a;
+  color: var(--ios-secondary);
 }
 
 .h1 {
-  font-size: 44rpx;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 52rpx;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .h2 {
-  font-size: 32rpx;
+  font-size: 34rpx;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.section-label {
+  display: block;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--ios-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 32rpx 8rpx 12rpx;
 }
 
 .divider-top {
-  border-top: 1rpx solid #eee;
+  border-top: 1rpx solid var(--ios-separator);
 }
 
-/* 主按钮：扁平黑底 */
+/* 主按钮：iOS 填充蓝 */
 .btn-primary {
   height: 96rpx;
-  border-radius: 8rpx;
-  background: #111;
+  border-radius: var(--ios-radius-btn);
+  background: var(--ios-tint);
   color: #fff;
-  font-size: 30rpx;
-  font-weight: 500;
+  font-size: 32rpx;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 8rpx 24rpx rgba(0, 122, 255, 0.28);
+}
+
+.btn-primary:active {
+  opacity: 0.88;
 }
 
 .btn-primary.disabled {
-  background: #d0d0d0;
-  color: #fff;
+  background: var(--ios-tertiary);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: none;
 }
 
-/* 列表行 */
+/* 分组白卡片 */
+.ios-card {
+  background: var(--ios-fill);
+  border-radius: var(--ios-radius-card);
+  overflow: hidden;
+  box-shadow: var(--ios-shadow);
+  margin-bottom: 24rpx;
+}
+
+.ios-card:last-child {
+  margin-bottom: 0;
+}
+
+.ios-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx 28rpx;
+  min-height: 96rpx;
+  box-sizing: border-box;
+}
+
+.ios-cell:active {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ios-cell + .ios-cell {
+  border-top: 1rpx solid var(--ios-separator);
+}
+
+.ios-cell-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ios-cell-title {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: var(--ios-label);
+}
+
+.ios-cell-sub {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: var(--ios-secondary);
+  display: block;
+}
+
+.ios-cell-chevron {
+  color: var(--ios-tertiary);
+  font-size: 36rpx;
+  font-weight: 300;
+  margin-left: 20rpx;
+  line-height: 1;
+}
+
+.ios-check {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--ios-tint);
+  margin-left: 16rpx;
+}
+
+/* 兼容旧 class：列表行映射到卡片内样式（无卡片容器时单条也成立） */
 .cell {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 36rpx 0;
-  border-bottom: 1rpx solid #eee;
-}
-
-.cell:last-child {
-  border-bottom: none;
+  padding: 30rpx 28rpx;
+  background: var(--ios-fill);
+  border-radius: var(--ios-radius-card);
+  margin-bottom: 16rpx;
+  box-shadow: var(--ios-shadow);
 }
 
 .cell-main {
@@ -68,7 +162,7 @@ page {
 }
 
 .cell-title {
-  font-size: 30rpx;
+  font-size: 32rpx;
   font-weight: 500;
 }
 
@@ -76,10 +170,22 @@ page {
   margin-top: 8rpx;
   font-size: 24rpx;
   display: block;
+  color: var(--ios-secondary);
 }
 
 .cell-arrow {
-  color: #c4c4c4;
+  color: var(--ios-tertiary);
   font-size: 36rpx;
-  margin-left: 24rpx;
+  margin-left: 20rpx;
+}
+
+/* 文字链接 */
+.link-tint {
+  color: var(--ios-tint);
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.link-tint:active {
+  opacity: 0.65;
 }

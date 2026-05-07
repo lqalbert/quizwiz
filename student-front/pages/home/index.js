@@ -1,7 +1,7 @@
 Page({
   data: {
     dateText: "",
-    resumeHint: "单选题 · 第 5 / 20 题",
+    resumeHint: "选择科目、知识点与练习方式后开始",
   },
 
   onLoad() {
@@ -18,6 +18,10 @@ Page({
   },
 
   goQuiz() {
+    if (!wx.getStorageSync("student_token")) {
+      wx.navigateTo({ url: "/pages/login/index" });
+      return;
+    }
     wx.switchTab({ url: "/pages/quiz/index" });
   },
 
@@ -30,6 +34,10 @@ Page({
   },
 
   hintWrong() {
-    wx.showToast({ title: "即将开放", icon: "none" });
+    if (!wx.getStorageSync("student_token")) {
+      wx.navigateTo({ url: "/pages/login/index" });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/record-wrong/index" });
   },
 });

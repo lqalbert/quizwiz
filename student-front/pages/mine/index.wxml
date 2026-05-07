@@ -1,33 +1,84 @@
-<view class="page-wrap mine-wrap">
-  <view class="profile">
-    <view class="avatar">M</view>
-    <text class="name">同学</text>
-    <text class="one-line muted" wx:if="{{needJoinClass}}">尚未加入班级 · 请填写邀请码</text>
-    <text class="one-line muted" wx:else>学习记录与班级</text>
-  </view>
+<view class="page-wrap mine-page">
+  <block wx:if="{{!loggedIn}}">
+    <view class="ios-card profile-card">
+      <text class="guest-title">登录后查看班级与练习记录</text>
+      <view class="btn-primary guest-login" bindtap="goLogin">去登录</view>
+    </view>
+  </block>
 
-  <view class="list-block divider-top">
+  <block wx:else>
+    <view class="ios-card profile-card">
+      <view class="profile-row">
+        <view class="avatar-ring">
+          <view class="avatar">{{avatarLetter}}</view>
+        </view>
+        <view class="profile-text">
+          <text class="name">{{displayName}}</text>
+          <text class="subline muted" wx:if="{{studentNo}}">学号 {{studentNo}}</text>
+          <text class="subline muted" wx:if="{{needJoinClass}}">尚未加入班级 · 请在「加入班级」中填写邀请码</text>
+        </view>
+      </view>
+    </view>
+
+    <text class="section-label">我的班级</text>
+    <view class="ios-card" wx:if="{{classes.length}}">
+      <view wx:for="{{classes}}" wx:key="id" class="class-row">
+        <text class="class-name">{{item.name}}</text>
+        <text class="class-grade muted">{{item.grade}}</text>
+      </view>
+    </view>
+    <view class="ios-card empty-class-card" wx:elif="{{needJoinClass}}">
+      <text class="empty-class muted">加入班级后，将在此显示你的班级</text>
+    </view>
+    <view class="ios-card empty-class-card" wx:else>
+      <text class="empty-class muted">暂无班级，可点击下方「加入班级」</text>
+    </view>
+
+    <text class="section-label">资料</text>
+    <view class="ios-card">
+      <view class="ios-cell" bindtap="onTapEditName">
+        <view class="ios-cell-main">
+          <text class="ios-cell-sub">真实姓名</text>
+          <text class="ios-cell-title">{{displayName}}</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
+      </view>
+    </view>
+
+    <view class="ios-card name-edit-card" wx:if="{{nameEditVisible}}">
+      <text class="name-edit-hint muted">老师端将按此姓名展示</text>
+      <input class="name-edit-input" value="{{nameDraft}}" maxlength="64" placeholder="请输入真实姓名" placeholder-class="ph" bindinput="onNameDraftInput" />
+      <view class="name-edit-actions">
+        <view class="name-btn name-btn-cancel" bindtap="cancelNameEdit">取消</view>
+        <view class="name-btn name-btn-save" bindtap="saveNameEdit">保存</view>
+      </view>
+    </view>
+  </block>
+
+  <text class="section-label">功能</text>
+  <view class="ios-card">
     <block wx:for="{{menus}}" wx:key="title">
-      <view class="cell" bindtap="onMenu" data-title="{{item.title}}" data-path="{{item.path}}">
-        <text class="cell-title plain">{{item.title}}</text>
+      <view class="ios-cell" bindtap="onMenu" data-title="{{item.title}}" data-path="{{item.path}}">
+        <text class="ios-cell-title plain">{{item.title}}</text>
         <view class="cell-right">
           <text wx:if="{{item.extra}}" class="extra muted">{{item.extra}}</text>
-          <text class="cell-arrow">›</text>
+          <text class="ios-cell-chevron">›</text>
         </view>
       </view>
     </block>
   </view>
 
-  <view class="list-block divider-top">
-    <view class="cell" bindtap="onPlaceholder" data-title="通知">
-      <text class="cell-title plain">通知</text>
-      <text class="cell-arrow">›</text>
+  <text class="section-label">其他</text>
+  <view class="ios-card">
+    <view class="ios-cell" bindtap="onPlaceholder" data-title="通知">
+      <text class="ios-cell-title plain">通知</text>
+      <text class="ios-cell-chevron">›</text>
     </view>
-    <view class="cell" bindtap="onPlaceholder" data-title="关于">
-      <text class="cell-title plain">关于</text>
-      <text class="cell-arrow">›</text>
+    <view class="ios-cell" bindtap="onPlaceholder" data-title="关于">
+      <text class="ios-cell-title plain">关于</text>
+      <text class="ios-cell-chevron">›</text>
     </view>
   </view>
 
-  <button class="logout" bindtap="logout">退出登录</button>
+  <button wx:if="{{loggedIn}}" class="logout-btn" bindtap="logout">退出登录</button>
 </view>

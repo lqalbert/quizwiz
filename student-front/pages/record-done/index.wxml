@@ -1,9 +1,12 @@
-<view class="page-wrap">
-  <text class="muted tip" wx:if="{{!list.length && !loading}}">暂无练习记录</text>
-  <view class="cell" wx:for="{{list}}" wx:key="question_id">
-    <view class="cell-main">
-      <text class="cell-title line-clamp">{{item.stem}}</text>
-      <text class="cell-sub muted">{{item.question_type_text}} · 共 {{item.attempts}} 次 · 对 {{item.correct_count}} · 错 {{item.wrong_count}}</text>
-    </view>
+<view class="page-wrap record-page">
+  <view class="step-head">
+    <text class="page-hero">练习记录</text>
+    <text class="empty-hint muted" wx:if="{{!list.length && !loading}}">暂无练习记录</text>
+    <text class="record-count muted" wx:elif="{{list.length}}">共 {{list.length}} 题</text>
+  </view>
+
+  <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
+    <text class="record-stem line-clamp">{{item.stem}}</text>
+    <text class="record-meta muted">{{item.question_type_text}} · 共 {{item.attempts}} 次 · 对 {{item.correct_count}} · 错 {{item.wrong_count}}</text>
   </view>
 </view>

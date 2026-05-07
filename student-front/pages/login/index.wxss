@@ -1,40 +1,82 @@
-.login-wrap {
-  padding-top: 48rpx;
+.login-page {
+  padding-top: 16rpx;
 }
 
-.lead {
+.hero-block {
+  margin-bottom: 40rpx;
+}
+
+.hero-title {
   display: block;
-  margin-top: 12rpx;
-  font-size: 26rpx;
+  font-size: 52rpx;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
 }
 
-.field {
-  margin-top: 36rpx;
-}
-
-.label {
+.hero-lead {
   display: block;
-  font-size: 24rpx;
-  margin-bottom: 12rpx;
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  line-height: 1.45;
 }
 
-.input {
-  border-bottom: 1rpx solid #e5e5e5;
-  padding: 16rpx 0;
+.field-row {
+  display: flex;
+  align-items: center;
+  padding: 28rpx 28rpx;
+  min-height: 100rpx;
+  box-sizing: border-box;
+}
+
+.field-row-single {
+  padding-top: 32rpx;
+  padding-bottom: 32rpx;
+}
+
+.field-label {
+  width: 140rpx;
+  flex-shrink: 0;
   font-size: 30rpx;
+  font-weight: 500;
+  color: var(--ios-label);
+}
+
+.field-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 32rpx;
+  color: var(--ios-label);
+}
+
+.field-input-full {
+  width: 100%;
+}
+
+.ph {
+  color: var(--ios-tertiary);
 }
 
 .login-action {
-  margin-top: 48rpx;
+  margin-top: 40rpx;
 }
 
 .join-btn {
-  margin-top: 48rpx;
+  margin-top: 40rpx;
 }
 
-.hint {
+.link-row {
   display: block;
-  margin-top: 32rpx;
+  margin-top: 28rpx;
   text-align: center;
-  font-size: 26rpx;
+  font-size: 28rpx;
+}
+
+.muted-link {
+  color: var(--ios-secondary);
+  font-weight: 400;
+}
+
+.muted-link:active {
+  opacity: 0.65;
 }

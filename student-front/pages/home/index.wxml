@@ -1,21 +1,35 @@
-<view class="page-wrap">
-  <text class="date muted">{{dateText}}</text>
-  <text class="h1 hero-title">今天练几题？</text>
-  <text class="tagline muted">小步坚持即可</text>
-
-  <view class="panel divider-top" bindtap="goQuiz">
-    <view class="panel-body">
-      <text class="panel-label">继续</text>
-      <text class="panel-desc muted">{{resumeHint}}</text>
-    </view>
-    <text class="panel-arrow muted">›</text>
+<view class="page-wrap home-page">
+  <view class="hero-block">
+    <text class="hero-date">{{dateText}}</text>
+    <text class="hero-title">今天练几题？</text>
+    <text class="hero-sub muted">小步坚持，积少成多</text>
   </view>
 
-  <view class="row-actions">
-    <text class="text-btn muted" bindtap="goLogin">登录</text>
-    <text class="dot muted">·</text>
-    <text class="text-btn muted" bindtap="goStudy">学习目录</text>
-    <text class="dot muted">·</text>
-    <text class="text-btn muted" bindtap="hintWrong">错题本</text>
+  <view class="ios-card hero-cta" bindtap="goQuiz">
+    <view class="hero-cta-inner">
+      <view class="hero-cta-text">
+        <text class="hero-cta-label">继续练习</text>
+        <text class="hero-cta-desc muted">{{resumeHint}}</text>
+      </view>
+      <view class="hero-cta-icon-wrap">
+        <text class="hero-cta-icon">›</text>
+      </view>
+    </view>
+  </view>
+
+  <text class="section-label">快捷入口</text>
+  <view class="ios-card">
+    <view class="ios-cell" bindtap="goLogin">
+      <text class="ios-cell-title">登录 / 加入班级</text>
+      <text class="ios-cell-chevron">›</text>
+    </view>
+    <view class="ios-cell" bindtap="goStudy">
+      <text class="ios-cell-title">学习目录</text>
+      <text class="ios-cell-chevron">›</text>
+    </view>
+    <view class="ios-cell" bindtap="hintWrong">
+      <text class="ios-cell-title">错题本</text>
+      <text class="ios-cell-chevron">›</text>
+    </view>
   </view>
 </view>

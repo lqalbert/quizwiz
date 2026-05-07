@@ -45,7 +45,16 @@ Page({
         }
         this.setData({ step: need ? "join" : "authed" });
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (e && e.statusCode === 401) {
+          wx.removeStorageSync("student_token");
+          wx.removeStorageSync("need_join_class");
+          try {
+            getApp().globalData.token = "";
+          } catch (_) {}
+          this.setData({ step: "login" });
+        }
+      });
   },
 
   goJoinFromAuthed() {

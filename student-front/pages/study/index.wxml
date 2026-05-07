@@ -1,15 +1,17 @@
-<view class="page-wrap">
-  <text class="h1 page-title">学习</text>
-  <text class="lead muted">选一个专题开始</text>
+<view class="page-wrap study-page">
+  <view class="step-head">
+    <text class="page-hero">学习</text>
+    <text class="page-lead muted">选一个专题开始</text>
+  </view>
 
-  <view class="list-block divider-top">
+  <view class="ios-card">
     <block wx:for="{{items}}" wx:key="id">
-      <view class="cell" bindtap="openItem" data-id="{{item.id}}">
-        <view class="cell-main">
-          <text class="cell-title">{{item.title}}</text>
-          <text class="cell-sub muted">{{item.sub}}</text>
+      <view class="ios-cell" bindtap="openItem" data-id="{{item.id}}">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">{{item.title}}</text>
+          <text class="ios-cell-sub">{{item.sub}}</text>
         </view>
-        <text class="cell-arrow">›</text>
+        <text class="ios-cell-chevron">›</text>
       </view>
     </block>
   </view>

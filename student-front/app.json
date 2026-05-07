@@ -10,15 +10,15 @@
   ],
   "window": {
     "navigationBarTitleText": "题灵智库",
-    "navigationBarBackgroundColor": "#fafafa",
+    "navigationBarBackgroundColor": "#f2f2f7",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#fafafa"
+    "backgroundColor": "#f2f2f7"
   },
   "tabBar": {
-    "color": "#b3b3b3",
-    "selectedColor": "#111111",
-    "backgroundColor": "#ffffff",
-    "borderStyle": "white",
+    "color": "#8e8e93",
+    "selectedColor": "#007aff",
+    "backgroundColor": "#f7f7f8",
+    "borderStyle": "black",
     "list": [
       {
         "pagePath": "pages/home/index",

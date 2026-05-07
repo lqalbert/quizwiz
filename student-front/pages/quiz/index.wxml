@@ -2,157 +2,189 @@
 
 <view class="page-wrap quiz-root">
   <block wx:if="{{loading && step === 'play'}}">
-    <text class="muted">加载题目…</text>
+    <view class="loading-pill muted">加载题目…</view>
   </block>
 
   <block wx:elif="{{step === 'subject'}}">
-    <text class="h1">选科目</text>
-    <text class="lead muted">第一步</text>
-    <view wx:for="{{subjects}}" wx:key="id" class="cell" bindtap="onPickSubject" data-id="{{item.id}}">
-      <text class="cell-title">{{item.name}}</text>
-      <text class="cell-arrow">›</text>
+    <view class="step-head">
+      <text class="step-title">选科目</text>
+      <text class="step-caption muted">刷题向导 · 第 1 步</text>
+    </view>
+    <view class="ios-card">
+      <view wx:for="{{subjects}}" wx:key="id" class="ios-cell" bindtap="onPickSubject" data-id="{{item.id}}">
+        <text class="ios-cell-title">{{item.name}}</text>
+        <text class="ios-cell-chevron">›</text>
+      </view>
     </view>
   </block>
 
   <block wx:elif="{{step === 'tags'}}">
-    <text class="h1">知识点</text>
-    <text class="lead muted">可不选（全科目）；多选时为「任一」匹配</text>
-    <view wx:for="{{tags}}" wx:key="key" class="cell" bindtap="onToggleTag" data-name="{{item.name}}">
-      <text class="cell-title">{{item.unit_name}}{{item.unit_name ? ' · ' : ''}}{{item.name}}</text>
-      <text class="check">{{tg.includes(selectedTags, item.name) ? '✓' : ''}}</text>
+    <view class="step-head">
+      <text class="step-title">知识点</text>
+      <text class="step-caption muted">可不选（全科目）；多选为「任一」匹配</text>
+    </view>
+    <view class="ios-card">
+      <view wx:for="{{tags}}" wx:key="key" class="ios-cell" bindtap="onToggleTag" data-name="{{item.name}}">
+        <text class="ios-cell-title">{{item.unit_name}}{{item.unit_name ? ' · ' : ''}}{{item.name}}</text>
+        <text class="ios-check">{{tg.includes(selectedTags, item.name) ? '✓' : ''}}</text>
+      </view>
     </view>
     <view class="btn-primary mt" bindtap="fromTagsNext">下一步</view>
   </block>
 
   <block wx:elif="{{step === 'module'}}">
-    <text class="h1">练习方式</text>
-    <text class="lead muted">第三步</text>
-    <view class="cell" bindtap="onPickModule" data-m="sequential">
-      <view class="cell-main">
-        <text class="cell-title">顺序练习</text>
-        <text class="cell-sub muted">按题目 ID 升序</text>
-      </view>
-      <text class="cell-arrow">›</text>
+    <view class="step-head">
+      <text class="step-title">练习方式</text>
+      <text class="step-caption muted">第 3 步</text>
     </view>
-    <view class="cell" bindtap="onPickModule" data-m="random">
-      <view class="cell-main">
-        <text class="cell-title">随机练习</text>
-        <text class="cell-sub muted">随机抽题</text>
+    <view class="ios-card">
+      <view class="ios-cell" bindtap="onPickModule" data-m="sequential">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">顺序练习</text>
+          <text class="ios-cell-sub">按题目 ID 升序</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
       </view>
-      <text class="cell-arrow">›</text>
-    </view>
-    <view class="cell" bindtap="onPickModule" data-m="section">
-      <view class="cell-main">
-        <text class="cell-title">知识小节练习</text>
-        <text class="cell-sub muted">只练一个小节</text>
+      <view class="ios-cell" bindtap="onPickModule" data-m="random">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">随机练习</text>
+          <text class="ios-cell-sub">随机抽题</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
       </view>
-      <text class="cell-arrow">›</text>
-    </view>
-    <view class="cell" bindtap="onPickModule" data-m="mock">
-      <view class="cell-main">
-        <text class="cell-title">模拟练习</text>
-        <text class="cell-sub muted">按小节手动分配题数</text>
+      <view class="ios-cell" bindtap="onPickModule" data-m="section">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">知识小节练习</text>
+          <text class="ios-cell-sub">只练一个小节</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
       </view>
-      <text class="cell-arrow">›</text>
+      <view class="ios-cell" bindtap="onPickModule" data-m="mock">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">模拟练习</text>
+          <text class="ios-cell-sub">按小节手动分配题数</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
+      </view>
     </view>
   </block>
 
   <block wx:elif="{{step === 'section'}}">
-    <text class="h1">选一个小节</text>
-    <view wx:for="{{tags}}" wx:key="key" class="cell" bindtap="onPickSectionTag" data-name="{{item.name}}">
-      <text class="cell-title">{{item.name}}</text>
-      <text class="cell-arrow">›</text>
+    <view class="step-head">
+      <text class="step-title">选一个小节</text>
+      <text class="step-caption muted">选择要练习的知识点</text>
+    </view>
+    <view class="ios-card">
+      <view wx:for="{{tags}}" wx:key="key" class="ios-cell" bindtap="onPickSectionTag" data-name="{{item.name}}">
+        <text class="ios-cell-title">{{item.name}}</text>
+        <text class="ios-cell-chevron">›</text>
+      </view>
     </view>
   </block>
 
   <block wx:elif="{{step === 'mock'}}">
-    <text class="h1">分配题数</text>
-    <text class="lead muted">每个知识点抽题数量</text>
-    <view wx:for="{{mockRows}}" wx:key="name" class="mock-row">
-      <text class="mock-name">{{item.displayLabel}}</text>
-      <input class="mock-input" type="number" value="{{item.countInput}}" data-name="{{item.name}}" bindinput="onMockCountInput" />
+    <view class="step-head">
+      <text class="step-title">分配题数</text>
+      <text class="step-caption muted">每个知识点抽题数量</text>
+    </view>
+    <view class="ios-card">
+      <view wx:for="{{mockRows}}" wx:key="name" class="mock-row">
+        <text class="mock-name">{{item.displayLabel}}</text>
+        <input class="mock-input" type="number" value="{{item.countInput}}" data-name="{{item.name}}" bindinput="onMockCountInput" />
+      </view>
     </view>
     <view class="btn-primary mt" bindtap="fromMockNext">下一步</view>
   </block>
 
   <block wx:elif="{{step === 'mode'}}">
-    <text class="h1">答题模式</text>
-    <view class="cell" bindtap="onPickMode" data-m="immediate">
-      <view class="cell-main">
-        <text class="cell-title">及时反馈</text>
-        <text class="cell-sub muted">每题提交后显示对错与解析</text>
-      </view>
-      <text class="cell-arrow">›</text>
+    <view class="step-head">
+      <text class="step-title">答题模式</text>
+      <text class="step-caption muted">选择反馈方式</text>
     </view>
-    <view class="cell" bindtap="onPickMode" data-m="exam">
-      <view class="cell-main">
-        <text class="cell-title">考试模式</text>
-        <text class="cell-sub muted">全部做完后统一判分与看解析</text>
+    <view class="ios-card">
+      <view class="ios-cell" bindtap="onPickMode" data-m="immediate">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">及时反馈</text>
+          <text class="ios-cell-sub">每题提交后显示对错与解析</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
       </view>
-      <text class="cell-arrow">›</text>
+      <view class="ios-cell" bindtap="onPickMode" data-m="exam">
+        <view class="ios-cell-main">
+          <text class="ios-cell-title">考试模式</text>
+          <text class="ios-cell-sub">全部做完后统一判分与看解析</text>
+        </view>
+        <text class="ios-cell-chevron">›</text>
+      </view>
     </view>
   </block>
 
   <block wx:elif="{{step === 'play'}}">
-    <view class="play-top">
-      <text class="muted" bindtap="restartWizard">重选</text>
-      <text class="play-num">{{currentIndex + 1}} / {{questionIds.length}}</text>
-      <text class="muted">{{feedbackMode === 'exam' ? '考试' : '练习'}}</text>
+    <view class="play-toolbar">
+      <text class="toolbar-link link-tint" bindtap="restartWizard">重选</text>
+      <text class="toolbar-count">{{currentIndex + 1}} / {{questionIds.length}}</text>
+      <text class="toolbar-badge">{{feedbackMode === 'exam' ? '考试' : '练习'}}</text>
     </view>
-    <view class="progress-line"><view class="progress-inner" style="width: {{playProgress}}%;"></view></view>
+    <view class="progress-track">
+      <view class="progress-fill" style="width: {{playProgress}}%;"></view>
+    </view>
 
     <block wx:if="{{currentQuestion}}">
-      <text class="type-line muted">{{currentQuestion.question_type_text}}</text>
-      <text class="stem">{{currentQuestion.stem}}</text>
+      <view class="ios-card play-card">
+        <text class="type-pill muted">{{currentQuestion.question_type_text}}</text>
+        <text class="stem-text">{{currentQuestion.stem}}</text>
 
-      <block wx:if="{{currentQuestion.question_type === 1}}">
-        <view wx:for="{{currentQuestion.options}}" wx:key="option_key" class="opt-row {{selectedAnswer === item.option_key ? 'opt-on' : ''}}" data-k="{{item.option_key}}" bindtap="onPickSingle">
-          <text class="opt-k">{{item.option_key}}</text>
-          <text class="opt-t">{{item.option_text}}</text>
-        </view>
-      </block>
+        <block wx:if="{{currentQuestion.question_type === 1}}">
+          <view wx:for="{{currentQuestion.options}}" wx:key="option_key" class="opt-pill {{selectedAnswer === item.option_key ? 'opt-pill-on' : ''}}" data-k="{{item.option_key}}" bindtap="onPickSingle">
+            <text class="opt-pill-k">{{item.option_key}}</text>
+            <text class="opt-pill-t">{{item.option_text}}</text>
+          </view>
+        </block>
 
-      <block wx:if="{{currentQuestion.question_type === 2}}">
-        <view wx:for="{{currentQuestion.options}}" wx:key="option_key" class="opt-row {{tg.includes(multiSelected, item.option_key) ? 'opt-on' : ''}}" data-k="{{item.option_key}}" bindtap="onToggleMulti">
-          <text class="opt-k">{{item.option_key}}</text>
-          <text class="opt-t">{{item.option_text}}</text>
-        </view>
-      </block>
+        <block wx:if="{{currentQuestion.question_type === 2}}">
+          <view wx:for="{{currentQuestion.options}}" wx:key="option_key" class="opt-pill {{tg.includes(multiSelected, item.option_key) ? 'opt-pill-on' : ''}}" data-k="{{item.option_key}}" bindtap="onToggleMulti">
+            <text class="opt-pill-k">{{item.option_key}}</text>
+            <text class="opt-pill-t">{{item.option_text}}</text>
+          </view>
+        </block>
 
-      <block wx:if="{{currentQuestion.question_type === 3}}">
-        <view class="judge-row">
-          <view class="judge-btn {{selectedAnswer === 'A' || selectedAnswer === '对' ? 'opt-on' : ''}}" data-v="A" bindtap="onPickJudge">对</view>
-          <view class="judge-btn {{selectedAnswer === 'B' || selectedAnswer === '错' ? 'opt-on' : ''}}" data-v="B" bindtap="onPickJudge">错</view>
-        </view>
-      </block>
+        <block wx:if="{{currentQuestion.question_type === 3}}">
+          <view class="judge-row">
+            <view class="judge-pill {{selectedAnswer === 'A' || selectedAnswer === '对' ? 'judge-pill-on' : ''}}" data-v="A" bindtap="onPickJudge">对</view>
+            <view class="judge-pill {{selectedAnswer === 'B' || selectedAnswer === '错' ? 'judge-pill-on' : ''}}" data-v="B" bindtap="onPickJudge">错</view>
+          </view>
+        </block>
 
-      <block wx:if="{{currentQuestion.question_type === 4 || currentQuestion.question_type === 5}}">
-        <textarea class="area" placeholder="请输入答案" value="{{textAnswer}}" bindinput="onTextAnswer" />
-      </block>
+        <block wx:if="{{currentQuestion.question_type === 4 || currentQuestion.question_type === 5}}">
+          <textarea class="answer-area" placeholder="请输入答案" placeholder-class="ph" value="{{textAnswer}}" bindinput="onTextAnswer" />
+        </block>
+      </view>
 
       <block wx:if="{{feedbackMode === 'immediate' && submitted && checkResult}}">
-        <view class="feedback divider-top">
-          <text class="fb-line {{checkResult.correct ? 'ok' : 'bad'}}">{{checkResult.correct ? '回答正确' : '回答错误'}}</text>
-          <text class="muted fb-small">参考答案：{{checkResult.correct_answer}}</text>
+        <view class="ios-card feedback-card">
+          <text class="fb-title {{checkResult.correct ? 'fb-ok' : 'fb-bad'}}">{{checkResult.correct ? '回答正确' : '回答错误'}}</text>
+          <text class="fb-meta muted">参考答案：{{checkResult.correct_answer}}</text>
           <text class="fb-exp" wx:if="{{checkResult.explanation}}">解析：{{checkResult.explanation}}</text>
         </view>
       </block>
 
-      <view class="btn-primary mt {{playBtnDisabled ? 'disabled' : ''}}" bindtap="onPlayPrimary">{{playBtnLabel}}</view>
+      <view class="btn-primary mt play-submit {{playBtnDisabled ? 'disabled' : ''}}" bindtap="onPlayPrimary">{{playBtnLabel}}</view>
     </block>
   </block>
 
   <block wx:elif="{{step === 'exam_result'}}">
-    <text class="h1">交卷结果</text>
-    <text class="lead muted">共 {{examResults.length}} 题</text>
+    <view class="step-head">
+      <text class="step-title">交卷结果</text>
+      <text class="step-caption muted">共 {{examResults.length}} 题</text>
+    </view>
     <scroll-view scroll-y class="result-scroll">
-      <view wx:for="{{examResults}}" wx:key="question_id" class="result-card">
-        <text class="muted" wx:if="{{item.missing}}">题目 {{item.question_id}} 缺失</text>
+      <view wx:for="{{examResults}}" wx:key="question_id" class="ios-card result-item">
+        <text class="muted r-miss" wx:if="{{item.missing}}">题目 {{item.question_id}} 缺失</text>
         <block wx:else>
           <text class="r-stem">{{item.stem}}</text>
-          <text class="r-line {{item.correct ? 'ok' : 'bad'}}">{{item.correct ? '正确' : '错误'}}</text>
-          <text class="muted r-small">你的答案：{{item.user_answer || '（空）'}}</text>
-          <text class="muted r-small">参考答案：{{item.correct_answer}}</text>
+          <text class="r-flag {{item.correct ? 'fb-ok' : 'fb-bad'}}">{{item.correct ? '正确' : '错误'}}</text>
+          <text class="r-meta muted">你的答案：{{item.user_answer || '（空）'}}</text>
+          <text class="r-meta muted">参考答案：{{item.correct_answer}}</text>
           <text class="r-exp" wx:if="{{item.explanation}}">解析：{{item.explanation}}</text>
         </block>
       </view>

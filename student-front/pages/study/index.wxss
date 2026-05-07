@@ -1,14 +1,21 @@
-.page-title {
-  display: block;
+.study-page {
+  padding-top: 8rpx;
 }
 
-.lead {
+.step-head {
+  margin-bottom: 28rpx;
+}
+
+.page-hero {
+  display: block;
+  font-size: 52rpx;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+}
+
+.page-lead {
   display: block;
   margin-top: 12rpx;
-  font-size: 26rpx;
-}
-
-.list-block {
-  margin-top: 40rpx;
-  padding-top: 8rpx;
+  font-size: 28rpx;
 }

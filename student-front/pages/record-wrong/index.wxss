@@ -1,7 +1,41 @@
-.tip {
+.record-page {
+  padding-top: 8rpx;
+}
+
+.step-head {
+  margin-bottom: 32rpx;
+}
+
+.page-hero {
   display: block;
-  margin-bottom: 24rpx;
+  font-size: 52rpx;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.empty-hint,
+.record-count {
+  display: block;
+  margin-top: 16rpx;
   font-size: 28rpx;
+  line-height: 1.45;
+}
+
+.record-card {
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.record-stem {
+  font-size: 30rpx;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.record-meta {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
 }
 
 .line-clamp {
