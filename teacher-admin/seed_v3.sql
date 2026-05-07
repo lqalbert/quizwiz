@@ -149,12 +149,13 @@ JOIN (
   ON q.stem = x.stem
 ON CONFLICT (question_id, option_key) DO NOTHING;
 
--- 11) 标签
-INSERT INTO question_tags (name) VALUES
-('函数'),
-('方程'),
-('时态')
-ON CONFLICT (name) DO NOTHING;
+-- 11) 标签（须带 unit_id；唯一约束为 (unit_id, name)，见 init_v3.sql）
+INSERT INTO question_tags (unit_id, name)
+SELECT ku.id, v.tag
+FROM knowledge_units ku
+CROSS JOIN (VALUES ('函数'), ('方程'), ('时态')) AS v(tag)
+WHERE ku.name = '未分类' AND ku.subject_id IS NULL
+ON CONFLICT (unit_id, name) DO NOTHING;
 
 INSERT INTO question_tag_rel (question_id, tag_id)
 SELECT q.id, t.id
