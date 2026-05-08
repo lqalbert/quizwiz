@@ -122,6 +122,7 @@
   font-weight: 500;
   line-height: 1.5;
   letter-spacing: -0.01em;
+  white-space: pre-line;
 }
 
 .opt-pill {
@@ -249,6 +250,7 @@
   font-size: 30rpx;
   line-height: 1.45;
   font-weight: 500;
+  white-space: pre-line;
 }
 
 .r-flag {
@@ -270,4 +272,268 @@
   font-size: 26rpx;
   line-height: 1.45;
   color: var(--ios-label);
+}
+
+/* —— 图1：左栏单元 + 右栏知识点 —— */
+.nav-row {
+  margin-bottom: 20rpx;
+}
+
+.nav-back {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--ios-tint);
+}
+
+.catalog-wrap {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - 320rpx);
+  min-height: 560rpx;
+  background: #fff;
+  border-radius: var(--ios-radius-card);
+  overflow: hidden;
+  box-shadow: var(--ios-shadow);
+}
+
+.catalog-left {
+  width: 200rpx;
+  flex-shrink: 0;
+  background: #f2f2f7;
+  max-height: 100%;
+}
+
+.unit-tab {
+  padding: 28rpx 20rpx;
+  font-size: 28rpx;
+  color: #333;
+  border-left: 6rpx solid transparent;
+}
+
+.unit-tab-on {
+  background: #fff;
+  color: #ff7a00;
+  font-weight: 600;
+  border-left-color: #ff7a00;
+}
+
+.catalog-right {
+  flex: 1;
+  min-width: 0;
+  max-height: 100%;
+  background: #fff;
+}
+
+.point-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32rpx 28rpx;
+  border-bottom: 1rpx solid #eee;
+}
+
+.point-row:active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.point-name {
+  font-size: 30rpx;
+  color: #111;
+}
+
+.point-chev {
+  color: #ccc;
+  font-size: 36rpx;
+  font-weight: 300;
+}
+
+/* —— 图2：刷题模式四宫格 —— */
+.style-head {
+  margin-bottom: 28rpx;
+}
+
+.style-title {
+  display: block;
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #111;
+}
+
+.style-count {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  color: #888;
+}
+
+.style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24rpx;
+  padding: 8rpx 0 24rpx;
+}
+
+.style-card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 36rpx 24rpx;
+  box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.06);
+  text-align: center;
+  min-height: 220rpx;
+  box-sizing: border-box;
+}
+
+.style-card:active {
+  opacity: 0.92;
+}
+
+.style-card-off {
+  opacity: 0.45;
+}
+
+.style-icon {
+  display: block;
+  font-size: 48rpx;
+  margin-bottom: 16rpx;
+  line-height: 1;
+}
+
+.style-card-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+.style-card-sub {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.35;
+}
+
+.style-tip {
+  display: block;
+  font-size: 22rpx;
+  line-height: 1.45;
+  padding: 0 8rpx 24rpx;
+}
+
+.empty-right {
+  justify-content: center;
+}
+
+.subsection-scroll {
+  max-height: calc(100vh - 520rpx);
+  min-height: 280rpx;
+  margin-bottom: 16rpx;
+  padding-bottom: 220rpx;
+  box-sizing: border-box;
+}
+
+.sub-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 28rpx 24rpx;
+  border-bottom: 1rpx solid #eee;
+  background: #fff;
+}
+
+.sub-row:active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.sub-radio {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  border: 2rpx solid #c7c7cc;
+  margin-right: 20rpx;
+  margin-top: 6rpx;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.sub-radio-on {
+  border-color: #ff7a00;
+  background: #ff7a00;
+  box-shadow: inset 0 0 0 6rpx #fff;
+}
+
+.sub-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.sub-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+.sub-progress {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+}
+
+.sub-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid #eee;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 20;
+}
+
+.sub-footer-left {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.sub-footer-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.sub-footer-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+}
+
+.sub-footer-btns {
+  display: flex;
+  flex-direction: row;
+  gap: 16rpx;
+  flex-shrink: 0;
+}
+
+.btn-outline {
+  padding: 18rpx 28rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+  border-radius: 12rpx;
+  border: 2rpx solid #111;
+  color: #111;
+  background: #fff;
+}
+
+.btn-solid {
+  padding: 18rpx 28rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 12rpx;
+  background: #111;
+  color: #fff;
 }

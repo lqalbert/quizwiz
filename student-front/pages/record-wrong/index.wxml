@@ -5,8 +5,15 @@
     <text class="record-count muted" wx:elif="{{list.length}}">共 {{list.length}} 题</text>
   </view>
 
-  <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card" bindtap="noop">
+  <view
+    wx:for="{{list}}"
+    wx:key="question_id"
+    class="ios-card record-card record-card-tap"
+    bindtap="onRetryTap"
+    data-qid="{{item.question_id}}"
+  >
     <text class="record-stem line-clamp">{{item.stem}}</text>
     <text class="record-meta muted">{{item.question_type_text}} · 做过 {{item.attempts}} 次 · 对 {{item.correct_count}} / 错 {{item.wrong_count}}</text>
+    <text class="record-action">点击再练</text>
   </view>
 </view>

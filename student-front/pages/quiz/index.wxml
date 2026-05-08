@@ -5,87 +5,130 @@
     <view class="loading-pill muted">加载题目…</view>
   </block>
 
-  <block wx:elif="{{step === 'subject'}}">
+  <!-- 左栏科目 + 右栏知识单元 -->
+  <block wx:elif="{{step === 'catalog'}}">
     <view class="step-head">
-      <text class="step-title">选科目</text>
-      <text class="step-caption muted">刷题向导 · 第 1 步</text>
+      <text class="step-title">刷题</text>
+      <text class="step-caption muted">左侧选科目，右侧选知识单元</text>
     </view>
-    <view class="ios-card">
-      <view wx:for="{{subjects}}" wx:key="id" class="ios-cell" bindtap="onPickSubject" data-id="{{item.id}}">
-        <text class="ios-cell-title">{{item.name}}</text>
-        <text class="ios-cell-chevron">›</text>
-      </view>
+    <view class="catalog-wrap">
+      <scroll-view scroll-y class="catalog-left">
+        <view
+          wx:for="{{subjects}}"
+          wx:key="id"
+          class="unit-tab {{subjectId === item.id ? 'unit-tab-on' : ''}}"
+          bindtap="onPickSubjectLeft"
+          data-id="{{item.id}}"
+        >
+          {{item.name}}
+        </view>
+      </scroll-view>
+      <scroll-view scroll-y class="catalog-right">
+        <view wx:if="{{!units.length}}" class="point-row empty-right">
+          <text class="muted">该科目下暂无知识单元</text>
+        </view>
+        <view
+          wx:for="{{units}}"
+          wx:key="id"
+          class="point-row"
+          bindtap="onPickKnowledgeUnit"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+        >
+          <text class="point-name">{{item.name}}</text>
+          <text class="point-chev">›</text>
+        </view>
+      </scroll-view>
     </view>
   </block>
 
-  <block wx:elif="{{step === 'tags'}}">
-    <view class="step-head">
-      <text class="step-title">知识点</text>
-      <text class="step-caption muted">可不选（全科目）；多选为「任一」匹配</text>
+  <!-- 刷题模式四宫格：针对当前知识单元 -->
+  <block wx:elif="{{step === 'practice_style'}}">
+    <view class="nav-row">
+      <text class="nav-back" bindtap="backFromPracticeStyle">‹ 返回</text>
     </view>
-    <view class="ios-card">
-      <view wx:for="{{tags}}" wx:key="key" class="ios-cell" bindtap="onToggleTag" data-name="{{item.name}}">
-        <text class="ios-cell-title">{{item.unit_name}}{{item.unit_name ? ' · ' : ''}}{{item.name}}</text>
-        <text class="ios-check">{{tg.includes(selectedTags, item.name) ? '✓' : ''}}</text>
+    <view class="style-head">
+      <text class="style-title">{{unitName}}</text>
+      <text class="style-count">共 {{topicQuestionCount}} 题</text>
+    </view>
+    <view class="style-grid">
+      <view
+        class="style-card"
+        bindtap="onStyleCardTap"
+        bindlongtap="onStyleCardLongExam"
+        data-m="sequential"
+      >
+        <text class="style-icon">☰</text>
+        <text class="style-card-title">顺序练习</text>
+        <text class="style-card-sub muted">{{seqProgressHint}}</text>
+      </view>
+      <view class="style-card" bindtap="onStyleCardTap" bindlongtap="onStyleCardLongExam" data-m="random">
+        <text class="style-icon">⇄</text>
+        <text class="style-card-title">随机练习</text>
+        <text class="style-card-sub muted">本单元内题目顺序打乱</text>
+      </view>
+      <view class="style-card" bindtap="onStyleCardTap" data-m="section">
+        <text class="style-icon">≋</text>
+        <text class="style-card-title">知识小节</text>
+        <text class="style-card-sub muted">按知识点（知识小节）练习</text>
+      </view>
+      <view class="style-card" bindtap="onStyleCardTap" data-m="mock">
+        <text class="style-icon">▥</text>
+        <text class="style-card-title">模拟练习</text>
+        <text class="style-card-sub muted">各知识点自定义抽题</text>
       </view>
     </view>
-    <view class="btn-primary mt" bindtap="fromTagsNext">下一步</view>
+    <text class="style-tip muted">提示：顺序/随机短按后选反馈方式；长按可快捷进入考试模式。知识小节内可快速双击一行开始刷题。</text>
   </block>
 
-  <block wx:elif="{{step === 'module'}}">
-    <view class="step-head">
-      <text class="step-title">练习方式</text>
-      <text class="step-caption muted">第 3 步</text>
+  <!-- 知识小节 = 知识点列表 -->
+  <block wx:elif="{{step === 'subsections'}}">
+    <view class="nav-row">
+      <text class="nav-back" bindtap="backFromSubsections">‹ 返回</text>
     </view>
-    <view class="ios-card">
-      <view class="ios-cell" bindtap="onPickModule" data-m="sequential">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">顺序练习</text>
-          <text class="ios-cell-sub">按题目 ID 升序</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-      <view class="ios-cell" bindtap="onPickModule" data-m="random">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">随机练习</text>
-          <text class="ios-cell-sub">随机抽题</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-      <view class="ios-cell" bindtap="onPickModule" data-m="section">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">知识小节练习</text>
-          <text class="ios-cell-sub">只练一个小节</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-      <view class="ios-cell" bindtap="onPickModule" data-m="mock">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">模拟练习</text>
-          <text class="ios-cell-sub">按小节手动分配题数</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
+    <view class="style-head">
+      <text class="style-title">{{unitName}}</text>
+      <text class="style-count">共 {{topicQuestionCount}} 题</text>
     </view>
-  </block>
-
-  <block wx:elif="{{step === 'section'}}">
-    <view class="step-head">
-      <text class="step-title">选一个小节</text>
-      <text class="step-caption muted">选择要练习的知识点</text>
-    </view>
-    <view class="ios-card">
-      <view wx:for="{{tags}}" wx:key="key" class="ios-cell" bindtap="onPickSectionTag" data-name="{{item.name}}">
-        <text class="ios-cell-title">{{item.name}}</text>
-        <text class="ios-cell-chevron">›</text>
+    <scroll-view scroll-y class="subsection-scroll">
+      <view
+        wx:for="{{subsectionRows}}"
+        wx:key="id"
+        class="sub-row"
+        bindtap="onSubTagRowTapMaybeDouble"
+        data-id="{{item.id}}"
+        data-name="{{item.name}}"
+      >
+        <view class="sub-radio {{selectedSubTagId === item.id ? 'sub-radio-on' : ''}}"></view>
+        <view class="sub-main">
+          <text class="sub-title">{{item.name}}</text>
+          <text class="sub-progress muted">{{item.progressText}}</text>
+        </view>
+      </view>
+      <view wx:if="{{!subsectionRows.length}}" class="point-row empty-right">
+        <text class="muted">暂无知识小节</text>
+      </view>
+    </scroll-view>
+    <text class="style-tip muted">tips：试一下双击跳转刷题</text>
+    <view class="sub-footer">
+      <view class="sub-footer-left">
+        <text class="sub-footer-title">知识小节</text>
+        <text class="sub-footer-sub muted">选择知识小节练习</text>
+      </view>
+      <view class="sub-footer-btns">
+        <view class="btn-outline" bindtap="backFromSubsections">返回</view>
+        <view class="btn-solid" bindtap="startSectionPracticeNow">立即刷题</view>
       </view>
     </view>
   </block>
 
   <block wx:elif="{{step === 'mock'}}">
+    <view class="nav-row">
+      <text class="nav-back" bindtap="backFromMock">‹ 返回</text>
+    </view>
     <view class="step-head">
       <text class="step-title">分配题数</text>
-      <text class="step-caption muted">每个知识点抽题数量</text>
+      <text class="step-caption muted">本单元各知识点抽题数量</text>
     </view>
     <view class="ios-card">
       <view wx:for="{{mockRows}}" wx:key="name" class="mock-row">
@@ -94,29 +137,6 @@
       </view>
     </view>
     <view class="btn-primary mt" bindtap="fromMockNext">下一步</view>
-  </block>
-
-  <block wx:elif="{{step === 'mode'}}">
-    <view class="step-head">
-      <text class="step-title">答题模式</text>
-      <text class="step-caption muted">选择反馈方式</text>
-    </view>
-    <view class="ios-card">
-      <view class="ios-cell" bindtap="onPickMode" data-m="immediate">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">及时反馈</text>
-          <text class="ios-cell-sub">每题提交后显示对错与解析</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-      <view class="ios-cell" bindtap="onPickMode" data-m="exam">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">考试模式</text>
-          <text class="ios-cell-sub">全部做完后统一判分与看解析</text>
-        </view>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-    </view>
   </block>
 
   <block wx:elif="{{step === 'play'}}">

@@ -6,6 +6,8 @@ App({
     token: "",
     /** 由 config/site.js、本地存储与 getApiBase() 合并得到 */
     apiBase: "",
+    /** 错题本等跳转刷题：{ questionIds: number[], feedbackMode?: 'immediate'|'exam' }，消费后清空 */
+    pendingPractice: null,
   },
 
   onLaunch() {

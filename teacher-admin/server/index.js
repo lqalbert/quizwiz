@@ -24,7 +24,7 @@ const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads')
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || `http://localhost:${API_PORT}`
 const UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024
 /** 接口契约版本：递增表示行为变更。线上与本地 curl /api/health 对比此字段可确认是否已部署同一套 API。 */
-const API_REVISION = 4
+const API_REVISION = 5
 
 if (!fs.existsSync(UPLOAD_ROOT)) {
   fs.mkdirSync(UPLOAD_ROOT, { recursive: true })
@@ -2579,6 +2579,98 @@ app.get('/api/student/subjects', studentAuthRequired, async (_req, res) => {
   }
 })
 
+/** 某科目下的知识单元（不含占位「未分类」） */
+app.get('/api/student/catalog/knowledge-units', studentAuthRequired, async (req, res) => {
+  const subjectId = Number(req.query.subject_id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subject_id 不合法' })
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT id, name, sort_order
+      FROM knowledge_units
+      WHERE subject_id = $1 AND name <> '未分类'
+      ORDER BY sort_order ASC, id ASC
+      `,
+      [subjectId],
+    )
+    return res.json({ data: rows })
+  } catch (error) {
+    return res.status(500).json({ message: '加载知识单元失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 某知识单元下的知识点（question_tags）及题量 */
+app.get('/api/student/catalog/unit-detail', studentAuthRequired, async (req, res) => {
+  const unitId = Number(req.query.unit_id)
+  if (!Number.isInteger(unitId) || unitId <= 0) {
+    return res.status(400).json({ message: 'unit_id 不合法' })
+  }
+  try {
+    const unitRes = await pool.query(
+      `
+      SELECT ku.id, ku.name, ku.subject_id, ku.sort_order, s.name AS subject_name
+      FROM knowledge_units ku
+      JOIN subjects s ON s.id = ku.subject_id
+      WHERE ku.id = $1
+      LIMIT 1
+      `,
+      [unitId],
+    )
+    const unitRow = unitRes.rows[0]
+    if (!unitRow) return res.status(404).json({ message: '知识单元不存在' })
+
+    const countRes = await pool.query(
+      `
+      SELECT COUNT(DISTINCT q.id)::int AS c
+      FROM questions q
+      INNER JOIN question_tag_rel qtr ON qtr.question_id = q.id
+      INNER JOIN question_tags qt ON qt.id = qtr.tag_id AND qt.unit_id = $1
+      WHERE q.deleted_at IS NULL AND q.subject_id = $2
+      `,
+      [unitId, unitRow.subject_id],
+    )
+    const unitQuestionCount = Number(countRes.rows[0]?.c || 0)
+
+    const tagsRes = await pool.query(
+      `
+      SELECT qt.id, qt.name,
+        (
+          SELECT COUNT(DISTINCT q2.id)
+          FROM questions q2
+          INNER JOIN question_tag_rel qtr2 ON qtr2.question_id = q2.id AND qtr2.tag_id = qt.id
+          WHERE q2.deleted_at IS NULL AND q2.subject_id = $2
+        )::int AS question_count
+      FROM question_tags qt
+      WHERE qt.unit_id = $1
+      ORDER BY qt.name ASC
+      `,
+      [unitId, unitRow.subject_id],
+    )
+
+    return res.json({
+      data: {
+        unit: {
+          id: unitRow.id,
+          name: unitRow.name,
+          subject_id: unitRow.subject_id,
+          sort_order: unitRow.sort_order,
+        },
+        subject: { id: unitRow.subject_id, name: unitRow.subject_name },
+        unit_question_count: unitQuestionCount,
+        tags: tagsRes.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          question_count: Number(r.question_count || 0),
+        })),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载单元详情失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
   const subjectId = Number(req.query.subject_id)
   if (!Number.isInteger(subjectId) || subjectId <= 0) {
@@ -2611,47 +2703,151 @@ app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
   }
 })
 
+/** 统计某科目下题目数量；可选 unit_id（知识单元）、tag_name（知识点，可与 unit_id 联用） */
+app.get('/api/student/practice/count', studentAuthRequired, async (req, res) => {
+  const subjectId = Number(req.query.subject_id)
+  const unitId = Number(req.query.unit_id)
+  const tagNameRaw = req.query.tag_name
+  const tagName =
+    tagNameRaw === undefined || tagNameRaw === null ? '' : String(tagNameRaw).trim()
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subject_id 不合法' })
+  }
+  const hasUnit = Number.isInteger(unitId) && unitId > 0
+  try {
+    if (hasUnit) {
+      const ur = await pool.query(`SELECT subject_id FROM knowledge_units WHERE id = $1 LIMIT 1`, [unitId])
+      if (!ur.rows[0]) return res.status(404).json({ message: '知识单元不存在' })
+      if (Number(ur.rows[0].subject_id) !== subjectId) {
+        return res.status(400).json({ message: 'unit_id 与 subject_id 不匹配' })
+      }
+    }
+    const params = [subjectId]
+    let sql = `
+      SELECT COUNT(DISTINCT q.id)::int AS c
+      FROM questions q
+      WHERE q.deleted_at IS NULL AND q.subject_id = $1
+    `
+    if (hasUnit && tagName) {
+      params.push(unitId, tagName)
+      sql += `
+        AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.unit_id = $2 AND qt.name = $3
+        )
+      `
+    } else if (hasUnit) {
+      params.push(unitId)
+      sql += `
+        AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.unit_id = $2
+        )
+      `
+    } else if (tagName) {
+      params.push(tagName)
+      sql += `
+        AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.name = $2
+        )
+      `
+    }
+    const { rows } = await pool.query(sql, params)
+    const count = Number(rows[0]?.c || 0)
+    return res.json({ data: { count } })
+  } catch (error) {
+    return res.status(500).json({ message: '统计题目失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 app.post('/api/student/practice/build', studentAuthRequired, async (req, res) => {
-  const subjectId = Number(req.body?.subject_id)
   const tagNames = Array.isArray(req.body?.tag_names) ? req.body.tag_names.map((x) => String(x || '').trim()).filter(Boolean) : []
   const practiceModule = String(req.body?.practice_module || '').trim()
   const sectionTag = String(req.body?.section_tag || '').trim()
   const mockAllocation = Array.isArray(req.body?.mock_allocation) ? req.body.mock_allocation : []
   const limit = Math.min(100, Math.max(1, parseInt(String(req.body?.limit || '25'), 10) || 25))
+  const unitIdBody = Number(req.body?.unit_id)
 
-  if (!Number.isInteger(subjectId) || subjectId <= 0) {
-    return res.status(400).json({ message: 'subject_id 不合法' })
+  /** 错题再练等：按题目 ID 组卷（须为本生错题本中 wrong_count>0 的题目） */
+  const rawFixedIds = Array.isArray(req.body?.question_ids) ? req.body.question_ids : []
+  const fixedOrderedIds = []
+  const seenFixed = new Set()
+  for (const x of rawFixedIds) {
+    const id = Number(x)
+    if (!Number.isInteger(id) || id <= 0) continue
+    if (seenFixed.has(id)) continue
+    seenFixed.add(id)
+    fixedOrderedIds.push(id)
   }
-  const allowedModules = new Set(['sequential', 'random', 'section', 'mock'])
-  if (!allowedModules.has(practiceModule)) {
-    return res.status(400).json({ message: 'practice_module 须为 sequential | random | section | mock' })
-  }
-  if (practiceModule === 'section' && !sectionTag) {
-    return res.status(400).json({ message: '知识小节练习须传 section_tag' })
-  }
-  if (practiceModule === 'mock') {
-    if (mockAllocation.length === 0) {
-      return res.status(400).json({ message: '模拟练习须传 mock_allocation，如 [{\"tag_name\":\"…\",\"count\":3}]' })
-    }
-  }
-
-  const tagAnyClause = (paramIndex) =>
-    `AND EXISTS (
-      SELECT 1 FROM question_tag_rel qtr
-      JOIN question_tags qt ON qt.id = qtr.tag_id
-      WHERE qtr.question_id = q.id AND qt.name = ANY($${paramIndex}::text[])
-    )`
-
-  const sectionClause = (paramIndex) =>
-    `AND EXISTS (
-      SELECT 1 FROM question_tag_rel qtr
-      JOIN question_tags qt ON qt.id = qtr.tag_id
-      WHERE qtr.question_id = q.id AND qt.name = $${paramIndex}
-    )`
 
   try {
+    if (fixedOrderedIds.length > 0) {
+      const studentId = req.studentAuth.studentId
+      const sliceInput = fixedOrderedIds
+        .slice(0, limit)
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0 && id <= Number.MAX_SAFE_INTEGER)
+      if (sliceInput.length === 0) {
+        return res.status(400).json({ message: 'question_ids 不合法' })
+      }
+      const params = [studentId]
+      const placeholders = sliceInput.map((id) => {
+        params.push(id)
+        return `$${params.length}`
+      })
+      const inClause = placeholders.join(', ')
+      const literalArr = sliceInput.map((id) => String(id)).join(', ')
+      const { rows: fixedRows } = await pool.query(
+        `
+        SELECT q.id
+        FROM questions q
+        INNER JOIN student_question_stats s ON s.question_id = q.id AND s.student_id = $1
+        WHERE q.deleted_at IS NULL AND q.id IN (${inClause})
+        ORDER BY array_position(ARRAY[${literalArr}]::bigint[], q.id) NULLS LAST
+        `,
+        params,
+      )
+      const outIds = fixedRows.map((row) => Number(row.id)).filter((id) => !Number.isNaN(id))
+      if (outIds.length === 0) {
+        return res.status(400).json({
+          message: '无法组卷：题目已删除，或你尚未做过该题（请刷新错题本后重试）',
+        })
+      }
+      return res.json({ data: { question_ids: outIds } })
+    }
+
+    const subjectId = Number(req.body?.subject_id)
+    if (!Number.isInteger(subjectId) || subjectId <= 0) {
+      return res.status(400).json({ message: 'subject_id 不合法' })
+    }
+    const allowedModules = new Set(['sequential', 'random', 'section', 'mock'])
+    if (!allowedModules.has(practiceModule)) {
+      return res.status(400).json({ message: 'practice_module 须为 sequential | random | section | mock' })
+    }
+    if (practiceModule === 'section' && !sectionTag) {
+      return res.status(400).json({ message: '知识小节练习须传 section_tag' })
+    }
+    if (practiceModule === 'mock') {
+      if (mockAllocation.length === 0) {
+        return res.status(400).json({ message: '模拟练习须传 mock_allocation，如 [{\"tag_name\":\"…\",\"count\":3}]' })
+      }
+    }
+
     const subOk = await pool.query(`SELECT 1 FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
     if (!subOk.rows[0]) return res.status(404).json({ message: '科目不存在' })
+
+    const hasUnit = Number.isInteger(unitIdBody) && unitIdBody > 0
+    if (hasUnit) {
+      const ur = await pool.query(`SELECT subject_id FROM knowledge_units WHERE id = $1 LIMIT 1`, [unitIdBody])
+      if (!ur.rows[0]) return res.status(404).json({ message: '知识单元不存在' })
+      if (Number(ur.rows[0].subject_id) !== subjectId) {
+        return res.status(400).json({ message: 'unit_id 与 subject_id 不匹配' })
+      }
+    }
 
     if (practiceModule === 'mock') {
       const seen = new Set()
@@ -2660,6 +2856,14 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
         const tagName = String(raw?.tag_name ?? raw?.tagName ?? '').trim()
         const cnt = Math.min(50, Math.max(0, parseInt(String(raw?.count ?? 0), 10) || 0))
         if (!tagName || cnt <= 0) continue
+        const params = [subjectId, tagName]
+        let existsCond = 'qt.name = $2'
+        if (hasUnit) {
+          params.push(unitIdBody)
+          existsCond += ` AND qt.unit_id = $3`
+        }
+        params.push(cnt)
+        const limIdx = params.length
         const r = await pool.query(
           `
           SELECT q.id
@@ -2668,12 +2872,12 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
             AND EXISTS (
               SELECT 1 FROM question_tag_rel qtr
               JOIN question_tags qt ON qt.id = qtr.tag_id
-              WHERE qtr.question_id = q.id AND qt.name = $2
+              WHERE qtr.question_id = q.id AND ${existsCond}
             )
           ORDER BY random()
-          LIMIT $3
+          LIMIT $${limIdx}
           `,
-          [subjectId, tagName, cnt],
+          params,
         )
         for (const row of r.rows) {
           const id = Number(row.id)
@@ -2693,11 +2897,46 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
     const values = [subjectId]
     let whereExtra = ''
     if (practiceModule === 'section') {
-      values.push(sectionTag)
-      whereExtra = sectionClause(values.length)
+      if (hasUnit) {
+        values.push(unitIdBody, sectionTag)
+        whereExtra = `AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.unit_id = $2 AND qt.name = $3
+        )`
+      } else {
+        values.push(sectionTag)
+        whereExtra = `AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.name = $2
+        )`
+      }
     } else if (tagNames.length > 0) {
-      values.push(tagNames)
-      whereExtra = tagAnyClause(values.length)
+      if (hasUnit) {
+        values.push(unitIdBody, tagNames)
+        whereExtra = `AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.unit_id = $2 AND qt.name = ANY($3::text[])
+        )`
+      } else {
+        values.push(tagNames)
+        whereExtra = `AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.name = ANY($2::text[])
+        )`
+      }
+    } else if (hasUnit) {
+      values.push(unitIdBody)
+      whereExtra = `AND EXISTS (
+        SELECT 1 FROM question_tag_rel qtr
+        JOIN question_tags qt ON qt.id = qtr.tag_id
+        WHERE qtr.question_id = q.id AND qt.unit_id = $2
+      )`
+    } else {
+      return res.status(400).json({ message: '须指定 unit_id、tag_names 或 section_tag（知识小节）' })
     }
 
     const orderSql =

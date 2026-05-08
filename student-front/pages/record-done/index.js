@@ -1,4 +1,5 @@
 const { request } = require("../../utils/request.js");
+const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 
 Page({
   data: {
@@ -17,7 +18,11 @@ Page({
         path: "/api/student/stats/done-questions?page=1&pageSize=100",
         method: "GET",
       });
-      this.setData({ list: (res && res.data) || [], loading: false });
+      const list = (res && res.data) || [];
+      this.setData({
+        list: list.map((row) => ({ ...row, stem: formatStemForDisplay(row.stem) })),
+        loading: false,
+      });
     } catch (e) {
       this.setData({ list: [], loading: false });
       if (String(e.message || "").includes("配置 API")) {
