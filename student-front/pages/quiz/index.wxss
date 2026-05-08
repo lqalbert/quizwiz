@@ -1,5 +1,33 @@
-.quiz-root {
+/* 刷题 tab：减少全局 page-wrap 顶留白，内容整体上移 */
+.page-wrap.quiz-root {
+  padding-top: 4rpx;
+  padding-left: 24rpx;
+  padding-right: 24rpx;
   padding-bottom: 200rpx;
+  box-sizing: border-box;
+}
+
+.quiz-root .nav-row {
+  margin-bottom: 12rpx;
+}
+
+.quiz-root .catalog-hero {
+  margin-bottom: 16rpx;
+}
+
+.quiz-root .page-hero {
+  margin-bottom: 18rpx;
+  padding-top: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.quiz-root .page-hero--compact {
+  margin-bottom: 12rpx;
+}
+
+.quiz-root .ui-toolbar {
+  margin-bottom: 14rpx;
 }
 
 .loading-pill {
@@ -8,25 +36,6 @@
   background: rgba(60, 60, 67, 0.08);
   border-radius: 100rpx;
   font-size: 26rpx;
-}
-
-.step-head {
-  margin-bottom: 24rpx;
-}
-
-.step-title {
-  display: block;
-  font-size: 52rpx;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.12;
-}
-
-.step-caption {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 28rpx;
-  line-height: 1.4;
 }
 
 .mt {
@@ -104,55 +113,6 @@
   font-weight: 400;
 }
 
-.play-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20rpx;
-  padding: 0 4rpx;
-}
-
-.toolbar-link {
-  font-size: 28rpx;
-  font-weight: 500;
-}
-
-.toolbar-count {
-  font-size: 30rpx;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.toolbar-count-plain {
-  flex: 1;
-  text-align: center;
-}
-
-.toolbar-center-seq {
-  flex: 1;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 20rpx;
-  min-width: 0;
-}
-
-.toolbar-jump {
-  font-size: 28rpx;
-  font-weight: 600;
-  padding: 8rpx 16rpx;
-  border-radius: 12rpx;
-  background: rgba(0, 122, 255, 0.12);
-}
-
-.seq-toolbar-hint {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  margin: 8rpx 0 4rpx;
-}
-
 .seq-jump-mask {
   position: fixed;
   left: 0;
@@ -172,9 +132,10 @@
   width: 100%;
   max-width: 600rpx;
   background: #fff;
-  border-radius: 24rpx;
+  border-radius: var(--ios-radius-card);
   padding: 36rpx 32rpx 28rpx;
   box-sizing: border-box;
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.12);
 }
 
 .seq-jump-title {
@@ -198,49 +159,12 @@
   height: 88rpx;
   padding: 0 20rpx;
   box-sizing: border-box;
-  border-radius: 14rpx;
-  border: 2rpx solid rgba(60, 60, 67, 0.18);
+  border-radius: var(--ui-modal-radius);
+  border: 2rpx solid var(--ios-separator);
   background: rgba(60, 60, 67, 0.05);
   font-size: 32rpx;
   font-weight: 600;
   text-align: center;
-}
-
-.seq-jump-actions {
-  display: flex;
-  flex-direction: row;
-  margin-top: 28rpx;
-  gap: 20rpx;
-}
-
-.seq-jump-btn {
-  flex: 1;
-  height: 88rpx;
-  border-radius: 14rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.seq-jump-btn-cancel {
-  background: rgba(60, 60, 67, 0.08);
-  color: #1c1c1e;
-}
-
-.seq-jump-btn-ok {
-  background: var(--ios-tint);
-  color: #fff;
-}
-
-.toolbar-badge {
-  font-size: 22rpx;
-  font-weight: 600;
-  color: var(--ios-secondary);
-  background: rgba(60, 60, 67, 0.08);
-  padding: 8rpx 20rpx;
-  border-radius: 100rpx;
 }
 
 .progress-track {
@@ -393,27 +317,6 @@
   gap: 20rpx;
 }
 
-.btn-exam-prev {
-  flex-shrink: 0;
-  min-width: 168rpx;
-  height: 96rpx;
-  padding: 0 28rpx;
-  box-sizing: border-box;
-  border-radius: var(--ios-radius-btn);
-  border: 2rpx solid rgba(60, 60, 67, 0.22);
-  background: #fff;
-  color: var(--ios-label);
-  font-size: 30rpx;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-exam-prev:active {
-  background: rgba(60, 60, 67, 0.06);
-}
-
 .play-submit-flex {
   flex: 1;
   min-width: 0;
@@ -462,22 +365,11 @@
   color: var(--ios-label);
 }
 
-/* —— 图1：左栏科目 + 右栏知识单元 —— */
-.nav-row {
-  margin-bottom: 20rpx;
-}
-
-.nav-back {
-  font-size: 30rpx;
-  font-weight: 500;
-  color: var(--ios-tint);
-}
-
 .catalog-wrap {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 320rpx);
-  min-height: 560rpx;
+  height: calc(100vh - 396rpx);
+  min-height: 480rpx;
   background: #fff;
   border-radius: var(--ios-radius-card);
   overflow: hidden;
@@ -536,24 +428,6 @@
 }
 
 /* —— 图2：刷题模式四宫格 —— */
-.style-head {
-  margin-bottom: 28rpx;
-}
-
-.style-title {
-  display: block;
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #111;
-}
-
-.style-count {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 26rpx;
-  color: #888;
-}
-
 .style-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -579,18 +453,177 @@
   opacity: 0.45;
 }
 
-.style-icon {
-  display: block;
-  font-size: 48rpx;
-  margin-bottom: 16rpx;
-  line-height: 1;
+/* 四宫格图标：渐变蓝底 + 白色图形（统一色相与层次） */
+.style-icon-box {
+  width: 100rpx;
+  height: 100rpx;
+  margin: 0 auto 14rpx;
+  border-radius: 30rpx;
+  background: linear-gradient(155deg, #5cadff 0%, #2f95ff 28%, #007aff 72%, #0056c8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  box-shadow: 0 8rpx 22rpx rgba(0, 122, 255, 0.32), inset 0 1rpx 0 rgba(255, 255, 255, 0.35);
+}
+
+.style-glyph {
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* 顺序：递减横条 + 向右三角（依次推进） */
+.style-glyph--seq {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  width: 56rpx;
+  height: 44rpx;
+}
+
+.style-glyph-seq-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8rpx;
+}
+
+.style-glyph-seq-bar {
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.12);
+  align-self: flex-start;
+}
+
+.style-glyph-seq-bar:nth-child(1) {
+  width: 34rpx;
+}
+
+.style-glyph-seq-bar:nth-child(2) {
+  width: 26rpx;
+}
+
+.style-glyph-seq-bar:nth-child(3) {
+  width: 18rpx;
+}
+
+.style-glyph-seq-chev {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 10rpx 0 10rpx 13rpx;
+  border-color: transparent transparent transparent rgba(255, 255, 255, 0.96);
+  flex-shrink: 0;
+}
+
+/* 随机：两张叠放白卡片（洗牌感） */
+.style-glyph--rnd {
+  width: 52rpx;
+  height: 46rpx;
+}
+
+.style-glyph-rnd-card {
+  position: absolute;
+  width: 32rpx;
+  height: 38rpx;
+  border-radius: 10rpx;
+  background: rgba(255, 255, 255, 0.92);
+  box-sizing: border-box;
+  box-shadow: 0 3rpx 10rpx rgba(0, 0, 0, 0.2);
+}
+
+.style-glyph-rnd-card--a {
+  left: 2rpx;
+  top: 4rpx;
+  transform: rotate(-16deg) scale(0.96);
+  opacity: 0.72;
+}
+
+.style-glyph-rnd-card--b {
+  right: 2rpx;
+  bottom: 2rpx;
+  transform: rotate(12deg);
+}
+
+/* 知识小节：圆点 + 横条 */
+.style-glyph--sec {
+  width: 48rpx;
+  height: 42rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7rpx;
+}
+
+.style-glyph-sec-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9rpx;
+}
+
+.style-glyph-sec-dot {
+  width: 9rpx;
+  height: 9rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
+.style-glyph-sec-line {
+  height: 7rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.1);
+}
+
+.style-glyph-sec-line--w1 {
+  width: 32rpx;
+}
+
+.style-glyph-sec-line--w2 {
+  width: 26rpx;
+}
+
+.style-glyph-sec-line--w3 {
+  width: 20rpx;
+}
+
+/* 模拟：留白缝的 2×2 白格（表格 / 配题） */
+.style-glyph--mock {
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5rpx;
+}
+
+.style-glyph-mock-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  flex: 1;
+  gap: 5rpx;
+}
+
+.style-glyph-mock-cell {
+  flex: 1;
+  min-height: 16rpx;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 7rpx;
+  box-shadow: 0 1rpx 3rpx rgba(0, 0, 0, 0.14);
 }
 
 .style-card-title {
   display: block;
   font-size: 30rpx;
   font-weight: 600;
-  color: #111;
+  color: var(--ios-label);
 }
 
 .style-card-sub {
@@ -600,19 +633,12 @@
   line-height: 1.35;
 }
 
-.style-tip {
-  display: block;
-  font-size: 22rpx;
-  line-height: 1.45;
-  padding: 0 8rpx 24rpx;
-}
-
 .empty-right {
   justify-content: center;
 }
 
 .subsection-scroll {
-  max-height: calc(100vh - 520rpx);
+  max-height: calc(100vh - 528rpx);
   min-height: 280rpx;
   margin-bottom: 16rpx;
   padding-bottom: 220rpx;
@@ -728,21 +754,3 @@
   flex-shrink: 0;
 }
 
-.btn-outline {
-  padding: 18rpx 28rpx;
-  font-size: 28rpx;
-  font-weight: 500;
-  border-radius: 12rpx;
-  border: 2rpx solid #111;
-  color: #111;
-  background: #fff;
-}
-
-.btn-solid {
-  padding: 18rpx 28rpx;
-  font-size: 28rpx;
-  font-weight: 600;
-  border-radius: 12rpx;
-  background: #111;
-  color: #fff;
-}

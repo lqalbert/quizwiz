@@ -1,9 +1,13 @@
 <view class="page-wrap record-root quiz-root">
   <!-- 与刷题一致：左科目 + 右知识单元 -->
   <block wx:if="{{step === 'catalog'}}">
-    <view class="step-head">
-      <text class="step-title">错题本</text>
-      <text class="step-caption muted">左侧选科目，右侧选知识单元</text>
+    <view class="page-hero record-catalog-hero">
+      <view class="page-hero-accent"></view>
+      <view class="page-hero-body">
+        <text class="page-hero-eyebrow">错题本</text>
+        <text class="page-hero-title">选择科目与单元</text>
+        <text class="page-hero-lead muted">左侧选科目 · 右侧选知识单元</text>
+      </view>
     </view>
     <view class="catalog-wrap">
       <scroll-view scroll-y class="catalog-left">
@@ -38,14 +42,26 @@
 
   <block wx:else>
     <view class="nav-row">
-      <text class="nav-back" bindtap="backFromList">‹ 返回</text>
+      <text class="nav-back" bindtap="backFromList">‹</text>
     </view>
-    <view class="list-head">
-      <text class="style-title">{{unitName}}</text>
-      <text class="record-count muted" wx:if="{{!listLoading}}">共 {{pagination.total}} 题</text>
+    <view class="page-hero page-hero--compact">
+      <view class="page-hero-accent"></view>
+      <view class="page-hero-body">
+        <text class="page-hero-title page-hero-title--unit">{{unitName}}</text>
+        <text class="page-hero-meta muted" wx:if="{{!listLoading}}">共 {{pagination.total}} 题</text>
+      </view>
+    </view>
+    <view wx:if="{{list.length}}" class="batch-bar">
+      <view class="ui-strip-btn" bindtap="onBatchWrongPractice">本单元错题一起练</view>
     </view>
     <view wx:if="{{listLoading}}" class="loading-pill muted">加载中…</view>
-    <scroll-view wx:else scroll-y class="wrong-list-scroll">
+    <scroll-view
+      wx:else
+      scroll-y
+      class="wrong-list-scroll"
+      lower-threshold="120"
+      bindscrolltolower="onWrongScrollToLower"
+    >
       <view wx:if="{{!list.length}}" class="point-row empty-right">
         <text class="muted">该单元暂无错题</text>
       </view>
@@ -53,9 +69,16 @@
         <text class="record-stem line-clamp">{{item.stem}}</text>
         <text class="record-meta muted">{{item.question_type_text}} · 做过 {{item.attempts}} 次 · 错 {{item.wrong_count}}</text>
         <view class="record-actions">
-          <text class="record-btn record-btn-out" catchtap="onRemoveWrong" data-qid="{{item.question_id}}">移出错题本</text>
-          <text class="record-btn record-btn-retry" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</text>
+          <view class="ui-link-btn ui-link-btn--muted" catchtap="onRemoveWrong" data-qid="{{item.question_id}}">移出错题本</view>
+          <view class="ui-link-btn ui-link-btn--tint" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</view>
         </view>
+      </view>
+      <view wx:if="{{list.length && hasMore}}" class="load-more-wrap">
+        <text wx:if="{{listLoadingMore}}" class="muted load-more-text">加载更多…</text>
+        <text wx:else class="load-more-tap muted" bindtap="onLoadMoreWrong">点击加载更多</text>
+      </view>
+      <view wx:if="{{list.length && !hasMore}}" class="load-more-wrap">
+        <text class="muted load-more-text">已加载全部</text>
       </view>
     </scroll-view>
   </block>

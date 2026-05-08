@@ -1,5 +1,8 @@
 const { request } = require("../../utils/request.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
+const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
+
+const LIST_PAGE_SIZE = 25;
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
@@ -10,7 +13,6 @@ function ensureToken() {
   return true;
 }
 
-/** 与刷题页一致：data-id 与列表 id 比较须稳定 */
 function normalizePositiveInt(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -26,7 +28,9 @@ Page({
     unitName: "",
     list: [],
     listLoading: false,
-    pagination: { total: 0, page: 1, pageSize: 100 },
+    listLoadingMore: false,
+    hasMore: false,
+    pagination: { total: 0, page: 1, pageSize: LIST_PAGE_SIZE },
   },
 
   onLoad() {
@@ -55,7 +59,7 @@ Page({
         .filter((s) => s.id > 0);
       let sid = normalizePositiveInt(this.data.subjectId);
       if ((!sid || !subjects.some((s) => s.id === sid)) && subjects.length) {
-        sid = subjects[0].id;
+        sid = defaultStudentSubjectId(subjects);
       }
       this.setData({ subjects, subjectId: sid || null });
       if (sid) await this.loadKnowledgeUnits(sid);
@@ -112,35 +116,52 @@ Page({
       unitId: null,
       unitName: "",
       list: [],
-      pagination: { total: 0, page: 1, pageSize: 100 },
+      hasMore: false,
+      pagination: { total: 0, page: 1, pageSize: LIST_PAGE_SIZE },
     });
   },
 
-  async loadWrongList(resetPage) {
+  /** @param {boolean} reset  true 重新拉第 1 页并替换列表 */
+  async loadWrongList(reset) {
     const sid = this.data.subjectId;
     const uid = this.data.unitId;
     if (!sid || !uid) return;
-    const page = resetPage ? 1 : this.data.pagination.page;
-    const pageSize = 100;
-    this.setData({ listLoading: true });
+    const append = !reset;
+    if (append && (this.data.listLoadingMore || !this.data.hasMore)) return;
+
+    const page = append ? this.data.pagination.page + 1 : 1;
+    const pageSize = LIST_PAGE_SIZE;
+
+    if (append) {
+      this.setData({ listLoadingMore: true });
+    } else {
+      this.setData({ listLoading: true });
+    }
+
     try {
       const res = await request({
         path: `/api/student/stats/wrong-book?page=${page}&pageSize=${pageSize}&subject_id=${sid}&unit_id=${uid}`,
         method: "GET",
       });
-      const list = (res && res.data) || [];
+      const chunk = (res && res.data) || [];
       const pg = (res && res.pagination) || {};
+      const total = Number(pg.total || 0);
+      const formatted = chunk.map((row) => ({ ...row, stem: formatStemForDisplay(row.stem) }));
+      const list = append ? (this.data.list || []).concat(formatted) : formatted;
       this.setData({
-        list: list.map((row) => ({ ...row, stem: formatStemForDisplay(row.stem) })),
+        list,
         listLoading: false,
+        listLoadingMore: false,
         pagination: {
-          total: Number(pg.total || 0),
+          total,
           page: Number(pg.page || page),
           pageSize: Number(pg.pageSize || pageSize),
         },
+        hasMore: list.length < total,
       });
     } catch (e) {
-      this.setData({ list: [], listLoading: false });
+      this.setData({ listLoading: false, listLoadingMore: false });
+      if (!append) this.setData({ list: [], hasMore: false });
       if (String(e.message || "").includes("配置 API")) {
         wx.showToast({ title: "请先配置 API 并登录", icon: "none" });
         return;
@@ -153,20 +174,90 @@ Page({
     }
   },
 
-  onRetryTap(e) {
-    const qid = Number(e.currentTarget.dataset.qid);
-    if (!Number.isInteger(qid) || qid <= 0) return;
+  onWrongScrollToLower() {
+    if (this.data.hasMore && !this.data.listLoadingMore && !this.data.listLoading) {
+      this.loadWrongList(false);
+    }
+  },
+
+  onLoadMoreWrong() {
+    if (this.data.hasMore && !this.data.listLoadingMore && !this.data.listLoading) {
+      this.loadWrongList(false);
+    }
+  },
+
+  startRetryWithMode(questionIds, feedbackMode) {
+    const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
+    if (!ids.length) return;
     if (!wx.getStorageSync("student_token")) {
       wx.navigateTo({ url: "/pages/login/index" });
       return;
     }
     try {
       getApp().globalData.pendingPractice = {
-        questionIds: [qid],
-        feedbackMode: "immediate",
+        questionIds: ids,
+        feedbackMode: feedbackMode === "exam" ? "exam" : "immediate",
       };
     } catch (_) {}
     wx.switchTab({ url: "/pages/quiz/index" });
+  },
+
+  onRetryTap(e) {
+    const qid = Number(e.currentTarget.dataset.qid);
+    if (!Number.isInteger(qid) || qid <= 0) return;
+    wx.showActionSheet({
+      itemList: ["即时反馈", "考试模式"],
+      success: (r) => {
+        if (r.tapIndex === 0) this.startRetryWithMode([qid], "immediate");
+        else if (r.tapIndex === 1) this.startRetryWithMode([qid], "exam");
+      },
+    });
+  },
+
+  async fetchAllWrongQuestionIds() {
+    const sid = this.data.subjectId;
+    const uid = this.data.unitId;
+    const ids = [];
+    let page = 1;
+    const pageSize = 100;
+    for (let guard = 0; guard < 50; guard += 1) {
+      const res = await request({
+        path: `/api/student/stats/wrong-book?page=${page}&pageSize=${pageSize}&subject_id=${sid}&unit_id=${uid}`,
+        method: "GET",
+      });
+      const chunk = (res && res.data) || [];
+      const total = Number((res.pagination && res.pagination.total) || 0);
+      for (const row of chunk) {
+        const id = Number(row.question_id);
+        if (Number.isInteger(id) && id > 0) ids.push(id);
+      }
+      if (ids.length >= total || chunk.length < pageSize) break;
+      page += 1;
+    }
+    return ids;
+  },
+
+  onBatchWrongPractice() {
+    wx.showActionSheet({
+      itemList: ["即时反馈", "考试模式"],
+      success: async (r) => {
+        if (r.tapIndex !== 0 && r.tapIndex !== 1) return;
+        const fm = r.tapIndex === 1 ? "exam" : "immediate";
+        wx.showLoading({ title: "组卷中…", mask: true });
+        try {
+          const ids = await this.fetchAllWrongQuestionIds();
+          wx.hideLoading();
+          if (!ids.length) {
+            wx.showToast({ title: "暂无错题", icon: "none" });
+            return;
+          }
+          this.startRetryWithMode(ids, fm);
+        } catch (err) {
+          wx.hideLoading();
+          wx.showToast({ title: err.message || "组卷失败", icon: "none" });
+        }
+      },
+    });
   },
 
   onRemoveWrong(e) {
@@ -182,10 +273,7 @@ Page({
           method: "POST",
           data: { question_id: qid },
         })
-          .then(() => {
-            wx.showToast({ title: "已移出", icon: "success" });
-            return this.loadWrongList(true);
-          })
+          .then(() => this.loadWrongList(true))
           .catch((err) => {
             wx.showToast({ title: err.message || "操作失败", icon: "none" });
           });

@@ -96,49 +96,57 @@
   line-height: 1.45;
 }
 
-.name-edit-card {
-  margin-top: 20rpx;
-  padding: 28rpx;
+.name-edit-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  box-sizing: border-box;
+}
+
+.name-edit-dialog {
+  width: 100%;
+  max-width: 620rpx;
+  background: var(--ios-fill);
+  border-radius: var(--ios-radius-card);
+  box-shadow: 0 16rpx 64rpx rgba(0, 0, 0, 0.18);
+  padding: 36rpx 32rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.name-edit-dialog-title {
+  display: block;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: var(--ios-label);
+  margin-bottom: 12rpx;
 }
 
 .name-edit-hint {
   display: block;
   font-size: 24rpx;
-  margin-bottom: 16rpx;
+  margin-bottom: 20rpx;
+  line-height: 1.4;
 }
 
 .name-edit-input {
+  display: block;
   width: 100%;
   box-sizing: border-box;
-  padding: 24rpx;
+  min-height: 96rpx;
+  padding: 22rpx 24rpx;
   font-size: 32rpx;
+  line-height: 1.35;
   border-radius: 16rpx;
   background: rgba(60, 60, 67, 0.06);
-}
-
-.name-edit-actions {
-  display: flex;
-  gap: 20rpx;
-  margin-top: 24rpx;
-}
-
-.name-btn {
-  flex: 1;
-  text-align: center;
-  padding: 24rpx 0;
-  border-radius: 16rpx;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-
-.name-btn-cancel {
-  background: rgba(60, 60, 67, 0.08);
   color: var(--ios-label);
-}
-
-.name-btn-save {
-  background: var(--ios-tint);
-  color: #fff;
 }
 
 .ios-cell-title.plain {

@@ -636,6 +636,34 @@ const ensureStudentPracticeSchema = async () => {
     ON student_question_stats(student_id, updated_at DESC)
     `,
   )
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS student_practice_day (
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      practice_date DATE NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (student_id, practice_date)
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_practice_day_student_date
+    ON student_practice_day (student_id, practice_date DESC)
+    `,
+  )
+}
+
+const bumpStudentPracticeDay = async (client, studentId, deltaAttempts = 1) => {
+  await client.query(
+    `
+    INSERT INTO student_practice_day (student_id, practice_date, attempts)
+    VALUES ($1, (timezone('Asia/Shanghai', now()))::date, $2)
+    ON CONFLICT (student_id, practice_date) DO UPDATE SET
+      attempts = student_practice_day.attempts + EXCLUDED.attempts
+    `,
+    [studentId, deltaAttempts],
+  )
 }
 
 const ensureStudentWechatSchema = async () => {
@@ -740,6 +768,7 @@ const incrementStudentQuestionStats = async (client, studentId, questionId, isCo
     `,
     [studentId, questionId, correctInc, wrongInc],
   )
+  await bumpStudentPracticeDay(client, studentId, 1)
 }
 
 const getQuestionSnapshot = async (executor, questionId) => {
@@ -3225,14 +3254,52 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req
 
 app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
-  const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
+  const subjectId = Number(req.query.subject_id)
+  const unitId = Number(req.query.unit_id)
+  const hasSid = Number.isInteger(subjectId) && subjectId > 0
+  const hasUid = Number.isInteger(unitId) && unitId > 0
   try {
-    const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM student_question_stats WHERE student_id = $1 AND attempts > 0`,
-      [req.studentAuth.studentId],
-    )
+    const baseFrom = `
+      FROM student_question_stats s
+      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+      WHERE s.student_id = $1 AND s.attempts > 0
+    `
+    const baseParams = [req.studentAuth.studentId]
+    let whereExtra = ''
+
+    if (hasUid) {
+      const ur = await pool.query(`SELECT subject_id FROM knowledge_units WHERE id = $1 LIMIT 1`, [unitId])
+      if (!ur.rows[0]) {
+        return res.status(404).json({ message: '知识单元不存在' })
+      }
+      const sidFromUnit = Number(ur.rows[0].subject_id)
+      if (hasSid && subjectId !== sidFromUnit) {
+        return res.status(400).json({ message: 'unit_id 与 subject_id 不匹配' })
+      }
+      const sidForQuery = hasSid ? subjectId : sidFromUnit
+      baseParams.push(sidForQuery, unitId)
+      whereExtra = `
+        AND q.subject_id = $2
+        AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          INNER JOIN question_tags qt ON qt.id = qtr.tag_id AND qt.unit_id = $3
+          WHERE qtr.question_id = q.id
+        )
+      `
+    } else if (hasSid) {
+      baseParams.push(subjectId)
+      whereExtra = ` AND q.subject_id = $2 `
+    }
+
+    const countSql = `SELECT COUNT(*)::int AS c ${baseFrom} ${whereExtra}`
+    const countResult = await pool.query(countSql, baseParams)
     const total = Number(countResult.rows[0]?.c || 0)
+
+    const listParams = [...baseParams, pageSize, offset]
+    const lim = baseParams.length + 1
+    const off = baseParams.length + 2
     const { rows } = await pool.query(
       `
       SELECT
@@ -3243,13 +3310,12 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
         s.updated_at,
         q.stem,
         q.question_type
-      FROM student_question_stats s
-      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
-      WHERE s.student_id = $1 AND s.attempts > 0
+      ${baseFrom}
+      ${whereExtra}
       ORDER BY s.updated_at DESC, s.question_id DESC
-      LIMIT $2 OFFSET $3
+      LIMIT $${lim} OFFSET $${off}
       `,
-      [req.studentAuth.studentId, pageSize, offset],
+      listParams,
     )
     return res.json({
       data: rows.map((row) => ({
@@ -3266,6 +3332,192 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
     })
   } catch (error) {
     return res.status(500).json({ message: '加载已做题失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`)
+
+const isoPrevDay = (isoDate) => {
+  const [y, m, d] = String(isoDate || '').split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return isoDate
+  const dt = new Date(y, m - 1, d - 1)
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`
+}
+
+const computePracticeStreakDays = (activeIsoDates, todayIso) => {
+  const set = new Set((activeIsoDates || []).map((x) => String(x)))
+  if (set.size === 0) return 0
+  let anchor = String(todayIso || '')
+  if (!set.has(anchor)) anchor = isoPrevDay(anchor)
+  if (!set.has(anchor)) return 0
+  let streak = 0
+  let cur = anchor
+  while (set.has(cur)) {
+    streak += 1
+    cur = isoPrevDay(cur)
+  }
+  return streak
+}
+
+const chartWithPct = (rows) => {
+  const nums = (rows || []).map((r) => Number(r.attempts || 0))
+  const max = Math.max(1, ...nums)
+  return (rows || []).map((r) => {
+    const attempts = Number(r.attempts || 0)
+    return {
+      label: String(r.label || ''),
+      attempts,
+      pct: Math.round((100 * attempts) / max),
+    }
+  })
+}
+
+/** 首页：刷题/考试相关汇总（按上海时区日聚合，自接入本接口后累计） */
+app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  try {
+    const totalsR = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS questions_touched,
+        COALESCE(SUM(attempts), 0)::int AS attempts,
+        COALESCE(SUM(correct_count), 0)::int AS correct,
+        COALESCE(SUM(wrong_count), 0)::int AS wrong,
+        COUNT(*) FILTER (WHERE wrong_count > 0)::int AS wrong_questions
+      FROM student_question_stats
+      WHERE student_id = $1
+      `,
+      [studentId],
+    )
+    const t = totalsR.rows[0] || {}
+    const attempts = Number(t.attempts || 0)
+    const correct = Number(t.correct || 0)
+    const wrong = Number(t.wrong || 0)
+    const denom = correct + wrong
+    const accuracy_pct = denom > 0 ? Math.round((100 * correct) / denom) : 0
+
+    const todayR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
+    const todayIso = String(todayR.rows[0]?.d || '')
+
+    const todayAttemptsR = await pool.query(
+      `SELECT COALESCE(attempts, 0)::int AS a FROM student_practice_day WHERE student_id = $1 AND practice_date = $2::date LIMIT 1`,
+      [studentId, todayIso],
+    )
+    const today_attempts = Number(todayAttemptsR.rows[0]?.a || 0)
+
+    const activeDaysR = await pool.query(
+      `
+      SELECT practice_date::text AS d
+      FROM student_practice_day
+      WHERE student_id = $1 AND attempts > 0
+      ORDER BY practice_date DESC
+      LIMIT 400
+      `,
+      [studentId],
+    )
+    const streak_days = computePracticeStreakDays(
+      activeDaysR.rows.map((r) => r.d),
+      todayIso,
+    )
+
+    const daySeriesR = await pool.query(
+      `
+      WITH days AS (
+        SELECT generate_series(
+          (timezone('Asia/Shanghai', now()))::date - INTERVAL '13 days',
+          (timezone('Asia/Shanghai', now()))::date,
+          INTERVAL '1 day'
+        )::date AS d
+      )
+      SELECT
+        days.d::text AS d,
+        COALESCE(p.attempts, 0)::int AS attempts
+      FROM days
+      LEFT JOIN student_practice_day p
+        ON p.student_id = $1 AND p.practice_date = days.d
+      ORDER BY days.d ASC
+      `,
+      [studentId],
+    )
+    const chart_day = chartWithPct(
+      daySeriesR.rows.map((r) => {
+        const [yy, mm, dd] = String(r.d).split('-')
+        return { label: `${Number(mm)}/${Number(dd)}`, attempts: r.attempts }
+      }),
+    )
+
+    const weekSeriesR = await pool.query(
+      `
+      SELECT
+        (date_trunc('week', practice_date::timestamp))::date::text AS week_start,
+        SUM(attempts)::int AS attempts
+      FROM student_practice_day
+      WHERE student_id = $1
+        AND practice_date >= (timezone('Asia/Shanghai', now()))::date - INTERVAL '55 days'
+      GROUP BY date_trunc('week', practice_date::timestamp)
+      ORDER BY week_start ASC
+      `,
+      [studentId],
+    )
+    const chart_week = chartWithPct(
+      weekSeriesR.rows.map((r) => {
+        const [y, m, d] = String(r.week_start).split('-').map(Number)
+        return { label: `${m}/${d}周`, attempts: r.attempts }
+      }),
+    )
+
+    const monthSeriesR = await pool.query(
+      `
+      SELECT
+        to_char(date_trunc('month', practice_date::timestamp), 'YYYY-MM') AS ym,
+        SUM(attempts)::int AS attempts
+      FROM student_practice_day
+      WHERE student_id = $1
+        AND practice_date >= (timezone('Asia/Shanghai', now()))::date - INTERVAL '400 days'
+      GROUP BY date_trunc('month', practice_date::timestamp)
+      ORDER BY ym ASC
+      `,
+      [studentId],
+    )
+    const chart_month = chartWithPct(
+      monthSeriesR.rows.map((r) => {
+        const parts = String(r.ym || '').split('-')
+        const mo = parts[1] ? Number(parts[1]) : 0
+        return { label: mo ? `${mo}月` : String(r.ym), attempts: r.attempts }
+      }),
+    )
+
+    const table_week = weekSeriesR.rows.slice(-8).map((r) => ({
+      period: `${String(r.week_start).replace(/-/g, '/')}`,
+      attempts: Number(r.attempts || 0),
+    }))
+    const table_month = monthSeriesR.rows.slice(-6).map((r) => ({
+      period: String(r.ym),
+      attempts: Number(r.attempts || 0),
+    }))
+
+    return res.json({
+      data: {
+        totals: {
+          questions_touched: Number(t.questions_touched || 0),
+          attempts,
+          correct,
+          wrong,
+          wrong_questions: Number(t.wrong_questions || 0),
+          accuracy_pct,
+        },
+        today_attempts,
+        streak_days,
+        chart_day,
+        chart_week,
+        chart_month,
+        table_week,
+        table_month,
+        timezone_note: '日/周/月统计按 Asia/Shanghai 自然日聚合；历史数据自本功能上线后开始累计。',
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载学习概况失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 

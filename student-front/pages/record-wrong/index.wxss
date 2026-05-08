@@ -10,40 +10,15 @@
   font-size: 26rpx;
 }
 
-.step-head {
+.record-catalog-hero {
   margin-bottom: 24rpx;
-}
-
-.step-title {
-  display: block;
-  font-size: 52rpx;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.12;
-}
-
-.step-caption {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 28rpx;
-  line-height: 1.4;
-}
-
-.nav-row {
-  margin-bottom: 20rpx;
-}
-
-.nav-back {
-  font-size: 30rpx;
-  font-weight: 500;
-  color: var(--ios-tint);
 }
 
 .catalog-wrap {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 320rpx);
-  min-height: 560rpx;
+  height: calc(100vh - 420rpx);
+  min-height: 480rpx;
   background: #fff;
   border-radius: var(--ios-radius-card);
   overflow: hidden;
@@ -105,27 +80,9 @@
   justify-content: center;
 }
 
-.list-head {
-  margin-bottom: 24rpx;
-}
-
-.style-title {
-  display: block;
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #111;
-}
-
-.record-count {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 28rpx;
-  line-height: 1.45;
-}
-
 .wrong-list-scroll {
-  max-height: calc(100vh - 380rpx);
-  min-height: 320rpx;
+  max-height: calc(100vh - 560rpx);
+  min-height: 280rpx;
   padding-bottom: 40rpx;
   box-sizing: border-box;
 }
@@ -163,16 +120,21 @@
   margin-top: 20rpx;
 }
 
-.record-btn {
+.batch-bar {
+  margin-bottom: 20rpx;
+}
+
+.load-more-wrap {
+  padding: 28rpx 0 48rpx;
+  text-align: center;
+}
+
+.load-more-text {
+  font-size: 26rpx;
+}
+
+.load-more-tap {
   font-size: 28rpx;
   font-weight: 600;
-  padding: 12rpx 8rpx;
-}
-
-.record-btn-out {
-  color: var(--ios-secondary);
-}
-
-.record-btn-retry {
   color: var(--ios-tint);
 }

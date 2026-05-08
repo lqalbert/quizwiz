@@ -12,6 +12,8 @@ page {
   --ios-radius-card: 24rpx;
   --ios-radius-btn: 20rpx;
   --ios-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
+  --ui-pill-radius: 100rpx;
+  --ui-modal-radius: 22rpx;
 
   background: var(--ios-bg-grouped);
   color: var(--ios-label);
@@ -57,7 +59,7 @@ page {
   border-top: 1rpx solid var(--ios-separator);
 }
 
-/* 主按钮：iOS 填充蓝 */
+/* 主按钮：iOS 填充蓝（与 ui-* 次要按钮同系圆角与阴影） */
 .btn-primary {
   height: 96rpx;
   border-radius: var(--ios-radius-btn);
@@ -68,7 +70,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8rpx 24rpx rgba(0, 122, 255, 0.28);
+  box-shadow: 0 6rpx 22rpx rgba(0, 122, 255, 0.26);
 }
 
 .btn-primary:active {
@@ -188,4 +190,359 @@ page {
 
 .link-tint:active {
   opacity: 0.65;
+}
+
+/* 页面主标题区：左色条 + 眉标 + 主标题 + 副文案（首页 / 刷题 / 学习 / 记录页共用） */
+.page-hero {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  margin: 0 0 28rpx;
+  padding: 4rpx 8rpx 0 4rpx;
+  box-sizing: border-box;
+}
+
+.page-hero--compact {
+  margin-bottom: 20rpx;
+  padding-top: 0;
+}
+
+.page-hero-accent {
+  width: 10rpx;
+  border-radius: 10rpx;
+  background: linear-gradient(165deg, #0a84ff 0%, #007aff 42%, #5e5ce6 100%);
+  margin-right: 24rpx;
+  flex-shrink: 0;
+  box-shadow: 0 4rpx 14rpx rgba(0, 122, 255, 0.2);
+}
+
+.page-hero-body {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2rpx;
+}
+
+.page-hero-eyebrow {
+  display: block;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: var(--ios-tint);
+  letter-spacing: 0.12em;
+  line-height: 1.25;
+  margin-bottom: 12rpx;
+}
+
+.page-hero-date {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--ios-secondary);
+  letter-spacing: 0.02em;
+  margin-bottom: 8rpx;
+}
+
+.page-hero-title {
+  display: block;
+  font-size: 42rpx;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.22;
+  color: var(--ios-label);
+}
+
+.page-hero-title--unit {
+  font-size: 36rpx;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.34;
+  word-break: break-word;
+}
+
+.page-hero-lead {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: var(--ios-secondary);
+}
+
+.page-hero-meta {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  line-height: 1.4;
+  color: var(--ios-secondary);
+}
+
+/* —— 内页返回上一级：仅图标 ‹ —— */
+.nav-row {
+  margin-bottom: 20rpx;
+}
+
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72rpx;
+  min-height: 72rpx;
+  margin-left: -8rpx;
+  font-size: 56rpx;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--ios-tint);
+  padding: 8rpx;
+  box-sizing: border-box;
+}
+
+.nav-back:active {
+  opacity: 0.55;
+}
+
+/* —— 做题顶栏：重选 / 跳转 / 题号 / 练习·考试 —— */
+.ui-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+  padding: 12rpx 14rpx 12rpx 16rpx;
+  box-sizing: border-box;
+  background: var(--ios-fill);
+  border-radius: var(--ios-radius-card);
+  box-shadow: var(--ios-shadow);
+  border: 1rpx solid rgba(60, 60, 67, 0.08);
+}
+
+.ui-toolbar-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+}
+
+.ui-stat {
+  font-size: 28rpx;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ios-label);
+}
+
+.ui-chip {
+  flex-shrink: 0;
+  padding: 14rpx 22rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: var(--ui-pill-radius);
+  max-width: 38%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.ui-chip:active {
+  opacity: 0.86;
+}
+
+.ui-chip--tint {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--ios-tint);
+}
+
+.ui-chip--neutral {
+  background: rgba(60, 60, 67, 0.08);
+  color: var(--ios-label);
+}
+
+.ui-mode {
+  flex-shrink: 0;
+  padding: 10rpx 18rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: var(--ui-pill-radius);
+}
+
+.ui-mode--practice {
+  background: rgba(0, 122, 255, 0.14);
+  color: var(--ios-tint);
+}
+
+.ui-mode--exam {
+  background: rgba(255, 149, 0, 0.22);
+  color: #b45309;
+}
+
+/* —— 说明 / 提示条（替代零散 style-tip） —— */
+.ui-callout {
+  display: block;
+  margin: 0 0 20rpx;
+  padding: 18rpx 22rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: var(--ios-secondary);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16rpx;
+  border: 1rpx solid var(--ios-separator);
+  border-left: 6rpx solid var(--ios-tint);
+  box-sizing: border-box;
+}
+
+.ui-callout--center {
+  text-align: center;
+  border-left-width: 1rpx;
+  padding-top: 14rpx;
+  padding-bottom: 14rpx;
+  margin-bottom: 16rpx;
+  font-size: 22rpx;
+}
+
+/* —— 与主按钮同高的线框次要按钮（上一题等） —— */
+.ui-btn-secondary {
+  flex-shrink: 0;
+  min-width: 172rpx;
+  height: 96rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
+  border-radius: var(--ios-radius-btn);
+  border: 2rpx solid var(--ios-separator);
+  background: var(--ios-fill);
+  color: var(--ios-label);
+  font-size: 30rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.04);
+}
+
+.ui-btn-secondary:active {
+  background: rgba(60, 60, 67, 0.05);
+}
+
+/* —— 底栏小按钮（上一页图标 / 立即刷题） —— */
+.ui-row-btn {
+  height: 72rpx;
+  padding: 0 32rpx;
+  box-sizing: border-box;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ui-row-btn--icon {
+  width: 72rpx;
+  min-width: 72rpx;
+  padding: 0;
+  font-size: 48rpx;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.ui-row-btn--ghost {
+  border: 2rpx solid var(--ios-separator);
+  background: var(--ios-fill);
+  color: var(--ios-label);
+}
+
+.ui-row-btn--ghost.ui-row-btn--icon {
+  color: var(--ios-tint);
+  border-color: rgba(0, 122, 255, 0.28);
+}
+
+.ui-row-btn--ghost:active {
+  background: rgba(60, 60, 67, 0.05);
+}
+
+.ui-row-btn--primary {
+  background: var(--ios-tint);
+  color: #fff;
+  box-shadow: 0 4rpx 16rpx rgba(0, 122, 255, 0.22);
+}
+
+.ui-row-btn--primary:active {
+  opacity: 0.92;
+}
+
+/* —— 弹层底部双按钮 —— */
+.ui-modal-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.ui-modal-btn {
+  flex: 1;
+  height: 88rpx;
+  border-radius: var(--ui-modal-radius);
+  font-size: 30rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.ui-modal-btn--cancel {
+  background: rgba(60, 60, 67, 0.08);
+  color: var(--ios-label);
+}
+
+.ui-modal-btn--ok {
+  background: var(--ios-tint);
+  color: #fff;
+}
+
+.ui-modal-btn--cancel:active,
+.ui-modal-btn--ok:active {
+  opacity: 0.9;
+}
+
+/* —— 列表顶条带操作（一起练） —— */
+.ui-strip-btn {
+  text-align: center;
+  padding: 24rpx 28rpx;
+  border-radius: var(--ios-radius-btn);
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--ios-tint);
+  background: rgba(0, 122, 255, 0.1);
+  border: 1rpx solid rgba(0, 122, 255, 0.22);
+  box-sizing: border-box;
+}
+
+.ui-strip-btn:active {
+  opacity: 0.9;
+}
+
+/* —— 列表行内文字按钮（再练 / 移出） —— */
+.ui-link-btn {
+  font-size: 26rpx;
+  font-weight: 600;
+  padding: 14rpx 24rpx;
+  border-radius: var(--ui-pill-radius);
+  line-height: 1.2;
+}
+
+.ui-link-btn--muted {
+  color: var(--ios-secondary);
+  background: rgba(60, 60, 67, 0.08);
+}
+
+.ui-link-btn--tint {
+  color: var(--ios-tint);
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.ui-link-btn:active {
+  opacity: 0.88;
 }

@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
+const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
@@ -16,17 +17,8 @@ function normalizePositiveInt(v) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function syncNavTitle(step) {
-  const map = {
-    catalog: "刷题",
-    practice_style: "刷题模式",
-    subsections: "刷题模式",
-    mock: "模拟练习",
-    play: "练习",
-    exam_result: "交卷结果",
-  };
-  const t = map[step] || "刷题";
-  wx.setNavigationBarTitle({ title: t });
+function syncNavTitle() {
+  wx.setNavigationBarTitle({ title: "" });
 }
 
 Page({
@@ -93,13 +85,13 @@ Page({
     if (this.data.step === "subsections") {
       this.refreshSubsectionRows();
     }
-    syncNavTitle(this.data.step);
+    syncNavTitle();
   },
 
   onLoad() {
     if (!ensureToken()) return;
     this.bootstrap();
-    syncNavTitle(this.data.step);
+    syncNavTitle();
   },
 
   async bootstrap() {
@@ -111,7 +103,7 @@ Page({
         .filter((s) => s.id > 0);
       let sid = normalizePositiveInt(this.data.subjectId);
       if ((!sid || !subjects.some((s) => s.id === sid)) && subjects.length) {
-        sid = subjects[0].id;
+        sid = defaultStudentSubjectId(subjects);
       }
       this.setData({ subjects, subjectId: sid || null });
       if (sid) await this.loadKnowledgeUnits(sid);
@@ -182,7 +174,7 @@ Page({
             seqJumpInput: "",
           },
           () => {
-            syncNavTitle("play");
+            syncNavTitle();
             this.loadCurrentQuestion();
           },
         );
@@ -277,7 +269,7 @@ Page({
         },
         () => {
           wx.hideLoading();
-          syncNavTitle("practice_style");
+          syncNavTitle();
         },
       );
     } catch (err) {
@@ -300,7 +292,7 @@ Page({
         selectedSectionTagNames: [],
       },
       () => {
-        syncNavTitle("catalog");
+        syncNavTitle();
       },
     );
   },
@@ -312,7 +304,7 @@ Page({
         selectedSectionTagIds: [],
         selectedSectionTagNames: [],
       },
-      () => syncNavTitle("practice_style"),
+      () => syncNavTitle(),
     );
   },
 
@@ -350,7 +342,7 @@ Page({
     if (m === "section") {
       this.refreshSubsectionRows();
       this.setData({ step: "subsections", selectedSectionTagIds: [], selectedSectionTagNames: [] }, () =>
-        syncNavTitle("subsections"),
+        syncNavTitle(),
       );
       return;
     }
@@ -372,7 +364,7 @@ Page({
           countPlaceholder: maxCount > 0 ? `填 0～${maxCount}，0 表示不抽` : "本题点暂无题目",
         };
       });
-      this.setData({ practiceModule: "mock", mockRows, step: "mock" }, () => syncNavTitle("mock"));
+      this.setData({ practiceModule: "mock", mockRows, step: "mock" }, () => syncNavTitle());
       return;
     }
     this.openFeedbackThenBuild(m);
@@ -454,7 +446,7 @@ Page({
   },
 
   backFromMock() {
-    this.setData({ step: "practice_style", mockRows: [] }, () => syncNavTitle("practice_style"));
+    this.setData({ step: "practice_style", mockRows: [] }, () => syncNavTitle());
   },
 
   async buildAndStart() {
@@ -464,11 +456,11 @@ Page({
     const tag_names = this.data.selectedTags || [];
     const needUnit = practiceModule === "sequential" || practiceModule === "random" || practiceModule === "section" || practiceModule === "mock";
     if (!Number.isFinite(subjectId) || subjectId <= 0) {
-      wx.showToast({ title: "缺少科目，请返回刷题首页重选科目", icon: "none" });
+      wx.showToast({ title: "缺少科目，请到刷题首页重选科目", icon: "none" });
       return;
     }
     if (needUnit && !unitId) {
-      wx.showToast({ title: "缺少知识单元，请返回选择单元后再开始", icon: "none" });
+      wx.showToast({ title: "缺少知识单元，请先选择单元后再开始", icon: "none" });
       return;
     }
     const body = {
@@ -522,7 +514,7 @@ Page({
         },
         () => {
           wx.hideLoading();
-          syncNavTitle("play");
+          syncNavTitle();
           this.loadCurrentQuestion();
         },
       );
@@ -558,7 +550,7 @@ Page({
       seqJumpOpen: false,
       seqJumpInput: "",
     });
-    syncNavTitle("catalog");
+    syncNavTitle();
     if (sid) {
       this.loadKnowledgeUnits(sid);
     } else {
@@ -570,7 +562,6 @@ Page({
     const ids = this.data.questionIds || [];
     const idx = this.data.currentIndex;
     if (idx >= ids.length) {
-      wx.showToast({ title: "已完成", icon: "none" });
       this.restartWizard();
       return;
     }
@@ -801,7 +792,7 @@ Page({
               stem: row.missing ? row.stem : formatStemForDisplay(row.stem),
             })),
           },
-          () => syncNavTitle("exam_result"),
+          () => syncNavTitle(),
         );
       } catch (e) {
         wx.hideLoading();
@@ -829,7 +820,6 @@ Page({
     }
 
     if (last) {
-      wx.showToast({ title: "本轮已完成", icon: "none" });
       this.bumpSeqProgressHint();
       this.restartWizard();
       return;

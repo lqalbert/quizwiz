@@ -1,24 +1,90 @@
-.record-page {
-  padding-top: 8rpx;
+.done-root {
+  padding-bottom: 200rpx;
 }
 
-.step-head {
-  margin-bottom: 32rpx;
+.loading-pill {
+  display: inline-block;
+  padding: 16rpx 28rpx;
+  background: rgba(60, 60, 67, 0.08);
+  border-radius: 100rpx;
+  font-size: 26rpx;
 }
 
-.page-hero {
-  display: block;
-  font-size: 52rpx;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+.record-catalog-hero {
+  margin-bottom: 24rpx;
 }
 
-.empty-hint,
-.record-count {
-  display: block;
-  margin-top: 16rpx;
+.catalog-wrap {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - 420rpx);
+  min-height: 480rpx;
+  background: #fff;
+  border-radius: var(--ios-radius-card);
+  overflow: hidden;
+  box-shadow: var(--ios-shadow);
+}
+
+.catalog-left {
+  width: 200rpx;
+  flex-shrink: 0;
+  background: #f2f2f7;
+  max-height: 100%;
+}
+
+.unit-tab {
+  padding: 28rpx 20rpx;
   font-size: 28rpx;
-  line-height: 1.45;
+  color: #333;
+  border-left: 6rpx solid transparent;
+}
+
+.unit-tab-on {
+  background: #fff;
+  color: #b45309;
+  font-weight: 600;
+  border-left-color: #c2410c;
+}
+
+.catalog-right {
+  flex: 1;
+  min-width: 0;
+  max-height: 100%;
+  background: #fff;
+}
+
+.point-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32rpx 28rpx;
+  border-bottom: 1rpx solid #eee;
+}
+
+.point-row:active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.point-name {
+  font-size: 30rpx;
+  color: #111;
+}
+
+.point-chev {
+  color: #ccc;
+  font-size: 36rpx;
+  font-weight: 300;
+}
+
+.empty-right {
+  justify-content: center;
+}
+
+.done-list-scroll {
+  max-height: calc(100vh - 560rpx);
+  min-height: 280rpx;
+  padding-bottom: 40rpx;
+  box-sizing: border-box;
 }
 
 .record-card {
@@ -44,4 +110,31 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.record-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 24rpx;
+  margin-top: 20rpx;
+}
+
+.batch-bar {
+  margin-bottom: 20rpx;
+}
+
+.load-more-wrap {
+  padding: 28rpx 0 48rpx;
+  text-align: center;
+}
+
+.load-more-text {
+  font-size: 26rpx;
+}
+
+.load-more-tap {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--ios-tint);
 }

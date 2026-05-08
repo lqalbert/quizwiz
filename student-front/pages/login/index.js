@@ -39,7 +39,6 @@ Page({
         if (cur === "join") {
           if (!need) {
             this.setData({ step: "authed" });
-            wx.showToast({ title: "已成功入班", icon: "success" });
           }
           return;
         }
@@ -104,12 +103,10 @@ Page({
       wx.hideLoading();
       if (needJoin) {
         this.setData({ step: "join", inviteInput: "" });
-        wx.showToast({ title: "请加入班级", icon: "none" });
         return;
       }
       this.setData({ step: "authed" });
-      wx.showToast({ title: "登录成功", icon: "success" });
-      setTimeout(() => wx.switchTab({ url: "/pages/home/index" }), 400);
+      wx.switchTab({ url: "/pages/home/index" });
     } catch (err) {
       wx.hideLoading();
       wx.showToast({ title: err.message || "登录失败", icon: "none" });

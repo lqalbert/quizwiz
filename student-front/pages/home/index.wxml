@@ -1,9 +1,145 @@
 <view class="page-wrap home-page">
-  <view class="hero-block">
-    <text class="hero-date">{{dateText}}</text>
-    <text class="hero-title">今天练几题？</text>
-    <text class="hero-sub muted">小步坚持，积少成多</text>
+  <view class="page-hero home-hero">
+    <view class="page-hero-accent"></view>
+    <view class="page-hero-body">
+      <text class="page-hero-date">{{dateText}}</text>
+      <text class="page-hero-title">今天练几题？</text>
+      <text class="page-hero-lead muted">小步坚持，积少成多</text>
+    </view>
   </view>
+
+  <block wx:if="{{!loggedIn}}">
+    <view class="ios-card home-guest-stats">
+      <text class="home-guest-title muted">登录后查看做题统计</text>
+      <text class="home-guest-desc muted">支持按日 / 周 / 月查看练习次数、正确率与连续打卡</text>
+      <view class="btn-primary home-guest-btn" bindtap="goLogin">去登录</view>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view wx:if="{{statsLoading}}" class="home-loading muted">加载数据中…</view>
+    <view wx:elif="{{statsError}}" class="ios-card home-err">
+      <text class="muted">{{statsError}}</text>
+      <view class="home-retry link-tint" bindtap="loadHomeSummary">点击重试</view>
+    </view>
+
+    <block wx:else>
+      <view class="home-stat-grid" wx:if="{{totals}}">
+        <view class="home-stat-tile">
+          <view class="home-ico-wrap">
+            <view class="home-ico">
+              <view class="home-ico-bar home-ico-bar-lg"></view>
+              <view class="home-ico-bar home-ico-bar-md"></view>
+              <view class="home-ico-bar home-ico-bar-sm"></view>
+            </view>
+          </view>
+          <text class="home-stat-value">{{totals.questions_touched}}</text>
+          <text class="home-stat-label muted">已练题目</text>
+        </view>
+        <view class="home-stat-tile">
+          <view class="home-ico-wrap">
+            <view class="home-ico home-ico-bolt">
+              <view class="home-ico-zig a"></view>
+              <view class="home-ico-zig b"></view>
+            </view>
+          </view>
+          <text class="home-stat-value">{{totals.attempts}}</text>
+          <text class="home-stat-label muted">做题次数</text>
+        </view>
+        <view class="home-stat-tile">
+          <view class="home-ico-wrap">
+            <view class="home-ico home-ico-ring"></view>
+          </view>
+          <text class="home-stat-value">{{totals.accuracy_pct}}%</text>
+          <text class="home-stat-label muted">正确率</text>
+        </view>
+        <view class="home-stat-tile">
+          <view class="home-ico-wrap">
+            <view class="home-ico home-ico-warn">
+              <view class="home-ico-tri"></view>
+            </view>
+          </view>
+          <text class="home-stat-value">{{totals.wrong_questions}}</text>
+          <text class="home-stat-label muted">错题数</text>
+        </view>
+      </view>
+
+      <view class="ios-card home-summary-row" wx:if="{{totals}}">
+        <view class="home-sum-item">
+          <text class="home-sum-num">{{today_attempts}}</text>
+          <text class="home-sum-cap muted">今日题次</text>
+        </view>
+        <view class="home-sum-div"></view>
+        <view class="home-sum-item">
+          <text class="home-sum-num">{{streak_days}}</text>
+          <text class="home-sum-cap muted">连续打卡(天)</text>
+        </view>
+      </view>
+
+      <block wx:if="{{totals}}">
+        <text class="section-label">练习趋势</text>
+        <view class="home-period-tabs">
+          <view
+            class="home-period-tab {{period === 'day' ? 'home-period-tab-on' : ''}}"
+            bindtap="setPeriod"
+            data-p="day"
+          >日</view>
+          <view
+            class="home-period-tab {{period === 'week' ? 'home-period-tab-on' : ''}}"
+            bindtap="setPeriod"
+            data-p="week"
+          >周</view>
+          <view
+            class="home-period-tab {{period === 'month' ? 'home-period-tab-on' : ''}}"
+            bindtap="setPeriod"
+            data-p="month"
+          >月</view>
+        </view>
+
+        <view class="ios-card home-chart-card">
+          <view wx:if="{{!chartRows.length}}" class="home-empty muted">暂无周期内数据，去刷题页做几题后出现趋势</view>
+          <block wx:else>
+            <view wx:for="{{chartRows}}" wx:key="label" class="home-bar-row">
+              <text class="home-bar-label">{{item.label}}</text>
+              <view class="home-bar-track">
+                <view class="home-bar-fill" style="width: {{item.pct}}%;"></view>
+              </view>
+              <text class="home-bar-val">{{item.attempts}}</text>
+            </view>
+          </block>
+        </view>
+
+        <text class="section-label">数据明细</text>
+        <view class="ios-card home-table-card">
+        <view class="home-table-caption muted">最近自然周（题次）</view>
+        <view class="home-table">
+          <view class="home-table-head">
+            <text class="home-th">周期</text>
+            <text class="home-th home-th-num">题次</text>
+          </view>
+          <view wx:for="{{table_week}}" wx:key="period" class="home-table-row">
+            <text class="home-td">{{item.period}}</text>
+            <text class="home-td home-td-num">{{item.attempts}}</text>
+          </view>
+          <view wx:if="{{!table_week.length}}" class="home-table-empty muted">暂无</view>
+        </view>
+        <view class="home-table-caption muted home-table-gap">最近自然月（题次）</view>
+        <view class="home-table">
+          <view class="home-table-head">
+            <text class="home-th">月份</text>
+            <text class="home-th home-th-num">题次</text>
+          </view>
+          <view wx:for="{{table_month}}" wx:key="period" class="home-table-row">
+            <text class="home-td">{{item.period}}</text>
+            <text class="home-td home-td-num">{{item.attempts}}</text>
+          </view>
+          <view wx:if="{{!table_month.length}}" class="home-table-empty muted">暂无</view>
+        </view>
+        <text wx:if="{{timezone_note}}" class="home-footnote muted">{{timezone_note}}</text>
+        </view>
+      </block>
+    </block>
+  </block>
 
   <view class="ios-card hero-cta" bindtap="goQuiz">
     <view class="hero-cta-inner">
@@ -19,7 +155,7 @@
 
   <text class="section-label">快捷入口</text>
   <view class="ios-card">
-    <view class="ios-cell" bindtap="goLogin">
+    <view class="ios-cell" bindtap="goLogin" wx:if="{{!loggedIn}}">
       <text class="ios-cell-title">登录 / 加入班级</text>
       <text class="ios-cell-chevron">›</text>
     </view>
@@ -29,6 +165,10 @@
     </view>
     <view class="ios-cell" bindtap="hintWrong">
       <text class="ios-cell-title">错题本</text>
+      <text class="ios-cell-chevron">›</text>
+    </view>
+    <view class="ios-cell" bindtap="goRecordDone">
+      <text class="ios-cell-title">已做题</text>
       <text class="ios-cell-chevron">›</text>
     </view>
   </view>

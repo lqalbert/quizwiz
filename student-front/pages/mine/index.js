@@ -84,6 +84,8 @@ Page({
     }
   },
 
+  noop() {},
+
   onTapEditName() {
     if (!this.data.loggedIn) return;
     this.setData({
@@ -133,16 +135,10 @@ Page({
     const path = e.currentTarget.dataset.path;
     if (path) {
       wx.navigateTo({ url: path });
-      return;
     }
-    const title = e.currentTarget.dataset.title;
-    wx.showToast({ title: `${title} 即将开放`, icon: "none" });
   },
 
-  onPlaceholder(e) {
-    const title = e.currentTarget.dataset.title;
-    wx.showToast({ title: `${title} 即将开放`, icon: "none" });
-  },
+  onPlaceholder() {},
 
   logout() {
     wx.showModal({
@@ -164,7 +160,6 @@ Page({
           nameEditVisible: false,
           nameDraft: "",
         });
-        wx.showToast({ title: "已退出", icon: "none" });
       },
     });
   },

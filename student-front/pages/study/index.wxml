@@ -1,9 +1,12 @@
 <view class="page-wrap study-page">
-  <view class="step-head">
-    <text class="page-hero">学习</text>
-    <text class="page-lead muted">选一个专题开始</text>
+  <view class="page-hero study-hero">
+    <view class="page-hero-accent"></view>
+    <view class="page-hero-body">
+      <text class="page-hero-eyebrow">学习</text>
+      <text class="page-hero-title">专题目录</text>
+      <text class="page-hero-lead muted">选一个专题，巩固对应知识</text>
+    </view>
   </view>
-
   <view class="ios-card">
     <block wx:for="{{items}}" wx:key="id">
       <view class="ios-cell" bindtap="openItem" data-id="{{item.id}}">

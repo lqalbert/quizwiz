@@ -44,15 +44,6 @@
         <text class="ios-cell-chevron">›</text>
       </view>
     </view>
-
-    <view class="ios-card name-edit-card" wx:if="{{nameEditVisible}}">
-      <text class="name-edit-hint muted">老师端将按此姓名展示</text>
-      <input class="name-edit-input" value="{{nameDraft}}" maxlength="64" placeholder="请输入真实姓名" placeholder-class="ph" bindinput="onNameDraftInput" />
-      <view class="name-edit-actions">
-        <view class="name-btn name-btn-cancel" bindtap="cancelNameEdit">取消</view>
-        <view class="name-btn name-btn-save" bindtap="saveNameEdit">保存</view>
-      </view>
-    </view>
   </block>
 
   <text class="section-label">功能</text>
@@ -81,4 +72,32 @@
   </view>
 
   <button wx:if="{{loggedIn}}" class="logout-btn" bindtap="logout">退出登录</button>
+
+  <!-- 姓名编辑：固定遮罩 + 居中弹层，避免内嵌卡片 + overflow 导致输入框畸形 -->
+  <view
+    wx:if="{{loggedIn && nameEditVisible}}"
+    class="name-edit-mask"
+    catchtouchmove="noop"
+    bindtap="cancelNameEdit"
+  >
+    <view class="name-edit-dialog" catchtap="noop">
+      <text class="name-edit-dialog-title">修改真实姓名</text>
+      <text class="name-edit-hint muted">老师端将按此姓名展示</text>
+      <input
+        class="name-edit-input"
+        type="text"
+        value="{{nameDraft}}"
+        maxlength="64"
+        placeholder="请输入真实姓名"
+        placeholder-class="ph"
+        adjust-position="{{true}}"
+        confirm-type="done"
+        bindinput="onNameDraftInput"
+      />
+      <view class="ui-modal-actions">
+        <view class="ui-modal-btn ui-modal-btn--cancel" bindtap="cancelNameEdit">取消</view>
+        <view class="ui-modal-btn ui-modal-btn--ok" bindtap="saveNameEdit">保存</view>
+      </view>
+    </view>
+  </view>
 </view>

@@ -14,8 +14,5 @@ Page({
     }
   },
 
-  openItem(e) {
-    const id = e.currentTarget.dataset.id;
-    wx.showToast({ title: `「${id}」即将开放`, icon: "none" });
-  },
+  openItem() {},
 });
