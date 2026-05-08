@@ -1,10 +1,9 @@
 {
-  "desc": "student-front sitemap",
-  "rules": []
+  "desc": "QuizWiz 学生端索引配置，详见 https://developers.weixin.qq.com/miniprogram/dev/framework/sitemap.html",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
 }
-
-{
-  "desc": "The Sanctuary 学习小程序",
-  "rules": []
-}
-

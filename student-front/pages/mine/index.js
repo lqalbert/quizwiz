@@ -18,7 +18,7 @@ Page({
     nameDraft: "",
     menus: [
       { title: "加入班级", extra: "", path: "/pages/login/index" },
-      { title: "错题集", extra: "", path: "/pages/record-wrong/index" },
+      { title: "错题本", extra: "", path: "/pages/record-wrong/index" },
       { title: "已做题", extra: "", path: "/pages/record-done/index" },
     ],
   },

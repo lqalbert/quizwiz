@@ -5,4 +5,15 @@ function includes(arr, name) {
   }
   return false;
 }
+
+/** 与数字/字符串 id 宽松匹配（接口 id 与 data-id 类型可能不一致） */
+function includesId(arr, id) {
+  if (!arr || arr.length === 0) return false;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] == id) return true;
+  }
+  return false;
+}
+
 module.exports.includes = includes;
+module.exports.includesId = includesId;

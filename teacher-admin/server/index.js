@@ -2768,6 +2768,11 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
   const tagNames = Array.isArray(req.body?.tag_names) ? req.body.tag_names.map((x) => String(x || '').trim()).filter(Boolean) : []
   const practiceModule = String(req.body?.practice_module || '').trim()
   const sectionTag = String(req.body?.section_tag || '').trim()
+  const sectionTagsFromBody = Array.isArray(req.body?.section_tags)
+    ? req.body.section_tags.map((x) => String(x || '').trim()).filter(Boolean)
+    : []
+  const sectionFilterNames =
+    sectionTagsFromBody.length > 0 ? sectionTagsFromBody : sectionTag ? [sectionTag] : []
   const mockAllocation = Array.isArray(req.body?.mock_allocation) ? req.body.mock_allocation : []
   const limit = Math.min(100, Math.max(1, parseInt(String(req.body?.limit || '25'), 10) || 25))
   const unitIdBody = Number(req.body?.unit_id)
@@ -2828,8 +2833,8 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
     if (!allowedModules.has(practiceModule)) {
       return res.status(400).json({ message: 'practice_module 须为 sequential | random | section | mock' })
     }
-    if (practiceModule === 'section' && !sectionTag) {
-      return res.status(400).json({ message: '知识小节练习须传 section_tag' })
+    if (practiceModule === 'section' && sectionFilterNames.length === 0) {
+      return res.status(400).json({ message: '知识小节练习须传 section_tag 或 section_tags' })
     }
     if (practiceModule === 'mock') {
       if (mockAllocation.length === 0) {
@@ -2898,18 +2903,25 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
     let whereExtra = ''
     if (practiceModule === 'section') {
       if (hasUnit) {
-        values.push(unitIdBody, sectionTag)
+        values.push(unitIdBody, sectionFilterNames)
         whereExtra = `AND EXISTS (
           SELECT 1 FROM question_tag_rel qtr
           JOIN question_tags qt ON qt.id = qtr.tag_id
-          WHERE qtr.question_id = q.id AND qt.unit_id = $2 AND qt.name = $3
+          WHERE qtr.question_id = q.id AND qt.unit_id = $2 AND qt.name = ANY($3::text[])
         )`
-      } else {
-        values.push(sectionTag)
+      } else if (sectionFilterNames.length === 1) {
+        values.push(sectionFilterNames[0])
         whereExtra = `AND EXISTS (
           SELECT 1 FROM question_tag_rel qtr
           JOIN question_tags qt ON qt.id = qtr.tag_id
           WHERE qtr.question_id = q.id AND qt.name = $2
+        )`
+      } else {
+        values.push(sectionFilterNames)
+        whereExtra = `AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          JOIN question_tags qt ON qt.id = qtr.tag_id
+          WHERE qtr.question_id = q.id AND qt.name = ANY($2::text[])
         )`
       }
     } else if (tagNames.length > 0) {
@@ -3095,19 +3107,52 @@ app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, r
 
 app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
-  const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
+  const subjectId = Number(req.query.subject_id)
+  const unitId = Number(req.query.unit_id)
+  const hasSid = Number.isInteger(subjectId) && subjectId > 0
+  const hasUid = Number.isInteger(unitId) && unitId > 0
   try {
-    const countResult = await pool.query(
-      `
-      SELECT COUNT(*)::int AS c
+    const baseFrom = `
       FROM student_question_stats s
       JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
       WHERE s.student_id = $1 AND s.wrong_count > 0
-      `,
-      [req.studentAuth.studentId],
-    )
+    `
+    const baseParams = [req.studentAuth.studentId]
+    let whereExtra = ''
+
+    if (hasUid) {
+      const ur = await pool.query(`SELECT subject_id FROM knowledge_units WHERE id = $1 LIMIT 1`, [unitId])
+      if (!ur.rows[0]) {
+        return res.status(404).json({ message: '知识单元不存在' })
+      }
+      const sidFromUnit = Number(ur.rows[0].subject_id)
+      if (hasSid && subjectId !== sidFromUnit) {
+        return res.status(400).json({ message: 'unit_id 与 subject_id 不匹配' })
+      }
+      const sidForQuery = hasSid ? subjectId : sidFromUnit
+      baseParams.push(sidForQuery, unitId)
+      whereExtra = `
+        AND q.subject_id = $2
+        AND EXISTS (
+          SELECT 1 FROM question_tag_rel qtr
+          INNER JOIN question_tags qt ON qt.id = qtr.tag_id AND qt.unit_id = $3
+          WHERE qtr.question_id = q.id
+        )
+      `
+    } else if (hasSid) {
+      baseParams.push(subjectId)
+      whereExtra = ` AND q.subject_id = $2 `
+    }
+
+    const countSql = `SELECT COUNT(*)::int AS c ${baseFrom} ${whereExtra}`
+    const countResult = await pool.query(countSql, baseParams)
     const total = Number(countResult.rows[0]?.c || 0)
+
+    const listParams = [...baseParams, pageSize, offset]
+    const lim = baseParams.length + 1
+    const off = baseParams.length + 2
     const { rows } = await pool.query(
       `
       SELECT
@@ -3118,13 +3163,12 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
         s.updated_at,
         q.stem,
         q.question_type
-      FROM student_question_stats s
-      JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
-      WHERE s.student_id = $1 AND s.wrong_count > 0
+      ${baseFrom}
+      ${whereExtra}
       ORDER BY s.updated_at DESC, s.question_id DESC
-      LIMIT $2 OFFSET $3
+      LIMIT $${lim} OFFSET $${off}
       `,
-      [req.studentAuth.studentId, pageSize, offset],
+      listParams,
     )
     return res.json({
       data: rows.map((row) => ({
@@ -3141,6 +3185,41 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
     })
   } catch (error) {
     return res.status(500).json({ message: '加载错题失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 将题目移出错题本：wrong_count 置 0（仍保留 attempts 等已做记录） */
+app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req, res) => {
+  const body = req.body || {}
+  const rawIds = Array.isArray(body.question_ids) ? body.question_ids : []
+  const questionIds = []
+  const seen = new Set()
+  for (const x of rawIds) {
+    const id = Number(x)
+    if (!Number.isInteger(id) || id <= 0) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    questionIds.push(id)
+  }
+  if (questionIds.length === 0 && body.question_id != null && body.question_id !== '') {
+    const id = Number(body.question_id)
+    if (Number.isInteger(id) && id > 0) questionIds.push(id)
+  }
+  if (questionIds.length === 0) {
+    return res.status(400).json({ message: '请提供 question_id 或 question_ids' })
+  }
+  try {
+    const r = await pool.query(
+      `
+      UPDATE student_question_stats
+      SET wrong_count = 0, updated_at = NOW()
+      WHERE student_id = $1 AND question_id = ANY($2::bigint[])
+      `,
+      [req.studentAuth.studentId, questionIds],
+    )
+    return res.json({ data: { ok: true, updated: Number(r.rowCount || 0) } })
+  } catch (error) {
+    return res.status(500).json({ message: '移出错题本失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 

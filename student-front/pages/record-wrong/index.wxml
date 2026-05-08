@@ -1,19 +1,62 @@
-<view class="page-wrap record-page">
-  <view class="step-head">
-    <text class="page-hero">错题本</text>
-    <text class="empty-hint muted" wx:if="{{!list.length && !loading}}">暂无错题记录，继续刷题后会出现在这里</text>
-    <text class="record-count muted" wx:elif="{{list.length}}">共 {{list.length}} 题</text>
-  </view>
+<view class="page-wrap record-root quiz-root">
+  <!-- 与刷题一致：左科目 + 右知识单元 -->
+  <block wx:if="{{step === 'catalog'}}">
+    <view class="step-head">
+      <text class="step-title">错题本</text>
+      <text class="step-caption muted">左侧选科目，右侧选知识单元</text>
+    </view>
+    <view class="catalog-wrap">
+      <scroll-view scroll-y class="catalog-left">
+        <view
+          wx:for="{{subjects}}"
+          wx:key="id"
+          class="unit-tab {{subjectId == item.id ? 'unit-tab-on' : ''}}"
+          bindtap="onPickSubjectLeft"
+          data-id="{{item.id}}"
+        >
+          {{item.name}}
+        </view>
+      </scroll-view>
+      <scroll-view scroll-y class="catalog-right">
+        <view wx:if="{{!units.length}}" class="point-row empty-right">
+          <text class="muted">该科目下暂无知识单元</text>
+        </view>
+        <view
+          wx:for="{{units}}"
+          wx:key="id"
+          class="point-row"
+          bindtap="onPickKnowledgeUnit"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+        >
+          <text class="point-name">{{item.name}}</text>
+          <text class="point-chev">›</text>
+        </view>
+      </scroll-view>
+    </view>
+  </block>
 
-  <view
-    wx:for="{{list}}"
-    wx:key="question_id"
-    class="ios-card record-card record-card-tap"
-    bindtap="onRetryTap"
-    data-qid="{{item.question_id}}"
-  >
-    <text class="record-stem line-clamp">{{item.stem}}</text>
-    <text class="record-meta muted">{{item.question_type_text}} · 做过 {{item.attempts}} 次 · 对 {{item.correct_count}} / 错 {{item.wrong_count}}</text>
-    <text class="record-action">点击再练</text>
-  </view>
+  <block wx:else>
+    <view class="nav-row">
+      <text class="nav-back" bindtap="backFromList">‹ 返回</text>
+    </view>
+    <view class="list-head">
+      <text class="style-title">{{unitName}}</text>
+      <text class="record-count muted" wx:if="{{!listLoading}}">共 {{pagination.total}} 题</text>
+    </view>
+    <view wx:if="{{listLoading}}" class="loading-pill muted">加载中…</view>
+    <scroll-view wx:else scroll-y class="wrong-list-scroll">
+      <view wx:if="{{!list.length}}" class="point-row empty-right">
+        <text class="muted">该单元暂无错题</text>
+      </view>
+      <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
+        <text class="record-stem line-clamp">{{item.stem}}</text>
+        <text class="record-meta muted">{{item.question_type_text}} · 做过 {{item.attempts}} 次 · 错 {{item.wrong_count}}</text>
+        <view class="record-actions">
+          <text class="record-btn record-btn-out" catchtap="onRemoveWrong" data-qid="{{item.question_id}}">移出错题本</text>
+          <text class="record-btn record-btn-retry" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</text>
+        </view>
+      </view>
+    </scroll-view>
+  </block>
 </view>

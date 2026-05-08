@@ -16,7 +16,7 @@
         <view
           wx:for="{{subjects}}"
           wx:key="id"
-          class="unit-tab {{subjectId === item.id ? 'unit-tab-on' : ''}}"
+          class="unit-tab {{subjectId == item.id ? 'unit-tab-on' : ''}}"
           bindtap="onPickSubjectLeft"
           data-id="{{item.id}}"
         >
@@ -78,7 +78,7 @@
         <text class="style-card-sub muted">各知识点自定义抽题</text>
       </view>
     </view>
-    <text class="style-tip muted">提示：顺序/随机短按后选反馈方式；长按可快捷进入考试模式。知识小节内可快速双击一行开始刷题。</text>
+    <text class="style-tip muted">提示：顺序/随机短按后选反馈方式；长按可快捷进入考试模式。知识小节请勾选后点「立即刷题」。</text>
   </block>
 
   <!-- 知识小节 = 知识点列表 -->
@@ -94,12 +94,14 @@
       <view
         wx:for="{{subsectionRows}}"
         wx:key="id"
-        class="sub-row"
-        bindtap="onSubTagRowTapMaybeDouble"
+        class="sub-row {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-row-on' : ''}}"
+        bindtap="onToggleSectionTag"
         data-id="{{item.id}}"
         data-name="{{item.name}}"
       >
-        <view class="sub-radio {{selectedSubTagId === item.id ? 'sub-radio-on' : ''}}"></view>
+        <view class="sub-cb {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-cb-on' : ''}}">
+          <text wx:if="{{tg.includesId(selectedSectionTagIds, item.id)}}" class="sub-cb-mark">✓</text>
+        </view>
         <view class="sub-main">
           <text class="sub-title">{{item.name}}</text>
           <text class="sub-progress muted">{{item.progressText}}</text>
@@ -109,11 +111,11 @@
         <text class="muted">暂无知识小节</text>
       </view>
     </scroll-view>
-    <text class="style-tip muted">tips：试一下双击跳转刷题</text>
+    <text class="style-tip muted">勾选后点「立即刷题」；顺序刷题时可在做题页点「跳转」到指定题号。</text>
     <view class="sub-footer">
       <view class="sub-footer-left">
         <text class="sub-footer-title">知识小节</text>
-        <text class="sub-footer-sub muted">选择知识小节练习</text>
+        <text class="sub-footer-sub muted">可多选，再点一次取消勾选</text>
       </view>
       <view class="sub-footer-btns">
         <view class="btn-outline" bindtap="backFromSubsections">返回</view>
@@ -128,26 +130,51 @@
     </view>
     <view class="step-head">
       <text class="step-title">分配题数</text>
-      <text class="step-caption muted">本单元各知识点抽题数量</text>
+      <text class="step-caption muted">请在下方输入框中填写各知识点要抽取的题目数量。填 0 表示该点不抽题；每点不能超过本题库该点题量，且单次每点最多 50 题。</text>
     </view>
-    <view class="ios-card">
-      <view wx:for="{{mockRows}}" wx:key="name" class="mock-row">
-        <text class="mock-name">{{item.displayLabel}}</text>
-        <input class="mock-input" type="number" value="{{item.countInput}}" data-name="{{item.name}}" bindinput="onMockCountInput" />
+    <scroll-view scroll-y class="mock-scroll" show-scrollbar="{{false}}">
+      <view wx:for="{{mockRows}}" wx:key="name" class="mock-card">
+        <text class="mock-card-title">{{item.displayLabel}}</text>
+        <text class="mock-card-bank muted">本题库该点共 {{item.bankCount}} 题 · 本次最多可填 {{item.maxCount}} 题</text>
+        <view class="mock-field">
+          <text class="mock-field-caption">抽题数量</text>
+          <input
+            class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
+            type="number"
+            placeholder="{{item.countPlaceholder}}"
+            placeholder-class="mock-ph"
+            value="{{item.countInput}}"
+            disabled="{{item.maxCount <= 0}}"
+            data-name="{{item.name}}"
+            data-max="{{item.maxCount}}"
+            bindinput="onMockCountInput"
+            bindblur="onMockCountBlur"
+            adjust-position="{{true}}"
+          />
+        </view>
       </view>
-    </view>
+    </scroll-view>
     <view class="btn-primary mt" bindtap="fromMockNext">下一步</view>
   </block>
 
   <block wx:elif="{{step === 'play'}}">
     <view class="play-toolbar">
       <text class="toolbar-link link-tint" bindtap="restartWizard">重选</text>
-      <text class="toolbar-count">{{currentIndex + 1}} / {{questionIds.length}}</text>
+      <block wx:if="{{practiceModule === 'sequential'}}">
+        <view class="toolbar-center-seq">
+          <text class="toolbar-count">{{currentIndex + 1}} / {{questionIds.length}}</text>
+          <text class="toolbar-jump link-tint" bindtap="openSeqJump">跳转</text>
+        </view>
+      </block>
+      <block wx:else>
+        <text class="toolbar-count toolbar-count-plain">{{currentIndex + 1}} / {{questionIds.length}}</text>
+      </block>
       <text class="toolbar-badge">{{feedbackMode === 'exam' ? '考试' : '练习'}}</text>
     </view>
     <view class="progress-track">
       <view class="progress-fill" style="width: {{playProgress}}%;"></view>
     </view>
+    <text wx:if="{{practiceModule === 'sequential'}}" class="seq-toolbar-hint muted">顺序刷题：点「跳转」输入题号</text>
 
     <block wx:if="{{currentQuestion}}">
       <view class="ios-card play-card">
@@ -188,8 +215,34 @@
         </view>
       </block>
 
-      <view class="btn-primary mt play-submit {{playBtnDisabled ? 'disabled' : ''}}" bindtap="onPlayPrimary">{{playBtnLabel}}</view>
+      <block wx:if="{{feedbackMode === 'exam' && currentIndex > 0}}">
+        <view class="play-actions-row mt">
+          <view class="btn-exam-prev" bindtap="onExamPrev">上一题</view>
+          <view class="btn-primary play-submit play-submit-flex {{playBtnDisabled ? 'disabled' : ''}}" bindtap="onPlayPrimary">{{playBtnLabel}}</view>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="btn-primary mt play-submit {{playBtnDisabled ? 'disabled' : ''}}" bindtap="onPlayPrimary">{{playBtnLabel}}</view>
+      </block>
     </block>
+
+    <view wx:if="{{seqJumpOpen}}" class="seq-jump-mask" catchtouchmove="noop" bindtap="closeSeqJump">
+      <view class="seq-jump-card" catchtap="noop">
+        <text class="seq-jump-title">跳转到题号</text>
+        <text class="seq-jump-range muted">请输入 1～{{questionIds.length}}（当前顺序刷题）</text>
+        <input
+          class="seq-jump-input"
+          type="number"
+          focus="{{seqJumpOpen}}"
+          value="{{seqJumpInput}}"
+          bindinput="onSeqJumpInput"
+        />
+        <view class="seq-jump-actions">
+          <view class="seq-jump-btn seq-jump-btn-cancel" bindtap="closeSeqJump">取消</view>
+          <view class="seq-jump-btn seq-jump-btn-ok" bindtap="confirmSeqJump">确定</view>
+        </view>
+      </view>
+    </view>
   </block>
 
   <block wx:elif="{{step === 'exam_result'}}">

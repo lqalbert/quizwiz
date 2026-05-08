@@ -10,6 +10,12 @@ function ensureToken() {
   return true;
 }
 
+/** API 的 id 可能是字符串；点击 data-id 会变成 number，必须与列表 id 类型一致，否则选中态 `===` 失效 */
+function normalizePositiveInt(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function syncNavTitle(step) {
   const map = {
     catalog: "刷题",
@@ -34,8 +40,8 @@ Page({
     unitName: "",
     unitTags: [],
     subsectionRows: [],
-    selectedSubTagId: null,
-    selectedSubTagName: "",
+    selectedSectionTagIds: [],
+    selectedSectionTagNames: [],
     topicQuestionCount: 0,
     selectedTags: [],
     practiceModule: "",
@@ -56,6 +62,8 @@ Page({
     playBtnDisabled: true,
     playProgress: 0,
     seqProgressHint: "",
+    seqJumpOpen: false,
+    seqJumpInput: "",
   },
 
   onShow() {
@@ -97,13 +105,16 @@ Page({
   async bootstrap() {
     try {
       const res = await request({ path: "/api/student/subjects", method: "GET" });
-      const subjects = res.data || [];
-      let subjectId = this.data.subjectId;
-      if ((!subjectId || !subjects.some((s) => Number(s.id) === Number(subjectId))) && subjects.length) {
-        subjectId = subjects[0].id;
+      const raw = res.data || [];
+      const subjects = raw
+        .map((s) => ({ ...s, id: normalizePositiveInt(s.id) }))
+        .filter((s) => s.id > 0);
+      let sid = normalizePositiveInt(this.data.subjectId);
+      if ((!sid || !subjects.some((s) => s.id === sid)) && subjects.length) {
+        sid = subjects[0].id;
       }
-      this.setData({ subjects, subjectId: subjectId || null });
-      if (subjectId) await this.loadKnowledgeUnits(subjectId);
+      this.setData({ subjects, subjectId: sid || null });
+      if (sid) await this.loadKnowledgeUnits(sid);
     } catch (e) {
       wx.showToast({ title: e.message || "加载科目失败", icon: "none" });
     }
@@ -117,7 +128,10 @@ Page({
         path: `/api/student/catalog/knowledge-units?subject_id=${sid}`,
         method: "GET",
       });
-      this.setData({ units: res.data || [] });
+      const units = (res.data || [])
+        .map((u) => ({ ...u, id: normalizePositiveInt(u.id) }))
+        .filter((u) => u.id > 0);
+      this.setData({ units });
     } catch (e) {
       wx.showToast({ title: e.message || "加载知识单元失败", icon: "none" });
     }
@@ -152,8 +166,8 @@ Page({
             unitName: "",
             unitTags: [],
             subsectionRows: [],
-            selectedSubTagId: null,
-            selectedSubTagName: "",
+            selectedSectionTagIds: [],
+            selectedSectionTagNames: [],
             selectedTags: [],
             sectionTag: "",
             mockRows: [],
@@ -164,6 +178,8 @@ Page({
             selectedAnswer: "",
             multiSelected: [],
             textAnswer: "",
+            seqJumpOpen: false,
+            seqJumpInput: "",
           },
           () => {
             syncNavTitle("play");
@@ -178,7 +194,7 @@ Page({
   },
 
   onPickSubjectLeft(e) {
-    const id = Number(e.currentTarget.dataset.id);
+    const id = normalizePositiveInt(e.currentTarget.dataset.id);
     if (!id) return;
     this.setData({ subjectId: id, units: [], unitId: null }, () => {
       this.loadKnowledgeUnits(id);
@@ -218,7 +234,7 @@ Page({
     const tags = this.data.unitTags || [];
     if (!sid || !uid) return;
     const subsectionRows = tags.map((t) => ({
-      id: t.id,
+      id: normalizePositiveInt(t.id),
       name: t.name,
       question_count: t.question_count,
       progressText: this.subsectionProgressText(sid, uid, t),
@@ -227,7 +243,7 @@ Page({
   },
 
   async onPickKnowledgeUnit(e) {
-    const id = Number(e.currentTarget.dataset.id);
+    const id = normalizePositiveInt(e.currentTarget.dataset.id);
     const name = String(e.currentTarget.dataset.name || "");
     const sid = this.data.subjectId;
     if (!id || !sid) return;
@@ -239,7 +255,11 @@ Page({
       });
       const d = res.data || {};
       const unit = d.unit || {};
-      const tags = d.tags || [];
+      const tags = (d.tags || []).map((t) => ({
+        ...t,
+        id: normalizePositiveInt(t.id),
+        question_count: Number(t.question_count) || 0,
+      }));
       const count = Number(d.unit_question_count || 0);
       const seqHint = this.seqHintForUnit(sid, id);
       this.setData(
@@ -251,8 +271,8 @@ Page({
           seqProgressHint: seqHint,
           selectedTags: [],
           sectionTag: "",
-          selectedSubTagId: null,
-          selectedSubTagName: "",
+          selectedSectionTagIds: [],
+          selectedSectionTagNames: [],
           step: "practice_style",
         },
         () => {
@@ -276,8 +296,8 @@ Page({
         unitName: "",
         unitTags: [],
         subsectionRows: [],
-        selectedSubTagId: null,
-        selectedSubTagName: "",
+        selectedSectionTagIds: [],
+        selectedSectionTagNames: [],
       },
       () => {
         syncNavTitle("catalog");
@@ -289,8 +309,8 @@ Page({
     this.setData(
       {
         step: "practice_style",
-        selectedSubTagId: null,
-        selectedSubTagName: "",
+        selectedSectionTagIds: [],
+        selectedSectionTagNames: [],
       },
       () => syncNavTitle("practice_style"),
     );
@@ -299,7 +319,8 @@ Page({
   openFeedbackThenBuild(module) {
     this.setData({ practiceModule: module });
     if (module === "section") {
-      this.setData({ sectionTag: this.data.selectedSubTagName });
+      const names = this.data.selectedSectionTagNames || [];
+      this.setData({ sectionTag: names[0] || "" });
     }
     wx.showActionSheet({
       itemList: ["及时反馈（逐题判分）", "考试模式（最后交卷）"],
@@ -328,7 +349,7 @@ Page({
     }
     if (m === "section") {
       this.refreshSubsectionRows();
-      this.setData({ step: "subsections", selectedSubTagId: null, selectedSubTagName: "" }, () =>
+      this.setData({ step: "subsections", selectedSectionTagIds: [], selectedSectionTagNames: [] }, () =>
         syncNavTitle("subsections"),
       );
       return;
@@ -339,54 +360,85 @@ Page({
         wx.showToast({ title: "该单元暂无知识点，无法模拟练习", icon: "none" });
         return;
       }
-      const mockRows = tags.map((t) => ({
-        name: t.name,
-        displayLabel: t.name,
-        countInput: "3",
-      }));
+      const mockRows = tags.map((t) => {
+        const bank = Math.max(0, Number(t.question_count) || 0);
+        const maxCount = Math.min(50, bank);
+        return {
+          name: t.name,
+          displayLabel: t.name,
+          bankCount: bank,
+          maxCount,
+          countInput: "",
+          countPlaceholder: maxCount > 0 ? `填 0～${maxCount}，0 表示不抽` : "本题点暂无题目",
+        };
+      });
       this.setData({ practiceModule: "mock", mockRows, step: "mock" }, () => syncNavTitle("mock"));
       return;
     }
     this.openFeedbackThenBuild(m);
   },
 
-  onSelectSubTag(e) {
-    const id = Number(e.currentTarget.dataset.id);
-    const name = String(e.currentTarget.dataset.name || "");
-    if (!id) return;
-    this.setData({ selectedSubTagId: id, selectedSubTagName: name });
-  },
-
-  /** 双击快捷刷题：短时间内第二次点击同一条则直接开始 */
-  _lastSubTap: { id: 0, t: 0 },
-  onSubTagRowTapMaybeDouble(e) {
-    const id = Number(e.currentTarget.dataset.id);
-    const now = Date.now();
-    const prev = this._lastSubTap || { id: 0, t: 0 };
-    if (prev.id === id && now - prev.t < 420) {
-      this._lastSubTap = { id: 0, t: 0 };
-      this.onSelectSubTag(e);
-      this.startSectionPracticeNow();
-      return;
+  onToggleSectionTag(e) {
+    const id = normalizePositiveInt(e.currentTarget.dataset.id);
+    const name = String(e.currentTarget.dataset.name || "").trim();
+    if (!id || !name) return;
+    const ids = (this.data.selectedSectionTagIds || []).slice();
+    const names = (this.data.selectedSectionTagNames || []).slice();
+    const idx = ids.findIndex((x) => Number(x) === id);
+    if (idx >= 0) {
+      ids.splice(idx, 1);
+      names.splice(idx, 1);
+    } else {
+      ids.push(id);
+      names.push(name);
     }
-    this._lastSubTap = { id, t: now };
-    this.onSelectSubTag(e);
+    this.setData({ selectedSectionTagIds: ids, selectedSectionTagNames: names });
   },
 
   startSectionPracticeNow() {
-    if (!this.data.selectedSubTagId || !this.data.selectedSubTagName) {
-      wx.showToast({ title: "请先选择知识小节", icon: "none" });
+    const names = this.data.selectedSectionTagNames || [];
+    if (!names.length) {
+      wx.showToast({ title: "请至少勾选一个知识小节", icon: "none" });
       return;
     }
-    this.setData({ sectionTag: this.data.selectedSubTagName });
+    this.setData({ sectionTag: names[0] || "" });
     this.openFeedbackThenBuild("section");
   },
 
   onMockCountInput(e) {
     const name = String(e.currentTarget.dataset.name || "");
-    const val = e.detail.value;
+    const maxCount = Math.max(0, Number(e.currentTarget.dataset.max) || 0);
+    let raw = String(e.detail.value ?? "");
+    if (raw === "") {
+      this._patchMockRow(name, { countInput: "" });
+      return;
+    }
+    const digits = raw.replace(/\D/g, "");
+    if (digits === "") {
+      this._patchMockRow(name, { countInput: "" });
+      return;
+    }
+    let n = parseInt(digits, 10) || 0;
+    if (maxCount > 0 && n > maxCount) n = maxCount;
+    this._patchMockRow(name, { countInput: String(n) });
+  },
+
+  onMockCountBlur(e) {
+    const name = String(e.currentTarget.dataset.name || "");
+    const maxCount = Math.max(0, Number(e.currentTarget.dataset.max) || 0);
+    const row = (this.data.mockRows || []).find((r) => r.name === name);
+    if (!row) return;
+    const raw = String(row.countInput ?? "").trim();
+    if (raw === "") return;
+    let n = parseInt(raw, 10);
+    if (Number.isNaN(n)) n = 0;
+    n = Math.min(Math.max(0, n), maxCount > 0 ? maxCount : 0);
+    this._patchMockRow(name, { countInput: String(n) });
+  },
+
+  _patchMockRow(name, patch) {
     const mockRows = (this.data.mockRows || []).map((row) =>
-      row.name === name ? { ...row, countInput: val } : row,
+      row.name === name ? { ...row, ...patch } : row,
     );
     this.setData({ mockRows });
   },
@@ -406,10 +458,19 @@ Page({
   },
 
   async buildAndStart() {
-    const subjectId = this.data.subjectId;
-    const unitId = this.data.unitId;
+    const subjectId = Number(this.data.subjectId);
+    const unitId = normalizePositiveInt(this.data.unitId);
     const practiceModule = this.data.practiceModule;
     const tag_names = this.data.selectedTags || [];
+    const needUnit = practiceModule === "sequential" || practiceModule === "random" || practiceModule === "section" || practiceModule === "mock";
+    if (!Number.isFinite(subjectId) || subjectId <= 0) {
+      wx.showToast({ title: "缺少科目，请返回刷题首页重选科目", icon: "none" });
+      return;
+    }
+    if (needUnit && !unitId) {
+      wx.showToast({ title: "缺少知识单元，请返回选择单元后再开始", icon: "none" });
+      return;
+    }
     const body = {
       subject_id: subjectId,
       practice_module: practiceModule,
@@ -418,17 +479,28 @@ Page({
     if (tag_names.length) body.tag_names = tag_names;
     if (unitId) body.unit_id = unitId;
     if (practiceModule === "section") {
-      body.section_tag = this.data.sectionTag || this.data.selectedSubTagName;
+      const secNames = this.data.selectedSectionTagNames || [];
+      if (secNames.length) {
+        body.section_tags = secNames;
+        // 旧版服务端只校验 section_tag，不传会报「须传 section_tag」；新服务端以 section_tags 为准
+        body.section_tag = secNames[0];
+      } else if (this.data.sectionTag) {
+        body.section_tag = this.data.sectionTag;
+      }
     }
     if (practiceModule === "mock") {
-      body.mock_allocation = (this.data.mockRows || [])
-        .map((row) => ({
-          tag_name: row.name,
-          count: parseInt(String(row.countInput || "0"), 10) || 0,
-        }))
-        .filter((row) => row.count > 0);
+      const rows = this.data.mockRows || [];
+      const alloc = [];
+      for (const row of rows) {
+        const maxC = Math.max(0, Number(row.maxCount) || 0);
+        let n = parseInt(String(row.countInput || "0"), 10) || 0;
+        if (Number.isNaN(n)) n = 0;
+        n = Math.min(Math.max(0, n), maxC);
+        if (n > 0) alloc.push({ tag_name: row.name, count: n });
+      }
+      body.mock_allocation = alloc;
       if (body.mock_allocation.length === 0) {
-        wx.showToast({ title: "请填写至少一行的题数", icon: "none" });
+        wx.showToast({ title: "请至少在一个知识点填写大于 0 的抽题数", icon: "none" });
         return;
       }
     }
@@ -445,6 +517,8 @@ Page({
           step: "play",
           submitted: false,
           checkResult: null,
+          seqJumpOpen: false,
+          seqJumpInput: "",
         },
         () => {
           wx.hideLoading();
@@ -467,8 +541,8 @@ Page({
       unitName: "",
       unitTags: [],
       subsectionRows: [],
-      selectedSubTagId: null,
-      selectedSubTagName: "",
+      selectedSectionTagIds: [],
+      selectedSectionTagNames: [],
       topicQuestionCount: 0,
       selectedTags: [],
       practiceModule: "",
@@ -481,6 +555,8 @@ Page({
       examResults: [],
       submitted: false,
       checkResult: null,
+      seqJumpOpen: false,
+      seqJumpInput: "",
     });
     syncNavTitle("catalog");
     if (sid) {
@@ -499,6 +575,7 @@ Page({
       return;
     }
     const id = ids[idx];
+    const feedbackMode = this.data.feedbackMode;
     this.setData({ loading: true });
     try {
       const res = await request({ path: `/api/student/questions/${id}`, method: "GET" });
@@ -509,13 +586,32 @@ Page({
       };
       const total = ids.length;
       const playProgress = total > 0 ? Math.round(((idx + 1) / total) * 100) : 0;
+
+      let selectedAnswer = "";
+      let multiSelected = [];
+      let textAnswer = "";
+      if (feedbackMode === "exam") {
+        const saved = this.data.examAnswers[String(id)];
+        if (saved !== undefined && saved !== null) {
+          const ua = String(saved);
+          const qt = Number(raw.question_type);
+          if (qt === 2) {
+            multiSelected = ua ? ua.split(",").map((s) => String(s).trim()).filter(Boolean) : [];
+          } else if (qt === 4 || qt === 5) {
+            textAnswer = ua;
+          } else {
+            selectedAnswer = ua;
+          }
+        }
+      }
+
       this.setData(
         {
           currentQuestion,
           loading: false,
-          selectedAnswer: "",
-          multiSelected: [],
-          textAnswer: "",
+          selectedAnswer,
+          multiSelected,
+          textAnswer,
           submitted: false,
           checkResult: null,
           playProgress,
@@ -610,14 +706,65 @@ Page({
     }
     if (pm === "section") {
       const tags = this.data.unitTags || [];
-      const st = this.data.sectionTag;
-      const tagRow = tags.find((t) => String(t.name) === String(st));
-      const tid = tagRow && tagRow.id;
-      if (tid) {
-        wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), done);
+      const names = (this.data.selectedSectionTagNames || []).length
+        ? this.data.selectedSectionTagNames
+        : this.data.sectionTag
+          ? [this.data.sectionTag]
+          : [];
+      for (const nm of names) {
+        const tagRow = tags.find((t) => String(t.name) === String(nm));
+        const tid = tagRow && tagRow.id;
+        if (tid) {
+          wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), done);
+        }
       }
     }
   },
+
+  onExamPrev() {
+    if (this.data.feedbackMode !== "exam") return;
+    const idx = this.data.currentIndex;
+    if (idx <= 0) return;
+    const ids = this.data.questionIds || [];
+    const qid = ids[idx];
+    const ua = this.getUserAnswer();
+    const examAnswers = { ...this.data.examAnswers, [String(qid)]: ua };
+    this.setData({ examAnswers, currentIndex: idx - 1 }, () => this.loadCurrentQuestion());
+  },
+
+  /** 仅顺序刷题：点工具栏「跳转」打开题号弹层（方法名勿用过长驼峰，部分基础库对 bindtap 解析偶发异常） */
+  openSeqJump() {
+    if (this.data.practiceModule !== "sequential") return;
+    const total = (this.data.questionIds || []).length;
+    if (!total) return;
+    const cur = this.data.currentIndex + 1;
+    this.setData({ seqJumpOpen: true, seqJumpInput: String(cur) });
+  },
+
+  closeSeqJump() {
+    this.setData({ seqJumpOpen: false, seqJumpInput: "" });
+  },
+
+  onSeqJumpInput(e) {
+    this.setData({ seqJumpInput: e.detail.value });
+  },
+
+  confirmSeqJump() {
+    const total = (this.data.questionIds || []).length;
+    if (!total) {
+      this.closeSeqJump();
+      return;
+    }
+    let n = parseInt(String(this.data.seqJumpInput || "").trim(), 10);
+    if (Number.isNaN(n)) {
+      wx.showToast({ title: "请输入有效题号", icon: "none" });
+      return;
+    }
+    n = Math.min(Math.max(1, n), total);
+    this.setData({ seqJumpOpen: false, seqJumpInput: "", currentIndex: n - 1 }, () => this.loadCurrentQuestion());
+  },
+
+  noop() {},
 
   async onPlayPrimary() {
     const mode = this.data.feedbackMode;
