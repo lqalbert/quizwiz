@@ -39,11 +39,142 @@
   margin-top: 36rpx;
 }
 
-.mock-scroll {
-  max-height: 52vh;
-  margin-top: 8rpx;
-  padding-bottom: 0;
+/* 模拟分配题数：与知识小节一致，底栏固定，避免 scroll-view 被撑高导致「下一步」悬在中部 */
+.mock-step {
+  position: relative;
   box-sizing: border-box;
+}
+
+.mock-scroll {
+  /* 与 subsection 同思路：为顶栏+固定底栏留白；不用 52vh 以免 scroll-view 被撑满半屏、内容少时大块空白 */
+  max-height: calc(100vh - 320rpx);
+  margin-top: 8rpx;
+  padding-bottom: calc(120rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(120rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.mock-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 20rpx 28rpx calc(20rpx + constant(safe-area-inset-bottom));
+  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1rpx solid #eee;
+  z-index: 20;
+  box-sizing: border-box;
+}
+
+.mock-footer-btn {
+  margin-top: 0;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.resume-hint {
+  padding: 24rpx 28rpx;
+  margin-bottom: 16rpx;
+}
+
+.resume-hint-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.resume-hint-meta {
+  display: block;
+  font-size: 24rpx;
+  line-height: 1.4;
+  margin-bottom: 20rpx;
+}
+
+.resume-hint-row {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+  align-items: center;
+}
+
+.resume-hint-btn {
+  flex: 1;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.resume-hint-btn--go {
+  margin-top: 0;
+}
+
+.catalog-err,
+.catalog-empty {
+  padding: 28rpx;
+  margin-bottom: 16rpx;
+}
+
+.catalog-empty-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 10rpx;
+}
+
+.catalog-empty-desc {
+  display: block;
+  font-size: 26rpx;
+  line-height: 1.45;
+}
+
+.catalog-foot {
+  display: block;
+  font-size: 24rpx;
+  margin-top: 12rpx;
+  margin-bottom: 8rpx;
+}
+
+.catalog-boot-hint {
+  display: block;
+  padding: 16rpx 8rpx 8rpx;
+  font-size: 26rpx;
+}
+
+.play-load-err {
+  padding: 28rpx;
+  margin-top: 16rpx;
+}
+
+.wrapup-card {
+  padding: 32rpx 28rpx;
+  margin-top: 8rpx;
+}
+
+.wrapup-line {
+  display: block;
+  font-size: 30rpx;
+  line-height: 1.5;
+}
+
+.wrapup-num {
+  font-weight: 700;
+}
+
+.wrapup-num--ok {
+  color: var(--ios-green);
+}
+
+.wrapup-num--bad {
+  color: #c2410c;
+}
+
+.wrapup-tip {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  line-height: 1.45;
 }
 
 .mock-card {

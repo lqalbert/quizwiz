@@ -232,6 +232,7 @@ Page({
       app.globalData.pendingPractice = {
         questionIds: ids,
         feedbackMode: feedbackMode === "exam" ? "exam" : "immediate",
+        sessionOrigin: "wrong_book",
       };
       app.globalData.practiceReturnPage = {
         type: "record-wrong",
@@ -320,5 +321,13 @@ Page({
           });
       },
     });
+  },
+
+  goBrowseQuiz() {
+    wx.switchTab({ url: "/pages/quiz/index" });
+  },
+
+  goReviewToday() {
+    wx.navigateTo({ url: "/pages/review-today/index" });
   },
 });

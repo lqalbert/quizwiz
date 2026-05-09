@@ -24,21 +24,6 @@ function nextReviewLabel(row) {
   return String(d);
 }
 
-function loadReminderTemplateIds() {
-  try {
-    let s = null;
-    try {
-      s = require("../../config/site.local.js");
-    } catch (_) {
-      s = require("../../config/site.js");
-    }
-    const arr = s && Array.isArray(s.reviewReminderTemplateIds) ? s.reviewReminderTemplateIds : [];
-    return arr.map((x) => String(x || "").trim()).filter(Boolean);
-  } catch (_) {
-    return [];
-  }
-}
-
 Page({
   data: {
     loading: true,
@@ -97,7 +82,12 @@ Page({
     try {
       const app = getApp();
       if (!app.globalData) app.globalData = {};
-      app.globalData.pendingPractice = { questionIds: ids, feedbackMode: "immediate" };
+      app.globalData.pendingPractice = {
+        questionIds: ids,
+        feedbackMode: "immediate",
+        sessionOrigin: "review_today",
+      };
+      app.globalData.practiceReturnPage = { type: "review_today" };
     } catch (_) {}
     wx.switchTab({ url: "/pages/quiz/index" });
   },
@@ -108,29 +98,21 @@ Page({
     try {
       const app = getApp();
       if (!app.globalData) app.globalData = {};
-      app.globalData.pendingPractice = { questionIds: [id], feedbackMode: "immediate" };
+      app.globalData.pendingPractice = {
+        questionIds: [id],
+        feedbackMode: "immediate",
+        sessionOrigin: "review_today",
+      };
+      app.globalData.practiceReturnPage = { type: "review_today" };
     } catch (_) {}
     wx.switchTab({ url: "/pages/quiz/index" });
   },
 
-  requestReviewReminder() {
-    const tmplIds = loadReminderTemplateIds();
-    if (!tmplIds.length) {
-      wx.showToast({
-        title: "请在 config/site.js 配置 reviewReminderTemplateIds",
-        icon: "none",
-        duration: 3200,
-      });
-      return;
-    }
-    wx.requestSubscribeMessage({
-      tmplIds,
-      success: (r) => {
-        const acc = tmplIds.filter((t) => r[t] === "accept").length;
-        if (acc > 0) wx.showToast({ title: "已订阅", icon: "success" });
-        else wx.showToast({ title: "未授权则无法推送", icon: "none" });
-      },
-      fail: () => wx.showToast({ title: "订阅失败", icon: "none" }),
-    });
+  goBrowseQuiz() {
+    wx.switchTab({ url: "/pages/quiz/index" });
+  },
+
+  goWrongBook() {
+    wx.navigateTo({ url: "/pages/record-wrong/index" });
   },
 });

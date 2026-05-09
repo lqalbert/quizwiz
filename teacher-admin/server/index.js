@@ -731,6 +731,7 @@ const ensureStudentPracticeSchema = async () => {
 const ensureStudentWechatSchema = async () => {
   await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_openid VARCHAR(128)`)
   await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_unionid VARCHAR(128)`)
+  await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS real_name VARCHAR(64)`)
   await pool.query(
     `
     CREATE UNIQUE INDEX IF NOT EXISTS idx_students_wechat_openid_unique
@@ -1002,12 +1003,20 @@ const upsertStudentAndJoinClass = async ({
   operatorId,
   inviteCode,
   joinChannel,
+  realName,
 }) => {
   const existing = await client.query('SELECT id, name, student_no FROM students WHERE student_no = $1 LIMIT 1', [studentNo])
   let studentId = existing.rows[0]?.id
+  const trimmedReal =
+    realName != null && String(realName).trim() ? String(realName).trim().slice(0, 64) : null
   if (!studentId) {
-    const inserted = await client.query(`INSERT INTO students (name, student_no) VALUES ($1, $2) RETURNING id`, [name, studentNo])
+    const inserted = await client.query(
+      `INSERT INTO students (name, student_no, real_name) VALUES ($1, $2, $3) RETURNING id`,
+      [name, studentNo, trimmedReal],
+    )
     studentId = inserted.rows[0].id
+  } else if (trimmedReal) {
+    await client.query(`UPDATE students SET real_name = $1 WHERE id = $2`, [trimmedReal, studentId])
   }
   await client.query(
     `
@@ -1417,6 +1426,13 @@ app.get('/api/subjects', authRequired, async (req, res) => {
     }
     return listKnowledgeUnitsForSubjectHandler(req, res, sid)
   }
+  if (scope === 'knowledge_tags' || scope === 'tags') {
+    const sid = firstQueryParam(req.query?.subjectId ?? req.query?.subject_id)
+    if (sid == null || String(sid).trim() === '') {
+      return res.status(400).json({ message: '查询知识点须同时传 subjectId（所属科目 id）' })
+    }
+    return listKnowledgeTagsForSubjectHandler(req, res, sid)
+  }
   const legacyKu = firstQueryParam(
     req.query?.knowledgeUnitsSubjectId ?? req.query?.knowledge_units_subject_id ?? req.query?.knowledgeUnitsFor,
   )
@@ -1736,6 +1752,37 @@ const listKnowledgeUnitsForSubjectHandler = async (req, res, subjectIdRaw) => {
     })
   } catch (error) {
     return res.status(500).json({ message: '知识单元列表查询失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+/** 某科目下题目已用到的知识点标签（question_tags.name），供考试/题库筛选下拉 */
+const listKnowledgeTagsForSubjectHandler = async (req, res, subjectIdRaw) => {
+  const subjectId = Number(subjectIdRaw)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: '科目ID不合法' })
+  }
+  try {
+    const subjectCheck = await pool.query(`SELECT id FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subjectCheck.rows[0]) {
+      return res.status(404).json({ message: '科目不存在' })
+    }
+    const { rows } = await pool.query(
+      `
+      SELECT DISTINCT qt.name AS name
+      FROM question_tags qt
+      INNER JOIN question_tag_rel qtr ON qtr.tag_id = qt.id
+      INNER JOIN questions q ON q.id = qtr.question_id AND q.deleted_at IS NULL
+      WHERE q.subject_id = $1
+      ORDER BY qt.name ASC
+      `,
+      [subjectId],
+    )
+    return res.json({
+      data: rows.map((r) => ({ name: String(r.name || '') })).filter((r) => r.name),
+      meta: { resource: 'knowledge_tags', subjectId },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '知识点列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
 }
 
@@ -2108,7 +2155,7 @@ app.get('/api/classes/:id/invite-config', authRequired, async (req, res) => {
         l.invite_code,
         l.joined_at,
         s.id AS student_id,
-        s.name AS student_name,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
         s.student_no
       FROM class_invite_join_logs l
       LEFT JOIN students s ON s.id = l.student_id
@@ -2275,6 +2322,7 @@ app.post('/api/public/class-join-requests', async (req, res) => {
       operatorId: null,
       inviteCode,
       joinChannel: 'mini_program_auto',
+      realName: name,
     })
     await writeOperationLog({
       client,
@@ -2311,7 +2359,7 @@ app.post('/api/public/student/login', async (req, res) => {
   try {
     const result = await pool.query(
       `
-      SELECT s.id AS student_id, s.name AS student_name, s.student_no, c.id AS class_id, c.name AS class_name, c.grade AS class_grade
+      SELECT s.id AS student_id, COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name, s.student_no, c.id AS class_id, c.name AS class_name, c.grade AS class_grade
       FROM students s
       JOIN class_members cm ON cm.student_id = s.id
       JOIN classes c ON c.id = cm.class_id
@@ -2437,9 +2485,15 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
 app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   try {
     const studentId = req.studentAuth.studentId
-    const sres = await pool.query(`SELECT id, name, student_no, wechat_openid FROM students WHERE id = $1 LIMIT 1`, [studentId])
+    const sres = await pool.query(
+      `SELECT id, name, real_name, student_no, wechat_openid FROM students WHERE id = $1 LIMIT 1`,
+      [studentId],
+    )
     const student = sres.rows[0]
     if (!student) return res.status(404).json({ message: '学生不存在' })
+    const rn = String(student.real_name || '').trim()
+    const nn = String(student.name || '').trim()
+    const displayName = rn || nn || '同学'
     const classesResult = await pool.query(
       `
       SELECT c.id, c.name, c.grade
@@ -2456,6 +2510,8 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
         student: {
           id: student.id,
           name: student.name,
+          real_name: student.real_name,
+          display_name: displayName,
           student_no: student.student_no,
           has_wechat: Boolean(String(student.wechat_openid || '').trim()),
         },
@@ -2468,36 +2524,61 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   }
 })
 
-/** 学生修改在老师端展示的姓名（真实姓名 / 昵称） */
+/** 学生修改资料：name 为昵称（微信侧展示名），real_name 为老师端优先展示的真实姓名 */
 app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
-  const raw = req.body?.name ?? req.body?.displayName
-  const name = String(raw ?? '').trim()
-  if (!name) return res.status(400).json({ message: '姓名不能为空' })
-  if (name.length > 64) return res.status(400).json({ message: '姓名不能超过 64 个字' })
+  const nameRaw = req.body?.name ?? req.body?.displayName
+  const realRaw = req.body?.realName ?? req.body?.real_name
+  const hasName = nameRaw !== undefined && nameRaw !== null
+  const hasReal = realRaw !== undefined && realRaw !== null
+  if (!hasName && !hasReal) return res.status(400).json({ message: '请提供要修改的昵称或真实姓名' })
+  const parts = []
+  const vals = []
+  if (hasName) {
+    const name = String(nameRaw ?? '').trim()
+    if (!name) return res.status(400).json({ message: '昵称不能为空' })
+    if (name.length > 64) return res.status(400).json({ message: '昵称不能超过 64 个字' })
+    vals.push(name)
+    parts.push(`name = $${vals.length}`)
+  }
+  if (hasReal) {
+    const realName = String(realRaw ?? '').trim()
+    if (!realName) return res.status(400).json({ message: '真实姓名不能为空' })
+    if (realName.length > 64) return res.status(400).json({ message: '真实姓名不能超过 64 个字' })
+    vals.push(realName)
+    parts.push(`real_name = $${vals.length}`)
+  }
+  vals.push(req.studentAuth.studentId)
   try {
     const r = await pool.query(
-      `UPDATE students SET name = $1 WHERE id = $2 RETURNING id, name, student_no`,
-      [name, req.studentAuth.studentId],
+      `UPDATE students SET ${parts.join(', ')} WHERE id = $${vals.length} RETURNING id, name, real_name, student_no`,
+      vals,
     )
     const row = r.rows[0]
     if (!row) return res.status(404).json({ message: '学生不存在' })
+    const rn = String(row.real_name || '').trim()
+    const nn = String(row.name || '').trim()
     return res.json({
       data: {
         student: {
           id: row.id,
           name: row.name,
+          real_name: row.real_name,
+          display_name: rn || nn || '同学',
           student_no: row.student_no,
         },
       },
     })
   } catch (error) {
-    return res.status(500).json({ message: '更新姓名失败', detail: error instanceof Error ? error.message : String(error) })
+    return res.status(500).json({ message: '更新资料失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 
 app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) => {
   const inviteCode = String(req.body?.inviteCode || req.body?.invite_code || '').trim().toUpperCase()
+  const realName = String(req.body?.realName || req.body?.real_name || '').trim()
   if (!inviteCode) return res.status(400).json({ message: 'inviteCode 必填' })
+  if (!realName) return res.status(400).json({ message: '请填写真实姓名' })
+  if (realName.length > 64) return res.status(400).json({ message: '真实姓名不能超过 64 个字' })
   const studentId = req.studentAuth.studentId
   const client = await pool.connect()
   try {
@@ -2544,6 +2625,7 @@ app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) =>
         },
       })
     }
+    await client.query(`UPDATE students SET real_name = $1 WHERE id = $2`, [realName, studentId])
     const joinMode = String(classRow.join_audit_mode || 'auto')
     if (joinMode === 'manual') {
       await client.query(
@@ -2551,7 +2633,7 @@ app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) =>
         INSERT INTO class_join_requests (class_id, student_name, student_no, invite_code, status, source, requested_at)
         VALUES ($1, $2, $3, $4, 'pending', 'mini_program_wechat', NOW())
         `,
-        [classRow.id, student.name, student.student_no, inviteCode],
+        [classRow.id, realName, student.student_no, inviteCode],
       )
       await writeOperationLog({
         client,
@@ -2580,6 +2662,7 @@ app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) =>
       operatorId: null,
       inviteCode,
       joinChannel: 'mini_program_wechat_auto',
+      realName,
     })
     await writeOperationLog({
       client,
@@ -4399,11 +4482,17 @@ app.get('/api/student/stats/practice-class-rank', studentAuthRequired, studentCl
       if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
       return a.wrong_count - b.wrong_count
     })
-    const nameR = await pool.query(`SELECT id, name, student_no FROM students WHERE id = ANY($1::bigint[])`, [classPeerIds])
+    const nameR = await pool.query(
+      `SELECT id, name, real_name, student_no, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name FROM students WHERE id = ANY($1::bigint[])`,
+      [classPeerIds],
+    )
     const nameMap = new Map(
       nameR.rows.map((row) => [
         Number(row.id),
-        { name: String(row.name || '').trim() || '同学', student_no: String(row.student_no || '').trim() },
+        {
+          name: String(row.display_name || row.name || '').trim() || '同学',
+          student_no: String(row.student_no || '').trim(),
+        },
       ]),
     )
     const rows = active.map((r, i) => {
@@ -4466,15 +4555,16 @@ app.patch('/api/classes/:id/join-requests/:requestId', authRequired, async (req,
     }
 
     if (action === 'approve') {
-      const joinResult = await upsertStudentAndJoinClass({
-        client,
-        classId,
-        name: String(requestRow.student_name),
-        studentNo: String(requestRow.student_no),
-        operatorId: req.auth?.userId || null,
-        inviteCode: String(requestRow.invite_code || ''),
-        joinChannel: 'mini_program_approved',
-      })
+    const joinResult = await upsertStudentAndJoinClass({
+      client,
+      classId,
+      name: String(requestRow.student_name),
+      studentNo: String(requestRow.student_no),
+      operatorId: req.auth?.userId || null,
+      inviteCode: String(requestRow.invite_code || ''),
+      joinChannel: 'mini_program_approved',
+      realName: String(requestRow.student_name),
+    })
       await client.query(
         `
         UPDATE class_join_requests
@@ -4532,7 +4622,9 @@ app.get('/api/classes/:id/students', authRequired, async (req, res) => {
       `
       SELECT
         s.id,
-        s.name,
+        s.name AS nickname,
+        s.real_name,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS name,
         s.student_no,
         cm.class_id
       FROM class_members cm
@@ -4742,6 +4834,7 @@ app.post('/api/classes/:id/students', authRequired, async (req, res) => {
       operatorId: req.auth?.userId || null,
       inviteCode: String(classInfo.rows[0]?.invite_code || ''),
       joinChannel: 'admin_manual',
+      realName: name,
     })
     await writeOperationLog({
       client,
@@ -5014,7 +5107,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
       `
       SELECT
         s.id AS student_id,
-        s.name AS student_name,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
         s.student_no,
         es.id AS submission_id,
         es.status AS submission_status,
@@ -6190,7 +6283,7 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
           vc.name AS class_name,
           vc.grade AS class_grade,
           s.id AS student_id,
-          s.name AS student_name,
+          COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
           s.student_no
         FROM visible_classes vc
         JOIN class_members cm ON cm.class_id = vc.id
@@ -6432,7 +6525,7 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
           vc.name AS class_name,
           vc.grade AS class_grade,
           s.id AS student_id,
-          s.name AS student_name,
+          COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
           s.student_no
         FROM visible_classes vc
         JOIN class_members cm ON cm.class_id = vc.id
@@ -7717,6 +7810,23 @@ app.get('/api/questions', authRequired, async (req, res) => {
     const knowledgeUnitOnly = String(req.query?.knowledgeUnit ?? '').trim()
     /** 仅按知识点标签名（question_tags.name）筛选，与 knowledgePoint 区分：后者兼容题库模糊（单元或点） */
     const knowledgeTagOnly = String(req.query?.knowledgeTag ?? req.query?.tagName ?? '').trim()
+    const collectMultiQuery = (key) => {
+      const raw = req.query[key]
+      if (raw == null) return []
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const out = []
+      for (const x of arr) {
+        const s = String(x ?? '').trim()
+        if (!s) continue
+        for (const part of s.split(',')) {
+          const t = part.trim()
+          if (t) out.push(t)
+        }
+      }
+      return [...new Set(out)]
+    }
+    const knowledgeUnitsMulti = collectMultiQuery('knowledgeUnits')
+    const knowledgeTagsMulti = collectMultiQuery('knowledgeTags')
     const values = []
     const conditions = []
 
@@ -7754,7 +7864,21 @@ app.get('/api/questions', authRequired, async (req, res) => {
       )
     }
 
-    if (knowledgeUnitOnly) {
+    if (knowledgeUnitsMulti.length > 0) {
+      const parts = knowledgeUnitsMulti.map((unitName) => {
+        values.push(unitName)
+        return `
+          EXISTS (
+            SELECT 1
+            FROM question_tag_rel qtr
+            JOIN question_tags qt ON qt.id = qtr.tag_id
+            JOIN knowledge_units ku ON ku.id = qt.unit_id
+            WHERE qtr.question_id = q.id AND ku.name = $${values.length}
+          )
+        `
+      })
+      conditions.push(`(${parts.join(' OR ')})`)
+    } else if (knowledgeUnitOnly) {
       values.push(`%${knowledgeUnitOnly}%`)
       conditions.push(
         `EXISTS (
@@ -7767,7 +7891,20 @@ app.get('/api/questions', authRequired, async (req, res) => {
       )
     }
 
-    if (knowledgeTagOnly) {
+    if (knowledgeTagsMulti.length > 0) {
+      const parts = knowledgeTagsMulti.map((tagName) => {
+        values.push(tagName)
+        return `
+          EXISTS (
+            SELECT 1
+            FROM question_tag_rel qtr
+            JOIN question_tags qt ON qt.id = qtr.tag_id
+            WHERE qtr.question_id = q.id AND qt.name = $${values.length}
+          )
+        `
+      })
+      conditions.push(`(${parts.join(' OR ')})`)
+    } else if (knowledgeTagOnly) {
       values.push(`%${knowledgeTagOnly}%`)
       conditions.push(
         `EXISTS (

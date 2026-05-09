@@ -48,6 +48,16 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 're
 import { Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
 import type { DataValidation, Worksheet } from 'exceljs'
 import * as XLSX from 'xlsx'
+import {
+  beijingCalendarDateKey,
+  beijingNowDateTimeLocalValue,
+  formatBeijingDateOnly,
+  formatBeijingDateTime,
+  formatBeijingMonthDaySlash,
+  formatBeijingRange,
+  parseBeijingDateTimeInput,
+  toBeijingDateTimeInput,
+} from './beijingTime'
 
 const { Header, Sider, Content } = Layout
 
@@ -917,7 +927,9 @@ function ClassPage() {
     }>
   >([])
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
-  const [students, setStudents] = useState<Array<{ id: number; name: string; student_no: string }>>([])
+  const [students, setStudents] = useState<
+    Array<{ id: number; name: string; nickname?: string; real_name?: string | null; student_no: string }>
+  >([])
   const [teacherRows, setTeacherRows] = useState<
     Array<{ key: string; teacher_id: number; teacher_name: string; teacher_phone: string; subject_id: number; subject_name: string }>
   >([])
@@ -1015,13 +1027,7 @@ function ClassPage() {
       setInviteEnabled(Boolean(data.invite_enabled ?? true))
       setJoinAuditMode(String(data.join_audit_mode ?? 'auto') === 'manual' ? 'manual' : 'auto')
       setInviteExpiresAt(
-        data.invite_expires_at
-          ? (() => {
-              const date = new Date(String(data.invite_expires_at))
-              date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-              return date.toISOString().slice(0, 16)
-            })()
-          : '',
+        data.invite_expires_at ? toBeijingDateTimeInput(String(data.invite_expires_at)) : '',
       )
       setInviteJoinLogs(Array.isArray(data.join_logs) ? data.join_logs : [])
       setJoinRequests(Array.isArray(data.join_requests) ? data.join_requests : [])
@@ -1268,7 +1274,13 @@ function ClassPage() {
                   <Table
                     loading={studentsLoading}
                     columns={[
-                      { title: '姓名', dataIndex: 'name' },
+                      { title: '姓名（真实）', dataIndex: 'name' },
+                      {
+                        title: '昵称',
+                        dataIndex: 'nickname',
+                        render: (v?: string, row?: { name?: string }) =>
+                          v && row?.name && v !== row.name ? v : '—',
+                      },
                       { title: '学号', dataIndex: 'student_no' },
                       ...(canManageClass
                         ? [
@@ -1451,7 +1463,9 @@ function ClassPage() {
                         body: JSON.stringify({
                           inviteEnabled,
                           joinAuditMode,
-                          inviteExpiresAt: inviteExpiresAt ? new Date(inviteExpiresAt).toISOString() : null,
+                          inviteExpiresAt: inviteExpiresAt
+                            ? parseBeijingDateTimeInput(inviteExpiresAt).toISOString()
+                            : null,
                         }),
                       })
                       const payload = await response.json().catch(() => ({}))
@@ -1473,7 +1487,7 @@ function ClassPage() {
               pagination={{ pageSize: 5 }}
               dataSource={inviteJoinLogs.map((item) => ({ ...item, key: String(item.id) }))}
               columns={[
-                { title: '时间', dataIndex: 'joined_at', render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
+                { title: '时间', dataIndex: 'joined_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
                 { title: '学生', dataIndex: 'student_name', render: (v?: string) => v || '-' },
                 { title: '学号', dataIndex: 'student_no', render: (v?: string) => v || '-' },
                 { title: '加入来源', dataIndex: 'join_channel' },
@@ -1486,7 +1500,7 @@ function ClassPage() {
                 pagination={{ pageSize: 5 }}
                 dataSource={joinRequests.map((item) => ({ ...item, key: String(item.id) }))}
                 columns={[
-                  { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
+                  { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
                   { title: '学生姓名', dataIndex: 'student_name' },
                   { title: '学号', dataIndex: 'student_no' },
                   { title: '来源', dataIndex: 'source' },
@@ -1730,21 +1744,49 @@ function QuestionPreviewModal({
   loading,
   items,
   onClose,
+  layout = 'tabs',
 }: {
   open: boolean
   title: string
   loading: boolean
   items: QuestionPreviewDetail[]
   onClose: () => void
+  /** tabs：题库等逐题切换；scroll：考试选题等一页内纵向滚动浏览全部题干与选项 */
+  layout?: 'tabs' | 'scroll'
 }) {
   return (
-    <Modal open={open} title={title} width={920} onCancel={onClose} footer={<Button onClick={onClose}>关闭</Button>} destroyOnClose>
+    <Modal
+      open={open}
+      title={title}
+      width={layout === 'scroll' ? 960 : 920}
+      onCancel={onClose}
+      footer={<Button onClick={onClose}>关闭</Button>}
+      destroyOnClose
+      styles={{ body: layout === 'scroll' ? { maxHeight: '72vh', overflowY: 'auto', paddingTop: 8 } : undefined }}
+    >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48 }}>
           <Spin />
         </div>
       ) : items.length === 0 ? (
         <Empty description="暂无可预览的题目" />
+      ) : layout === 'scroll' ? (
+        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+          {items.map((item, index) => (
+            <div
+              key={item.id}
+              style={{
+                paddingBottom: 16,
+                borderBottom: index < items.length - 1 ? '1px solid var(--ant-color-border-secondary, #f0f0f0)' : undefined,
+              }}
+            >
+              <Typography.Text strong>
+                {index + 1}. 题目 #{item.id}
+              </Typography.Text>
+              <QuestionPreviewPanelBody item={item} />
+            </div>
+          ))}
+        </Space>
       ) : (
         <Tabs
           items={items.map((item, index) => ({
@@ -1926,7 +1968,7 @@ function QuestionBankPage() {
             const s = kp ?? item.knowledge_points ?? item.knowledgePointSummary
             return String(s ?? '').trim()
           })(),
-          updatedAt: String(item.updated_at ?? item.updatedAt ?? '').slice(0, 10),
+          updatedAt: formatBeijingDateOnly(String(item.updated_at ?? item.updatedAt ?? '')),
         }),
       )
       setQuestionListPage(page)
@@ -2229,7 +2271,7 @@ function QuestionBankPage() {
         knowledgePoints: knowledgeText
           ? knowledgeText.split(/[;；,，\s]+/).filter(Boolean).slice(0, 8).join('、')
           : '',
-        updatedAt: new Date().toISOString().slice(0, 10),
+        updatedAt: beijingCalendarDateKey(),
       })
       payloadRows.push({
         subject,
@@ -3208,7 +3250,7 @@ function QuestionBankPage() {
               },
             },
             { title: '操作人', dataIndex: 'operator_name', width: 120, render: (v: string) => v || '-' },
-            { title: '时间', dataIndex: 'created_at', width: 180, render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
+            { title: '时间', dataIndex: 'created_at', width: 180, render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
             {
               title: '版本快照',
               dataIndex: 'snapshot',
@@ -3294,7 +3336,7 @@ function QuestionBankPage() {
               width: 130,
               render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
             },
-            { title: '删除时间', dataIndex: 'deleted_at', width: 170, render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
+            { title: '删除时间', dataIndex: 'deleted_at', width: 170, render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
             {
               title: '操作',
               key: 'action',
@@ -3418,7 +3460,7 @@ function QuestionBankPage() {
           />
           <List
             size="small"
-            dataSource={duplicateMergeRows.map((item) => `ID ${item.question_id}｜${item.question_type_text}｜${item.updated_at ? item.updated_at.slice(0, 10) : '-'}｜${item.stem}`)}
+            dataSource={duplicateMergeRows.map((item) => `ID ${item.question_id}｜${item.question_type_text}｜${item.updated_at ? formatBeijingDateOnly(item.updated_at) : '-'}｜${item.stem}`)}
             renderItem={(item: string) => <List.Item>{item}</List.Item>}
           />
         </Space>
@@ -3715,55 +3757,7 @@ function QuestionBankPage() {
   )
 }
 
-/** 服务端 timestamptz/ISO 字符串 → 本机墙钟展示（勿对 ISO 字符串直接 slice，否则会按 UTC 少 8 小时等） */
-function formatExamIsoToLocal(iso: string | undefined | null, withSeconds = false): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return String(iso).replace('T', ' ').slice(0, withSeconds ? 19 : 16)
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  const base = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-  return withSeconds ? `${base}:${pad2(d.getSeconds())}` : base
-}
-
-function formatExamTimeRangeLocal(startIso: string, endIso: string): string {
-  return `${formatExamIsoToLocal(startIso)} ~ ${formatExamIsoToLocal(endIso)}`
-}
-
-function formatExamMonthDaySlash(iso: string | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return String(iso).slice(5, 10).replace('-', '/')
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`
-}
-
 function ExamPage() {
-  /** datetime-local 需要「本地墙钟」的 YYYY-MM-DDTHH:mm，不能用 toISOString().slice(否则与 UTC 混用会偏 8 小时等） */
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  const formatDateTimeLocal = (d: Date) =>
-    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-  /** 无 Z 的 "YYYY-MM-DDTHH:mm" 在各浏览器解析不一致，按本地日历显式解析 */
-  const parseDateTimeLocal = (s: string) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(s).trim())
-    if (!m) return new Date(NaN)
-    const y = Number(m[1])
-    const mo = Number(m[2])
-    const d = Number(m[3])
-    const h = Number(m[4])
-    const mi = Number(m[5])
-    return new Date(y, mo - 1, d, h, mi, 0, 0)
-  }
-  const getLocalDateTimeMin = () => {
-    const now = new Date()
-    now.setSeconds(0, 0)
-    return formatDateTimeLocal(now)
-  }
-  const toLocalDateTimeInput = (value?: string) => {
-    if (!value) return ''
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ''
-    return formatDateTimeLocal(date)
-  }
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const authUserRaw = localStorage.getItem(AUTH_USER_KEY)
   const authUser: AuthUser | null = useMemo(() => {
@@ -3809,15 +3803,27 @@ function ExamPage() {
   }
   const [classOptions, setClassOptions] = useState<Array<{ label: string; value: number }>>([])
   const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: number }>>([])
-  const [questionOptions, setQuestionOptions] = useState<Array<{ key: string; id: number; type: string; stem: string; difficulty: string }>>([])
+  const [questionOptions, setQuestionOptions] = useState<
+    Array<{
+      key: string
+      id: number
+      type: string
+      stem: string
+      difficulty: string
+      knowledge_unit: string
+      knowledge_point_tags: string[]
+    }>
+  >([])
   const [questionKeyword, setQuestionKeyword] = useState('')
-  /** 考试选题：按知识单元 / 知识点（标签名）筛选，对应 GET /api/questions 的 knowledgeUnit、knowledgeTag */
-  const [examKnowledgeUnit, setExamKnowledgeUnit] = useState('')
-  const [examKnowledgeTag, setExamKnowledgeTag] = useState('')
+  /** 考试选题：多选单元 / 知识点，对应 GET /api/questions 的 knowledgeUnits、knowledgeTags（精确匹配，组内为「或」） */
+  const [examKnowledgeUnits, setExamKnowledgeUnits] = useState<string[]>([])
+  const [examKnowledgeTags, setExamKnowledgeTags] = useState<string[]>([])
+  const [knowledgeUnitSelectOptions, setKnowledgeUnitSelectOptions] = useState<Array<{ label: string; value: string }>>([])
+  const [knowledgeTagSelectOptions, setKnowledgeTagSelectOptions] = useState<Array<{ label: string; value: string }>>([])
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([])
   const [questionScoreMap, setQuestionScoreMap] = useState<Record<number, number>>({})
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | undefined>(undefined)
-  const [dateTimeMin, setDateTimeMin] = useState(getLocalDateTimeMin())
+  const [dateTimeMin, setDateTimeMin] = useState(beijingNowDateTimeLocalValue())
   const [examDefaults, setExamDefaults] = useState({
     defaultDurationMinutes: 60,
     defaultQuestionScore: 1,
@@ -3981,8 +3987,12 @@ function ExamPage() {
         if (subject) query.set('subject', subject)
       }
       if (questionKeyword.trim()) query.set('keyword', questionKeyword.trim())
-      if (examKnowledgeUnit.trim()) query.set('knowledgeUnit', examKnowledgeUnit.trim())
-      if (examKnowledgeTag.trim()) query.set('knowledgeTag', examKnowledgeTag.trim())
+      examKnowledgeUnits.forEach((u) => {
+        if (u.trim()) query.append('knowledgeUnits', u.trim())
+      })
+      examKnowledgeTags.forEach((t) => {
+        if (t.trim()) query.append('knowledgeTags', t.trim())
+      })
       const url = `${API_BASE_URL}/api/questions${query.toString() ? `?${query.toString()}` : ''}`
       const response = await teacherAdminFetch(url, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
@@ -3996,16 +4006,27 @@ function ExamPage() {
         throw new Error(payload?.message || `加载题目失败(${response.status})`)
       }
       setQuestionOptions(
-        (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => ({
-          key: String(item.id),
-          id: Number(item.id),
-          type: String(item.question_type_text ?? ''),
-          stem: String(item.stem ?? ''),
-          difficulty: (() => {
-            const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
-            return t || mapDifficultyFromApi(item.difficulty as string | number)
-          })(),
-        })),
+        (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => {
+          const tags = Array.isArray(item.knowledgePointTags)
+            ? (item.knowledgePointTags as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+            : []
+          const kp = String(item.knowledge_points ?? item.knowledgePoints ?? '')
+            .split('、')
+            .map((s) => s.trim())
+            .filter(Boolean)
+          return {
+            key: String(item.id),
+            id: Number(item.id),
+            type: String(item.question_type_text ?? ''),
+            stem: String(item.stem ?? ''),
+            difficulty: (() => {
+              const t = item.difficulty_text != null ? String(item.difficulty_text).trim() : ''
+              return t || mapDifficultyFromApi(item.difficulty as string | number)
+            })(),
+            knowledge_unit: String(item.knowledge_unit ?? item.knowledgeUnit ?? '').trim(),
+            knowledge_point_tags: tags.length ? tags : kp,
+          }
+        }),
       )
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载题目失败')
@@ -4038,11 +4059,62 @@ function ExamPage() {
     void loadExamDefaults()
   }, [authToken])
 
+  const examCatalogFilterSig = useMemo(
+    () => JSON.stringify({ u: [...examKnowledgeUnits].sort(), t: [...examKnowledgeTags].sort() }),
+    [examKnowledgeUnits, examKnowledgeTags],
+  )
+
+  const loadKnowledgeFilterOptions = async () => {
+    if (!CAN_USE_API || !selectedSubjectId) {
+      setKnowledgeUnitSelectOptions([])
+      setKnowledgeTagSelectOptions([])
+      return
+    }
+    try {
+      const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+      const [uRes, tRes] = await Promise.all([
+        teacherAdminFetch(`${API_BASE_URL}/api/subjects?scope=knowledge_units&subjectId=${selectedSubjectId}`, { headers }),
+        teacherAdminFetch(`${API_BASE_URL}/api/subjects?scope=knowledge_tags&subjectId=${selectedSubjectId}`, { headers }),
+      ])
+      const uPayload = await uRes.json().catch(() => ({}))
+      const tPayload = await tRes.json().catch(() => ({}))
+      if (uRes.ok) {
+        setKnowledgeUnitSelectOptions(
+          (Array.isArray(uPayload?.data) ? uPayload.data : [])
+            .map((r: Record<string, unknown>) => String(r.name ?? '').trim())
+            .filter(Boolean)
+            .map((name) => ({ label: name, value: name })),
+        )
+      } else {
+        setKnowledgeUnitSelectOptions([])
+      }
+      if (tRes.ok) {
+        setKnowledgeTagSelectOptions(
+          (Array.isArray(tPayload?.data) ? tPayload.data : [])
+            .map((r: Record<string, unknown>) => String(r.name ?? '').trim())
+            .filter(Boolean)
+            .map((name) => ({ label: name, value: name })),
+        )
+      } else {
+        setKnowledgeTagSelectOptions([])
+      }
+    } catch {
+      setKnowledgeUnitSelectOptions([])
+      setKnowledgeTagSelectOptions([])
+    }
+  }
+
   useEffect(() => {
     if (!openCreate) return
+    void loadKnowledgeFilterOptions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCreate, selectedSubjectId])
+
+  useEffect(() => {
+    if (!openCreate || !selectedSubjectId) return
     void loadQuestions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openCreate, selectedSubjectId, subjectOptions.length])
+  }, [openCreate, selectedSubjectId, subjectOptions.length, examCatalogFilterSig])
 
   const baseColumns: Array<Record<string, unknown>> = [
     {
@@ -4055,7 +4127,7 @@ function ExamPage() {
     },
     { title: '科目', dataIndex: 'subject_name' },
     { title: '关联班级', render: (_: unknown, row: ExamRow) => row.class_names.join('、') || '-' },
-    { title: '时间', render: (_: unknown, row: ExamRow) => formatExamTimeRangeLocal(row.start_time, row.end_time) },
+    { title: '时间', render: (_: unknown, row: ExamRow) => formatBeijingRange(row.start_time, row.end_time) },
     { title: '提交人数/应考人数', render: (_: unknown, row: ExamRow) => `${row.submitted_count}/${row.expected_count}` },
   ]
   const visibleQuestionIds = questionOptions.map((item) => item.id)
@@ -4077,9 +4149,9 @@ function ExamPage() {
                 setQuestionScoreMap({})
                 setSelectedSubjectId(undefined)
                 setQuestionKeyword('')
-                setExamKnowledgeUnit('')
-                setExamKnowledgeTag('')
-                setDateTimeMin(getLocalDateTimeMin())
+                setExamKnowledgeUnits([])
+                setExamKnowledgeTags([])
+                setDateTimeMin(beijingNowDateTimeLocalValue())
                 form.resetFields()
                 form.setFieldValue('duration', examDefaults.defaultDurationMinutes)
                 setOpenCreate(true)
@@ -4159,15 +4231,15 @@ function ExamPage() {
                                   setSelectedQuestionIds(questionIds)
                                   setQuestionScoreMap(nextScoreMap)
                                   setQuestionKeyword('')
-                                  setExamKnowledgeUnit('')
-                                  setExamKnowledgeTag('')
-                                  setDateTimeMin(getLocalDateTimeMin())
+                                  setExamKnowledgeUnits([])
+                                  setExamKnowledgeTags([])
+                                  setDateTimeMin(beijingNowDateTimeLocalValue())
                                   form.setFieldsValue({
                                     title: String(exam?.title || ''),
                                     description: String(exam?.description || ''),
                                     subjectId: Number(exam?.subject_id),
-                                    startTime: toLocalDateTimeInput(String(exam?.start_time || '')),
-                                    endTime: toLocalDateTimeInput(String(exam?.end_time || '')),
+                                    startTime: toBeijingDateTimeInput(String(exam?.start_time || '')),
+                                    endTime: toBeijingDateTimeInput(String(exam?.end_time || '')),
                                     duration: Number(exam?.duration || 60),
                                     classIds: Array.isArray(exam?.classes)
                                       ? exam.classes.map((item: Record<string, unknown>) => Number(item.id)).filter((id: number) => !Number.isNaN(id))
@@ -4418,7 +4490,7 @@ function ExamPage() {
       <Modal
         title={editingExamId ? '编辑考试' : '创建考试'}
         open={openCreate}
-        width={980}
+        width={1080}
         onCancel={() => {
           setOpenCreate(false)
           setEditingExamId(null)
@@ -4448,8 +4520,8 @@ function ExamPage() {
               return
             }
             const now = new Date()
-            const start = parseDateTimeLocal(values.startTime)
-            const end = parseDateTimeLocal(values.endTime)
+            const start = parseBeijingDateTimeInput(values.startTime)
+            const end = parseBeijingDateTimeInput(values.endTime)
             if (Number.isNaN(start.getTime()) || start < now) {
               message.warning('开始时间不能早于当前时间')
               return
@@ -4463,21 +4535,21 @@ function ExamPage() {
               const response = await teacherAdminFetch(
                 editingExamId ? `${API_BASE_URL}/api/exams/${editingExamId}` : `${API_BASE_URL}/api/exams`,
                 {
-                method: editingExamId ? 'PUT' : 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                },
-                body: JSON.stringify({
-                  ...values,
-                  questionItems: selectedQuestionIds.map((questionId, index) => ({
-                    questionId,
-                    score: questionScoreMap[questionId] ?? examDefaults.defaultQuestionScore,
-                    sortOrder: index + 1,
-                  })),
-                  startTime: start.toISOString(),
-                  endTime: end.toISOString(),
-                }),
+                  method: editingExamId ? 'PUT' : 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                  },
+                  body: JSON.stringify({
+                    ...values,
+                    questionItems: selectedQuestionIds.map((questionId, index) => ({
+                      questionId,
+                      score: questionScoreMap[questionId] ?? examDefaults.defaultQuestionScore,
+                      sortOrder: index + 1,
+                    })),
+                    startTime: start.toISOString(),
+                    endTime: end.toISOString(),
+                  }),
                 },
               )
               const payload = await response.json().catch(() => ({}))
@@ -4493,178 +4565,224 @@ function ExamPage() {
             }
           }}
         >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="title" label="考试名称" rules={[{ required: true, message: '请输入考试名称' }]}>
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="subjectId" label="科目" rules={[{ required: true, message: '请选择科目' }]}>
-                <Select
-                  options={subjectOptions}
-                  onChange={(value: number) => {
-                    setSelectedSubjectId(value)
-                    setSelectedQuestionIds([])
-                    setQuestionScoreMap({})
-                    setExamKnowledgeUnit('')
-                    setExamKnowledgeTag('')
-                  }}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="startTime" label="开始时间" rules={[{ required: true, message: '请选择开始时间' }]}>
-                <Input type="datetime-local" min={dateTimeMin} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="endTime" label="结束时间" rules={[{ required: true, message: '请选择结束时间' }]}>
-                <Input type="datetime-local" min={dateTimeMin} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="duration" label="答题时长（分钟）" rules={[{ required: true, message: '请输入答题时长' }]}>
-                <Input type="number" min={1} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="classIds" label="关联班级" rules={[{ required: true, message: '请选择至少一个班级' }]}>
-                <Select mode="multiple" options={classOptions} />
-              </Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="description" label="考试说明">
-                <Input.TextArea rows={3} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-
-        <Card
-          title={`选题组卷（已选 ${selectedQuestionIds.length} 题，总分 ${selectedQuestionIds.reduce((sum, id) => sum + (questionScoreMap[id] ?? examDefaults.defaultQuestionScore), 0)}）`}
-        >
-          <Space style={{ marginBottom: 12 }} wrap align="start">
-            <Input.Search
-              value={questionKeyword}
-              onChange={(event) => setQuestionKeyword(event.target.value)}
-              onSearch={() => void loadQuestions()}
-              placeholder="题干关键词"
-              allowClear
-              style={{ width: 220 }}
-            />
-            <Input.Search
-              value={examKnowledgeUnit}
-              onChange={(event) => setExamKnowledgeUnit(event.target.value)}
-              onSearch={() => void loadQuestions()}
-              placeholder="知识单元（名称包含）"
-              allowClear
-              style={{ width: 200 }}
-            />
-            <Input.Search
-              value={examKnowledgeTag}
-              onChange={(event) => setExamKnowledgeTag(event.target.value)}
-              onSearch={() => void loadQuestions()}
-              placeholder="知识点（标签名包含）"
-              allowClear
-              style={{ width: 200 }}
-            />
-            <Button type="default" onClick={() => void loadQuestions()}>
-              查询题目
-            </Button>
-            <Button disabled={selectedQuestionIds.length === 0} onClick={() => void openExamQuestionPreview()}>
-              预览已选
-            </Button>
-            <Typography.Text type="secondary">仅当前科目；单元与知识点为「且」关系，可与题干关键词组合</Typography.Text>
-          </Space>
-          <Table
-            columns={[
+          <Tabs
+            defaultActiveKey="pick"
+            items={[
               {
-                title: (
-                  <Checkbox
-                    checked={allVisibleSelected}
-                    indeterminate={visibleIndeterminate}
-                    onChange={(event) => {
-                      const checked = event.target.checked
-                      if (checked) {
-                        setSelectedQuestionIds((prev) => Array.from(new Set([...prev, ...visibleQuestionIds])))
-                        setQuestionScoreMap((prev) => {
-                          const next = { ...prev }
-                          visibleQuestionIds.forEach((id) => {
-                            if (!next[id]) next[id] = examDefaults.defaultQuestionScore
-                          })
-                          return next
-                        })
-                      } else {
-                        setSelectedQuestionIds((prev) => prev.filter((id) => !visibleQuestionIds.includes(id)))
-                      }
-                    }}
-                  >
-                    全选
-                  </Checkbox>
-                ),
                 key: 'pick',
-                width: 140,
-                render: (_: unknown, row: { id: number }) => {
-                  return (
-                    <Checkbox
-                      checked={selectedQuestionIds.includes(row.id)}
-                      onChange={(event) => {
-                        const checked = event.target.checked
-                        setSelectedQuestionIds((prev) =>
-                          checked ? Array.from(new Set([...prev, row.id])) : prev.filter((id) => id !== row.id),
-                        )
-                        if (checked) {
-                          setQuestionScoreMap((prev) => ({
-                            ...prev,
-                            [row.id]: prev[row.id] ?? examDefaults.defaultQuestionScore,
-                          }))
-                        }
-                      }}
-                    />
-                  )
-                },
+                label: '选题组卷',
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Typography.Text type="secondary">
+                      已选 {selectedQuestionIds.length} 题，卷面总分{' '}
+                      {selectedQuestionIds.reduce(
+                        (sum, id) => sum + (questionScoreMap[id] ?? examDefaults.defaultQuestionScore),
+                        0,
+                      )}{' '}
+                      分。下方列表可滚动浏览完整题干；勾选题目后可在卡片内设置分值。
+                    </Typography.Text>
+                    <Form.Item name="subjectId" label="科目" rules={[{ required: true, message: '请选择科目' }]}>
+                      <Select
+                        placeholder="选择出题科目"
+                        options={subjectOptions}
+                        onChange={(value: number) => {
+                          setSelectedSubjectId(value)
+                          setSelectedQuestionIds([])
+                          setQuestionScoreMap({})
+                          setExamKnowledgeUnits([])
+                          setExamKnowledgeTags([])
+                        }}
+                      />
+                    </Form.Item>
+                    <Space wrap align="start" style={{ width: '100%' }}>
+                      <Input.Search
+                        value={questionKeyword}
+                        onChange={(event) => setQuestionKeyword(event.target.value)}
+                        onSearch={() => void loadQuestions()}
+                        placeholder="题干关键词"
+                        allowClear
+                        style={{ width: 240 }}
+                      />
+                      <Select
+                        mode="multiple"
+                        allowClear
+                        placeholder="知识单元（可多选，组内「或」）"
+                        options={knowledgeUnitSelectOptions}
+                        value={examKnowledgeUnits}
+                        onChange={(v) => setExamKnowledgeUnits(v)}
+                        style={{ minWidth: 260, maxWidth: 380 }}
+                        maxTagCount="responsive"
+                        disabled={!selectedSubjectId}
+                      />
+                      <Select
+                        mode="multiple"
+                        allowClear
+                        placeholder="知识点（可多选，组内「或」）"
+                        options={knowledgeTagSelectOptions}
+                        value={examKnowledgeTags}
+                        onChange={(v) => setExamKnowledgeTags(v)}
+                        style={{ minWidth: 260, maxWidth: 380 }}
+                        maxTagCount="responsive"
+                        disabled={!selectedSubjectId}
+                      />
+                      <Button type="primary" disabled={!selectedSubjectId} onClick={() => void loadQuestions()}>
+                        查询题目
+                      </Button>
+                      <Button disabled={selectedQuestionIds.length === 0} onClick={() => void openExamQuestionPreview()}>
+                        预览已选（滚动）
+                      </Button>
+                    </Space>
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      多个知识单元之间为「或」，多个知识点之间为「或」；单元条件与知识点条件同时存在时为「且」。可与题干关键词组合；修改条件后请再点「查询题目」。
+                    </Typography.Paragraph>
+                    {!selectedSubjectId ? (
+                      <Empty description="请先选择科目" />
+                    ) : (
+                      <div
+                        style={{
+                          maxHeight: 480,
+                          overflowY: 'auto',
+                          padding: 12,
+                          border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Space style={{ marginBottom: 12 }} align="center">
+                          <Checkbox
+                            checked={allVisibleSelected}
+                            indeterminate={visibleIndeterminate}
+                            onChange={(event) => {
+                              const checked = event.target.checked
+                              if (checked) {
+                                setSelectedQuestionIds((prev) => Array.from(new Set([...prev, ...visibleQuestionIds])))
+                                setQuestionScoreMap((prev) => {
+                                  const next = { ...prev }
+                                  visibleQuestionIds.forEach((id) => {
+                                    if (!next[id]) next[id] = examDefaults.defaultQuestionScore
+                                  })
+                                  return next
+                                })
+                              } else {
+                                setSelectedQuestionIds((prev) => prev.filter((id) => !visibleQuestionIds.includes(id)))
+                              }
+                            }}
+                          >
+                            全选当前列表
+                          </Checkbox>
+                          <Typography.Text type="secondary">共 {questionOptions.length} 道（单次最多 500 道）</Typography.Text>
+                        </Space>
+                        {questionOptions.length === 0 ? (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配题目，请调整筛选后点击「查询题目」" />
+                        ) : (
+                          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                            {questionOptions.map((row) => (
+                              <Card key={row.id} size="small" styles={{ body: { padding: 12 } }}>
+                                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                                  <Checkbox
+                                    checked={selectedQuestionIds.includes(row.id)}
+                                    onChange={(event) => {
+                                      const checked = event.target.checked
+                                      setSelectedQuestionIds((prev) =>
+                                        checked ? Array.from(new Set([...prev, row.id])) : prev.filter((id) => id !== row.id),
+                                      )
+                                      if (checked) {
+                                        setQuestionScoreMap((prev) => ({
+                                          ...prev,
+                                          [row.id]: prev[row.id] ?? examDefaults.defaultQuestionScore,
+                                        }))
+                                      }
+                                    }}
+                                    style={{ marginTop: 4 }}
+                                  />
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <Space wrap size={[4, 4]}>
+                                      <Typography.Text type="secondary">#{row.id}</Typography.Text>
+                                      <Tag color="processing">{row.type}</Tag>
+                                      <Tag>
+                                        <DifficultyStarsDisplay difficulty={row.difficulty} />
+                                      </Tag>
+                                      {row.knowledge_unit ? <Tag color="blue">{row.knowledge_unit}</Tag> : null}
+                                      {row.knowledge_point_tags.map((t) => (
+                                        <Tag key={`${row.id}-${t}`}>{t}</Tag>
+                                      ))}
+                                    </Space>
+                                    <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 8, marginTop: 8 }}>
+                                      {row.stem || '—'}
+                                    </Typography.Paragraph>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      disabled={!selectedQuestionIds.includes(row.id)}
+                                      addonBefore="分值"
+                                      style={{ maxWidth: 200 }}
+                                      value={questionScoreMap[row.id] ?? examDefaults.defaultQuestionScore}
+                                      onChange={(event) => {
+                                        const value = Number(event.target.value)
+                                        setQuestionScoreMap((prev) => ({
+                                          ...prev,
+                                          [row.id]: Number.isNaN(value) || value <= 0 ? examDefaults.defaultQuestionScore : value,
+                                        }))
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              </Card>
+                            ))}
+                          </Space>
+                        )}
+                      </div>
+                    )}
+                  </Space>
+                ),
               },
-              { title: '题型', dataIndex: 'type', width: 90 },
-              { title: '题干', dataIndex: 'stem' },
               {
-                title: '难度',
-                dataIndex: 'difficulty',
-                width: 130,
-                render: (v: string) => <DifficultyStarsDisplay difficulty={v} />,
-              },
-              {
-                title: '分值',
-                key: 'score',
-                width: 100,
-                render: (_: unknown, row: { id: number }) => (
-                  <Input
-                    type="number"
-                    min={1}
-                    disabled={!selectedQuestionIds.includes(row.id)}
-                    value={questionScoreMap[row.id] ?? examDefaults.defaultQuestionScore}
-                    onChange={(event) => {
-                      const value = Number(event.target.value)
-                      setQuestionScoreMap((prev) => ({
-                        ...prev,
-                        [row.id]: Number.isNaN(value) || value <= 0 ? examDefaults.defaultQuestionScore : value,
-                      }))
-                    }}
-                  />
+                key: 'meta',
+                label: '考试信息与发布',
+                children: (
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="title" label="考试名称" rules={[{ required: true, message: '请输入考试名称' }]}>
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="startTime" label="开始时间" rules={[{ required: true, message: '请选择开始时间' }]}>
+                        <Input type="datetime-local" min={dateTimeMin} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="endTime" label="结束时间" rules={[{ required: true, message: '请选择结束时间' }]}>
+                        <Input type="datetime-local" min={dateTimeMin} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="duration" label="答题时长（分钟）" rules={[{ required: true, message: '请输入答题时长' }]}>
+                        <Input type="number" min={1} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="classIds" label="关联班级" rules={[{ required: true, message: '请选择至少一个班级' }]}>
+                        <Select mode="multiple" options={classOptions} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={24}>
+                      <Form.Item name="description" label="考试说明">
+                        <Input.TextArea rows={3} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                 ),
               },
             ]}
-            dataSource={questionOptions}
-            pagination={{ pageSize: 6 }}
-            size="small"
           />
-        </Card>
+        </Form>
       </Modal>
       <QuestionPreviewModal
         open={examQuestionPreviewOpen}
         title={`预览已选题目（${selectedQuestionIds.length} 道）`}
         loading={examQuestionPreviewLoading}
         items={examQuestionPreviewItems}
+        layout="scroll"
         onClose={() => {
           setExamQuestionPreviewOpen(false)
           setExamQuestionPreviewItems([])
@@ -4798,8 +4916,8 @@ function ExamDetailPage() {
       姓名: item.student_name,
       学号: item.student_no,
       提交状态: item.submission_status_text,
-      开始作答时间: item.submission_start_time ? formatExamIsoToLocal(item.submission_start_time) : '',
-      提交时间: item.submit_time ? formatExamIsoToLocal(item.submit_time) : '',
+      开始作答时间: item.submission_start_time ? formatBeijingDateTime(item.submission_start_time) : '',
+      提交时间: item.submit_time ? formatBeijingDateTime(item.submit_time) : '',
       得分: typeof item.total_score === 'number' ? item.total_score : '',
     }))
     const sheet = XLSX.utils.json_to_sheet(rows)
@@ -4846,7 +4964,7 @@ function ExamDetailPage() {
                 </Col>
               </Row>
               <Typography.Paragraph style={{ marginTop: 12, marginBottom: 6 }}>
-                时间：{formatExamTimeRangeLocal(detail.start_time, detail.end_time)}
+                时间：{formatBeijingRange(detail.start_time, detail.end_time)}
               </Typography.Paragraph>
               <Typography.Text type="secondary">考试说明：{detail.description || '无'}</Typography.Text>
             </Card>
@@ -4956,12 +5074,12 @@ function ExamDetailPage() {
                   {
                     title: '开始作答时间',
                     dataIndex: 'submission_start_time',
-                    render: (value?: string) => (value ? formatExamIsoToLocal(value) : '-'),
+                    render: (value?: string) => (value ? formatBeijingDateTime(value) : '-'),
                   },
                   {
                     title: '提交时间',
                     dataIndex: 'submit_time',
-                    render: (value?: string) => (value ? formatExamIsoToLocal(value) : '-'),
+                    render: (value?: string) => (value ? formatBeijingDateTime(value) : '-'),
                   },
                   {
                     title: '得分',
@@ -5457,7 +5575,7 @@ function AnalyticsPage() {
       XLSX.utils.book_append_sheet(workbook, summarySheet, '错题总览')
       const classSheet = XLSX.utils.json_to_sheet(classSheetRows)
       XLSX.utils.book_append_sheet(workbook, classSheet, '班级对比')
-      XLSX.writeFile(workbook, `question_insights_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `question_insights_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出错题分析失败')
     }
@@ -5513,7 +5631,7 @@ function AnalyticsPage() {
         处理状态: item.handle_status === 'resolved' ? '已完成' : item.handle_status === 'in_progress' ? '跟进中' : '待跟进',
         触发原因: Array.isArray(item.warning_reasons) ? item.warning_reasons.join('；') : '',
         处理备注: String(item.handle_note || ''),
-        处理时间: item.handled_at ? item.handled_at.slice(0, 19).replace('T', ' ') : '',
+        处理时间: item.handled_at ? formatBeijingDateTime(item.handled_at, true) : '',
         近期待均分: item.recent_avg_score,
         最近成绩1: item.latest_score_1 ?? '',
         最近成绩2: item.latest_score_2 ?? '',
@@ -5523,7 +5641,7 @@ function AnalyticsPage() {
       const sheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, sheet, '学生预警')
-      XLSX.writeFile(workbook, `student_warnings_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `student_warnings_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出学生预警失败')
     }
@@ -5535,8 +5653,8 @@ function AnalyticsPage() {
         考试ID: item.exam_id,
         考试名称: item.exam_title,
         科目: item.subject_name,
-        开始时间: item.start_time ? formatExamIsoToLocal(item.start_time, true) : '',
-        结束时间: item.end_time ? formatExamIsoToLocal(item.end_time, true) : '',
+        开始时间: item.start_time ? formatBeijingDateTime(item.start_time, true) : '',
+        结束时间: item.end_time ? formatBeijingDateTime(item.end_time, true) : '',
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -5549,7 +5667,7 @@ function AnalyticsPage() {
       const sheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, sheet, '考试质量总览')
-      XLSX.writeFile(workbook, `exam_quality_overview_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `exam_quality_overview_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出考试质量总览失败')
     }
@@ -5573,7 +5691,7 @@ function AnalyticsPage() {
       const sheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, sheet, '题目区分度')
-      XLSX.writeFile(workbook, `exam_item_quality_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `exam_item_quality_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出题目区分度失败')
     }
@@ -5597,7 +5715,7 @@ function AnalyticsPage() {
       const sheet = XLSX.utils.json_to_sheet(rows)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, sheet, '班级对比排名')
-      XLSX.writeFile(workbook, `exam_class_ranking_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `exam_class_ranking_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出班级排名失败')
     }
@@ -5610,8 +5728,8 @@ function AnalyticsPage() {
         考试ID: item.exam_id,
         考试名称: item.exam_title,
         科目: item.subject_name,
-        开始时间: item.start_time ? formatExamIsoToLocal(item.start_time, true) : '',
-        结束时间: item.end_time ? formatExamIsoToLocal(item.end_time, true) : '',
+        开始时间: item.start_time ? formatBeijingDateTime(item.start_time, true) : '',
+        结束时间: item.end_time ? formatBeijingDateTime(item.end_time, true) : '',
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -5652,7 +5770,7 @@ function AnalyticsPage() {
         优秀率: `${item.excellent_rate}%`,
       }))
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rankingRows), '班级对比排名')
-      XLSX.writeFile(workbook, `exam_quality_report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `exam_quality_report_${beijingCalendarDateKey()}.xlsx`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出质量报告失败')
     }
@@ -5815,7 +5933,7 @@ function AnalyticsPage() {
                   <LineChart
                     data={trendRows.map((item) => ({
                       ...item,
-                      x_label: `${item.exam_title}-${item.start_time ? formatExamMonthDaySlash(item.start_time) : ''}`,
+                      x_label: `${item.exam_title}-${item.start_time ? formatBeijingMonthDaySlash(item.start_time) : ''}`,
                     }))}
                   >
                     <XAxis dataKey="x_label" />
@@ -5899,7 +6017,7 @@ function AnalyticsPage() {
             {
               title: '开始时间',
               dataIndex: 'start_time',
-              render: (v: string) => (v ? formatExamIsoToLocal(v) : '-'),
+              render: (v: string) => (v ? formatBeijingDateTime(v) : '-'),
               width: 150,
             },
             { title: '应考', dataIndex: 'expected_count', width: 70 },
@@ -6063,7 +6181,7 @@ function AnalyticsPage() {
               title: '处理时间',
               dataIndex: 'handled_at',
               width: 160,
-              render: (value?: string) => (value ? value.slice(0, 19).replace('T', ' ') : '-'),
+              render: (value?: string) => (value ? formatBeijingDateTime(value, true) : '-'),
             },
             {
               title: '处理备注',
@@ -6230,7 +6348,7 @@ function AnalyticsPage() {
                   <LineChart
                     data={trendRows.map((item) => ({
                       ...item,
-                      x_label: `${item.exam_title}-${item.start_time ? formatExamMonthDaySlash(item.start_time) : ''}`,
+                      x_label: `${item.exam_title}-${item.start_time ? formatBeijingMonthDaySlash(item.start_time) : ''}`,
                     }))}
                   >
                     <XAxis dataKey="x_label" />
@@ -6377,13 +6495,13 @@ function AnalyticsPage() {
               title: '创建时间',
               dataIndex: 'created_at',
               width: 170,
-              render: (value: string) => (value ? value.slice(0, 19).replace('T', ' ') : '-'),
+              render: (value: string) => (value ? formatBeijingDateTime(value, true) : '-'),
             },
             {
               title: '完成时间',
               dataIndex: 'done_at',
               width: 170,
-              render: (value?: string) => (value ? value.slice(0, 19).replace('T', ' ') : '-'),
+              render: (value?: string) => (value ? formatBeijingDateTime(value, true) : '-'),
             },
             {
               title: '操作',
@@ -6701,7 +6819,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       const workbook = XLSX.utils.book_new()
       const sheet = XLSX.utils.json_to_sheet(
         merged.map((row) => ({
-          下载时间: row.created_at ? row.created_at.slice(0, 19).replace('T', ' ') : '',
+          下载时间: row.created_at ? formatBeijingDateTime(row.created_at, true) : '',
           操作人: row.operator_name,
           手机号: row.operator_phone,
           资料ID: row.resource_id,
@@ -6710,7 +6828,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
         })),
       )
       XLSX.utils.book_append_sheet(workbook, sheet, '资料下载审计')
-      XLSX.writeFile(workbook, `resource_download_audit_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(workbook, `resource_download_audit_${beijingCalendarDateKey()}.xlsx`)
       message.success(`已导出 ${merged.length} 条（单次最多 2000 条）`)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '导出失败')
@@ -7000,7 +7118,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
               Array.isArray(items) && items.length > 0 ? items.map((item) => `${item.class_name}（${item.class_grade || '-'}）`).join('、') : '全部可见',
           },
           { title: '上传人', dataIndex: 'uploader_name', width: 110, render: (v: string) => v || '-' },
-          { title: '上传时间', dataIndex: 'created_at', width: 170, render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-') },
+          { title: '上传时间', dataIndex: 'created_at', width: 170, render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
           {
             title: '操作',
             key: 'action',
@@ -7102,7 +7220,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
             title: '下载时间',
             dataIndex: 'created_at',
             width: 170,
-            render: (v: string) => (v ? v.slice(0, 19).replace('T', ' ') : '-'),
+            render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-'),
           },
           { title: '操作人', dataIndex: 'operator_name', width: 100, ellipsis: true },
           { title: '手机号', dataIndex: 'operator_phone', width: 118 },
@@ -7881,7 +7999,7 @@ function SystemSettingsPage() {
       try {
         const sourceRows = await fetchRows()
         const rows = sourceRows.map((row) => ({
-          时间: row.created_at ? row.created_at.slice(0, 19).replace('T', ' ') : '',
+          时间: row.created_at ? formatBeijingDateTime(row.created_at, true) : '',
           操作人: row.operator_name || '系统',
           操作类型: actionLabelMap[row.action] || row.action || '',
           目标模块: row.target_type ? targetLabelMap[row.target_type] || row.target_type : '',
@@ -7891,7 +8009,7 @@ function SystemSettingsPage() {
         const sheet = XLSX.utils.json_to_sheet(rows)
         const workbook = XLSX.utils.book_new()
         XLSX.utils.book_append_sheet(workbook, sheet, '操作日志')
-        XLSX.writeFile(workbook, `operation_logs_${new Date().toISOString().slice(0, 10)}.xlsx`)
+        XLSX.writeFile(workbook, `operation_logs_${beijingCalendarDateKey()}.xlsx`)
       } catch (error) {
         message.error(error instanceof Error ? error.message : '导出日志失败')
       }
@@ -8286,7 +8404,7 @@ function SystemSettingsPage() {
                 title: '时间',
                 dataIndex: 'created_at',
                 width: 170,
-                render: (value: string) => (value ? value.slice(0, 19).replace('T', ' ') : '-'),
+                render: (value: string) => (value ? formatBeijingDateTime(value, true) : '-'),
               },
               { title: '操作人', dataIndex: 'operator_name', width: 120 },
               {

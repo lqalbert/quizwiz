@@ -15,6 +15,7 @@ Page({
     apiBaseInput: "",
     nicknameInput: "",
     inviteInput: "",
+    realNameInput: "",
   },
 
   onLoad() {
@@ -62,7 +63,7 @@ Page({
   },
 
   goJoinFromAuthed() {
-    this.setData({ step: "join", inviteInput: "" });
+    this.setData({ step: "join", inviteInput: "", realNameInput: "" });
   },
 
   onNickInput(e) {
@@ -70,6 +71,9 @@ Page({
   },
   onInviteInput(e) {
     this.setData({ inviteInput: e.detail.value });
+  },
+  onRealNameInput(e) {
+    this.setData({ realNameInput: e.detail.value });
   },
 
   goHome() {
@@ -107,7 +111,7 @@ Page({
       wx.setStorageSync("need_join_class", needJoin ? "1" : "0");
       wx.hideLoading();
       if (needJoin) {
-        this.setData({ step: "join", inviteInput: "" });
+        this.setData({ step: "join", inviteInput: "", realNameInput: "" });
         return;
       }
       this.setData({ step: "authed" });
@@ -120,6 +124,15 @@ Page({
 
   async onJoinClass() {
     const invite = String(this.data.inviteInput || "").trim();
+    const realName = String(this.data.realNameInput || "").trim();
+    if (!realName) {
+      wx.showToast({ title: "请填写真实姓名", icon: "none" });
+      return;
+    }
+    if (realName.length > 64) {
+      wx.showToast({ title: "真实姓名不超过64字", icon: "none" });
+      return;
+    }
     if (!invite) {
       wx.showToast({ title: "请填写邀请码", icon: "none" });
       return;
@@ -129,7 +142,7 @@ Page({
       const res = await request({
         path: "/api/student/join-by-invite",
         method: "POST",
-        data: { inviteCode: invite },
+        data: { inviteCode: invite, realName },
       });
       wx.hideLoading();
       const mode = res.data && res.data.mode;

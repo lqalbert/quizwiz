@@ -10,10 +10,28 @@
       <view class="page-hero-accent"></view>
       <view class="page-hero-body">
         <text class="page-hero-title">刷题</text>
-        <text class="page-hero-lead muted">选择科目与单元</text>
+        <text class="page-hero-lead muted">选择科目与单元；做题中途切换底部其他 Tab 会保存进度；从子页返回刷题页也会补存。回到本页可点「继续练习」。</text>
       </view>
     </view>
-    <view class="catalog-wrap">
+    <view wx:if="{{practiceResumeHint}}" class="ios-card resume-hint">
+      <text class="resume-hint-title">未完成的练习</text>
+      <text class="resume-hint-meta muted">{{practiceResumeHint.label}} · 进度约 {{practiceResumeHint.current}}/{{practiceResumeHint.total}} 题</text>
+      <view class="resume-hint-row">
+        <view class="ui-btn-secondary resume-hint-btn" bindtap="discardPracticeDraft">放弃草稿</view>
+        <view class="btn-primary resume-hint-btn resume-hint-btn--go" bindtap="resumePracticeDraft">继续练习</view>
+      </view>
+    </view>
+    <view wx:if="{{!catalogLoaded}}" class="muted catalog-boot-hint">科目列表加载中…</view>
+    <view wx:if="{{catalogLoaded && catalogLoadError}}" class="ios-card catalog-err">
+      <text class="muted">{{catalogLoadError}}</text>
+      <view class="btn-primary mt" bindtap="retryCatalogBootstrap">重试加载</view>
+    </view>
+    <view wx:elif="{{catalogLoaded && !subjects.length}}" class="ios-card catalog-empty">
+      <text class="catalog-empty-title">暂无可用科目</text>
+      <text class="muted catalog-empty-desc">请联系老师分配题库，或稍后再试。</text>
+      <view class="btn-primary mt" bindtap="retryCatalogBootstrap">重新加载</view>
+    </view>
+    <view wx:elif="{{catalogLoaded && subjects.length}}" class="catalog-wrap">
       <scroll-view scroll-y class="catalog-left">
         <view
           wx:for="{{subjects}}"
@@ -42,6 +60,7 @@
         </view>
       </scroll-view>
     </view>
+    <view wx:if="{{catalogLoaded && subjects.length && units.length}}" class="catalog-foot muted">点左侧科目、右侧单元进入练习方式。</view>
   </block>
 
   <!-- 刷题模式四宫格：针对当前知识单元 -->
@@ -178,41 +197,45 @@
   </block>
 
   <block wx:elif="{{step === 'mock'}}">
-    <view class="nav-row nav-back-row" bindtap="backFromMock">
-      <text class="nav-back">‹</text>
-      <text class="nav-back-hint">返回上一级</text>
-    </view>
-    <view class="page-hero page-hero--compact">
-      <view class="page-hero-accent"></view>
-      <view class="page-hero-body">
-        <text class="page-hero-eyebrow">模拟练习</text>
-        <text class="page-hero-title">分配题数</text>
-        <text class="page-hero-lead muted">填写各知识点抽题数；0 表示不抽。每点不超过本题库题量，单次每点最多 50 题。</text>
+    <view class="mock-step">
+      <view class="nav-row nav-back-row" bindtap="backFromMock">
+        <text class="nav-back">‹</text>
+        <text class="nav-back-hint">返回上一级</text>
       </view>
-    </view>
-    <scroll-view scroll-y class="mock-scroll" show-scrollbar="{{false}}">
-      <view wx:for="{{mockRows}}" wx:key="name" class="mock-card">
-        <text class="mock-card-title">{{item.displayLabel}}</text>
-        <text class="mock-card-bank muted">本题库该点共 {{item.bankCount}} 题 · 本次最多可填 {{item.maxCount}} 题</text>
-        <view class="mock-field">
-          <text class="mock-field-caption">抽题数量</text>
-          <input
-            class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
-            type="number"
-            placeholder="{{item.countPlaceholder}}"
-            placeholder-class="mock-ph"
-            value="{{item.countInput}}"
-            disabled="{{item.maxCount <= 0}}"
-            data-name="{{item.name}}"
-            data-max="{{item.maxCount}}"
-            bindinput="onMockCountInput"
-            bindblur="onMockCountBlur"
-            adjust-position="{{true}}"
-          />
+      <view class="page-hero page-hero--compact">
+        <view class="page-hero-accent"></view>
+        <view class="page-hero-body">
+          <text class="page-hero-eyebrow">模拟练习</text>
+          <text class="page-hero-title">分配题数</text>
+          <text class="page-hero-lead muted">填写各知识点抽题数；0 表示不抽。每点不超过本题库题量，单次每点最多 50 题。</text>
         </view>
       </view>
-    </scroll-view>
-    <view class="btn-primary mt" bindtap="fromMockNext">下一步</view>
+      <scroll-view scroll-y class="mock-scroll" show-scrollbar="{{false}}">
+        <view wx:for="{{mockRows}}" wx:key="name" class="mock-card">
+          <text class="mock-card-title">{{item.displayLabel}}</text>
+          <text class="mock-card-bank muted">本题库该点共 {{item.bankCount}} 题 · 本次最多可填 {{item.maxCount}} 题</text>
+          <view class="mock-field">
+            <text class="mock-field-caption">抽题数量</text>
+            <input
+              class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
+              type="number"
+              placeholder="{{item.countPlaceholder}}"
+              placeholder-class="mock-ph"
+              value="{{item.countInput}}"
+              disabled="{{item.maxCount <= 0}}"
+              data-name="{{item.name}}"
+              data-max="{{item.maxCount}}"
+              bindinput="onMockCountInput"
+              bindblur="onMockCountBlur"
+              adjust-position="{{true}}"
+            />
+          </view>
+        </view>
+      </scroll-view>
+      <view class="mock-footer">
+        <view class="btn-primary mock-footer-btn" bindtap="fromMockNext">下一步</view>
+      </view>
+    </view>
   </block>
 
   <block wx:elif="{{step === 'play'}}">
@@ -236,7 +259,11 @@
     </view>
     <text wx:if="{{practiceModule === 'sequential'}}" class="ui-callout ui-callout--center">顺序刷题：点「跳转」输入题号</text>
 
-    <block wx:if="{{currentQuestion}}">
+    <view wx:if="{{playLoadError}}" class="ios-card play-load-err">
+      <text class="muted">题目加载失败：{{playLoadError}}</text>
+      <view class="btn-primary mt" bindtap="retryLoadQuestion">重新加载</view>
+    </view>
+    <block wx:elif="{{currentQuestion}}">
       <view class="ios-card play-card">
         <text class="type-pill muted">{{currentQuestion.question_type_text}}</text>
         <text class="stem-text">{{currentQuestion.stem}}</text>
@@ -305,6 +332,23 @@
     </view>
   </block>
 
+  <block wx:elif="{{step === 'practice_wrapup'}}">
+    <view class="page-hero page-hero--compact">
+      <view class="page-hero-accent"></view>
+      <view class="page-hero-body">
+        <text class="page-hero-eyebrow">本轮练习</text>
+        <text class="page-hero-title">已完成</text>
+        <text class="page-hero-meta muted" wx:if="{{sessionOrigin === 'review_today'}}">今日待复习</text>
+        <text class="page-hero-meta muted" wx:elif="{{sessionOrigin === 'wrong_book'}}">错题本</text>
+      </view>
+    </view>
+    <view class="ios-card wrapup-card">
+      <text class="wrapup-line">答对 <text class="wrapup-num wrapup-num--ok">{{wrapUpRight}}</text> 题 · 答错 <text class="wrapup-num wrapup-num--bad">{{wrapUpWrong}}</text> 题</text>
+      <text class="muted wrapup-tip">错题会留在错题本；待复习题已按规则排期，坚持更有效。</text>
+    </view>
+    <view class="btn-primary mt" bindtap="onWrapUpDone">完成</view>
+  </block>
+
   <block wx:elif="{{step === 'exam_result'}}">
     <view class="page-hero page-hero--compact">
       <view class="page-hero-accent"></view>
@@ -326,6 +370,6 @@
         </block>
       </view>
     </scroll-view>
-    <view class="btn-primary mt" bindtap="restartWizard">返回上一级</view>
+    <view class="btn-primary mt" bindtap="onExamResultDone">返回上一级</view>
   </block>
 </view>

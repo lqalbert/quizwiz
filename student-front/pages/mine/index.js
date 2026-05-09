@@ -54,13 +54,13 @@ Page({
       const st = (res.data && res.data.student) || {};
       const classes = (res.data && res.data.classes) || [];
       const need = Boolean(res.data && res.data.need_join_class);
-      const name = String(st.name || "同学").trim() || "同学";
+      const display = String(st.display_name || "").trim() || String(st.name || "同学").trim() || "同学";
       wx.setStorageSync("need_join_class", need ? "1" : "0");
       this.setData({
         loggedIn: true,
-        displayName: name,
+        displayName: display,
         studentNo: String(st.student_no || "").trim(),
-        avatarLetter: firstChar(name),
+        avatarLetter: firstChar(display),
         classes,
         needJoinClass: need,
       });
@@ -113,10 +113,10 @@ Page({
       const res = await request({
         path: "/api/student/profile",
         method: "PATCH",
-        data: { name },
+        data: { realName: name },
       });
       const st = (res.data && res.data.student) || {};
-      const newName = String(st.name || name).trim() || name;
+      const newName = String(st.display_name || "").trim() || String(st.name || name).trim() || name;
       wx.hideLoading();
       this.setData({
         displayName: newName,

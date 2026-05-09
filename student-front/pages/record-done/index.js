@@ -299,4 +299,8 @@ Page({
       },
     });
   },
+
+  goBrowseQuiz() {
+    wx.switchTab({ url: "/pages/quiz/index" });
+  },
 });

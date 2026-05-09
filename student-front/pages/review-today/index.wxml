@@ -13,11 +13,15 @@
     <view class="review-today-pill">共 {{count}} 题</view>
     <view class="review-today-actions">
       <view class="btn-primary" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
-      <view class="review-today-btn-row" wx:if="{{count > 0}}">
-        <view class="ui-btn-secondary" style="flex:1;text-align:center;" bindtap="requestReviewReminder">订阅复习提醒</view>
+    </view>
+    <view wx:if="{{count === 0}}" class="ios-card review-empty">
+      <text class="review-empty-title">暂无待复习错题</text>
+      <text class="muted review-empty-desc">说明当前没有到期的错题，或错题本里已清空。去刷题积累错题后，系统会按节奏提醒你复习。</text>
+      <view class="review-empty-actions">
+        <view class="ui-btn-secondary review-empty-btn" bindtap="goWrongBook">错题本</view>
+        <view class="btn-primary review-empty-btn" bindtap="goBrowseQuiz">去刷题</view>
       </view>
     </view>
-    <view wx:if="{{count === 0}}" class="ios-card review-empty">暂无待复习错题，继续保持。</view>
     <view wx:else class="ios-card" style="padding:8rpx 28rpx 28rpx;">
       <block wx:for="{{questions}}" wx:key="question_id">
         <view class="review-item" bindtap="startOne" data-id="{{item.question_id}}">

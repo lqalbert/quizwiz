@@ -1,5 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { bumpOpenStreak, buildTodaySnapshot, setPracticeGoal } = require("../../utils/dailyMission.js");
+const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 
 /** 兼容接口体为 { data: {...} } 或直接为业务对象两种形态 */
 function unwrapStudentPayload(root) {
@@ -29,13 +31,14 @@ Page({
     examOverview: null,
     examListError: "",
     examListLoading: false,
+    /** 首次进入首页：非弹窗引导卡片 */
+    homeGuideVisible: false,
+    /** 今日收获：练题目标、连续打开、任务完成度（由 practice_periods.today + 本地存储计算） */
+    todaySnapshot: null,
   },
 
   onLoad() {
-    const d = new Date();
-    const pad = (n) => (n < 10 ? `0${n}` : `${n}`);
-    const dateText = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    this.setData({ dateText });
+    this.setData({ dateText: beijingCalendarDateKey(new Date()) });
   },
 
   onShow() {
@@ -46,8 +49,10 @@ Page({
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
+      bumpOpenStreak();
       this.loadHomeSummary();
       this.loadStudentExams();
+      this.updateHomeGuideVisibility();
     } else {
       this.setData({
         examTasks: [],
@@ -59,6 +64,8 @@ Page({
         totals: null,
         practice_periods: null,
         practicePanel: {},
+        homeGuideVisible: false,
+        todaySnapshot: null,
       });
     }
   },
@@ -211,15 +218,21 @@ Page({
       const d = unwrapStudentPayload(res);
       const totals = d.totals || null;
       const practice_periods = d.practice_periods != null ? d.practice_periods : null;
+      const today = practice_periods && practice_periods.today;
+      const todaySnapshot = today
+        ? buildTodaySnapshot({ dateText: this.data.dateText, todayPeriod: today })
+        : null;
       this.setData(
         {
           totals,
           practice_periods,
           statsLoading: false,
+          todaySnapshot,
         },
         () => {
           this.applyPracticeTab();
           this.tryRemindReviewDueIfNeeded();
+          this.updateHomeGuideVisibility();
         },
       );
     } catch (e) {
@@ -229,8 +242,31 @@ Page({
         totals: null,
         practice_periods: null,
         practicePanel: {},
+        todaySnapshot: null,
       });
     }
+  },
+
+  refreshTodaySnapshotOnly() {
+    const pp = this.data.practice_periods;
+    const today = pp && pp.today;
+    if (!today) return;
+    const todaySnapshot = buildTodaySnapshot({ dateText: this.data.dateText, todayPeriod: today });
+    this.setData({ todaySnapshot });
+  },
+
+  onAdjustPracticeGoal() {
+    wx.showActionSheet({
+      itemList: ["5 题/天", "10 题/天", "15 题/天", "20 题/天"],
+      success: (res) => {
+        const map = [5, 10, 15, 20];
+        const v = map[res.tapIndex];
+        if (!v) return;
+        setPracticeGoal(v);
+        this.refreshTodaySnapshotOnly();
+        wx.showToast({ title: `已设为每天 ${v} 题`, icon: "none" });
+      },
+    });
   },
 
   goLogin() {
@@ -264,6 +300,25 @@ Page({
       return;
     }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
+  },
+
+  updateHomeGuideVisibility() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ homeGuideVisible: false });
+      return;
+    }
+    let seen = false;
+    try {
+      seen = Boolean(wx.getStorageSync("ux_guide_home_v1"));
+    } catch (_) {}
+    this.setData({ homeGuideVisible: !seen });
+  },
+
+  dismissHomeGuide() {
+    try {
+      wx.setStorageSync("ux_guide_home_v1", "1");
+    } catch (_) {}
+    this.setData({ homeGuideVisible: false });
   },
 
   tryRemindReviewDueIfNeeded() {

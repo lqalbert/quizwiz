@@ -20,8 +20,9 @@
         </view>
       </scroll-view>
       <scroll-view scroll-y class="catalog-right">
-        <view wx:if="{{!units.length}}" class="point-row empty-right">
-          <text class="muted">该科目下暂无知识单元</text>
+        <view wx:if="{{!units.length}}" class="ios-card record-catalog-empty">
+          <text class="record-empty-title">该科目下暂无知识单元</text>
+          <text class="muted">可换一个科目，或稍后再试。</text>
         </view>
         <view
           wx:for="{{units}}"
@@ -54,6 +55,11 @@
       <view class="ui-strip-btn" bindtap="onBatchDonePractice">本单元已做题一起练</view>
     </view>
     <view wx:if="{{listLoading}}" class="loading-pill muted">加载中…</view>
+    <view wx:elif="{{!list.length}}" class="ios-card record-empty-card">
+      <text class="record-empty-title">该单元暂无做题记录</text>
+      <text class="muted record-empty-desc">去刷题后，做过的题会出现在这里，方便回头巩固。</text>
+      <view class="btn-primary mt" bindtap="goBrowseQuiz">去刷题</view>
+    </view>
     <scroll-view
       wx:else
       scroll-y
@@ -61,9 +67,6 @@
       lower-threshold="120"
       bindscrolltolower="onDoneScrollToLower"
     >
-      <view wx:if="{{!list.length}}" class="point-row empty-right">
-        <text class="muted">该单元暂无做题记录</text>
-      </view>
       <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
         <text class="record-stem line-clamp">{{item.stem}}</text>
         <text class="record-meta muted">{{item.question_type_text}} · 共 {{item.attempts}} 次 · 对 {{item.correct_count}} · 错 {{item.wrong_count}}</text>

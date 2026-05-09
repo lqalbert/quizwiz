@@ -18,7 +18,7 @@
     <view class="ios-card">
       <view class="field-row">
         <text class="field-label">昵称</text>
-        <input class="field-input" placeholder="展示给老师的名字" placeholder-class="ph" value="{{nicknameInput}}" bindinput="onNickInput" />
+        <input class="field-input" placeholder="选填，默认可用微信名" placeholder-class="ph" value="{{nicknameInput}}" bindinput="onNickInput" />
       </view>
     </view>
 
@@ -29,7 +29,14 @@
   <block wx:else>
     <view class="hero-block">
       <text class="hero-title">加入班级</text>
-      <text class="hero-lead muted">向老师索取邀请码；须成功入班后才能使用其余功能</text>
+      <text class="hero-lead muted">请填写真实姓名与班级邀请码；须成功入班后才能使用其余功能</text>
+    </view>
+
+    <text class="section-label">真实姓名</text>
+    <view class="ios-card">
+      <view class="field-row field-row-single">
+        <input class="field-input field-input-full" placeholder="与身份证或学校登记一致，便于老师识别" placeholder-class="ph" value="{{realNameInput}}" maxlength="64" bindinput="onRealNameInput" />
+      </view>
     </view>
 
     <text class="section-label">邀请码</text>

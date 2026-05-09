@@ -2,6 +2,10 @@ const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
+const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
+const { showPostSessionDailyFeedback } = require("../../utils/dailyFeedback.js");
+const { markReviewPracticeCompleted, localDateKey } = require("../../utils/dailyMission.js");
+const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
@@ -57,6 +61,16 @@ Page({
     seqProgressHint: "",
     seqJumpOpen: false,
     seqJumpInput: "",
+    /** review_today | wrong_book | '' — 用于本轮结束小结 */
+    sessionOrigin: "",
+    sessionRight: 0,
+    sessionWrong: 0,
+    playLoadError: "",
+    catalogLoadError: "",
+    catalogLoaded: false,
+    practiceResumeHint: null,
+    wrapUpRight: 0,
+    wrapUpWrong: 0,
   },
 
   onShow() {
@@ -73,9 +87,10 @@ Page({
       const app = getApp();
       const pending = app && app.globalData && app.globalData.pendingPractice;
       if (pending && Array.isArray(pending.questionIds) && pending.questionIds.length > 0) {
+        const origin = pending.sessionOrigin ? String(pending.sessionOrigin) : "";
         app.globalData.pendingPractice = null;
         const fm = pending.feedbackMode === "exam" ? "exam" : "immediate";
-        this.startFromWrongBook(pending.questionIds, fm);
+        this.startFromWrongBook(pending.questionIds, fm, origin);
         return;
       }
     } catch (_) {}
@@ -84,10 +99,41 @@ Page({
     if (atWizardEntry && subjects.length === 0) {
       this.bootstrap();
     }
+    if (atWizardEntry) {
+      this.checkPracticeResumeBanner();
+    }
     if (this.data.step === "subsections") {
       this.refreshSubsectionRows();
     }
     syncNavTitle();
+    /** 从子页返回刷题 Tab 时补存（离开子页时未走 onTabItemTap） */
+    this.savePracticeDraftIfPlaying();
+  },
+
+  /** 底部切到其他 Tab 时落盘草稿 */
+  onTabItemTap(item) {
+    const p = String((item && item.pagePath) || "").replace(/^\//, "");
+    if (p === "pages/quiz/index") return;
+    this.savePracticeDraftIfPlaying();
+  },
+
+  savePracticeDraftIfPlaying() {
+    const d = this.data;
+    if (d.step !== "play" || !d.questionIds || !d.questionIds.length) return;
+    if (d.currentIndex >= d.questionIds.length) return;
+    savePracticeDraft({
+      questionIds: d.questionIds,
+      currentIndex: d.currentIndex,
+      feedbackMode: d.feedbackMode,
+      practiceModule: d.practiceModule,
+      sessionOrigin: d.sessionOrigin || "",
+      examAnswers: d.examAnswers || {},
+      subjectId: d.subjectId || null,
+      unitId: d.unitId || null,
+      unitName: d.unitName || "",
+      sessionRight: d.sessionRight || 0,
+      sessionWrong: d.sessionWrong || 0,
+    });
   },
 
   onLoad() {
@@ -97,6 +143,7 @@ Page({
   },
 
   async bootstrap() {
+    this.setData({ catalogLoadError: "", catalogLoaded: false });
     try {
       const res = await request({ path: "/api/student/subjects", method: "GET" });
       const raw = res.data || [];
@@ -107,11 +154,79 @@ Page({
       if ((!sid || !subjects.some((s) => s.id === sid)) && subjects.length) {
         sid = defaultStudentSubjectId(subjects);
       }
-      this.setData({ subjects, subjectId: sid || null });
+      this.setData({ subjects, subjectId: sid || null, catalogLoaded: true, catalogLoadError: "" });
       if (sid) await this.loadKnowledgeUnits(sid);
     } catch (e) {
-      wx.showToast({ title: e.message || "加载科目失败", icon: "none" });
+      const msg = e.message || "加载科目失败";
+      this.setData({ catalogLoaded: true, catalogLoadError: msg, subjects: [], subjectId: null, units: [] });
+      wx.showToast({ title: msg, icon: "none" });
     }
+  },
+
+  retryCatalogBootstrap() {
+    this.bootstrap();
+  },
+
+  checkPracticeResumeBanner() {
+    const draft = loadPracticeDraft();
+    if (!draft) {
+      if (this.data.practiceResumeHint) this.setData({ practiceResumeHint: null });
+      return;
+    }
+    const total = draft.questionIds.length;
+    const cur = Math.min(Number(draft.currentIndex) + 1, total);
+    const o = String(draft.sessionOrigin || "");
+    let label = "练习";
+    if (o === "review_today") label = "今日待复习";
+    else if (o === "wrong_book") label = "错题练习";
+    this.setData({
+      practiceResumeHint: { current: cur, total, label },
+    });
+  },
+
+  resumePracticeDraft() {
+    const draft = loadPracticeDraft();
+    if (!draft) {
+      this.setData({ practiceResumeHint: null });
+      return;
+    }
+    clearPracticeDraft();
+    this.setData(
+      {
+        step: "play",
+        questionIds: draft.questionIds,
+        currentIndex: Number(draft.currentIndex) || 0,
+        feedbackMode: draft.feedbackMode === "exam" ? "exam" : "immediate",
+        practiceModule: String(draft.practiceModule || ""),
+        sessionOrigin: draft.sessionOrigin === "review_today" || draft.sessionOrigin === "wrong_book" ? draft.sessionOrigin : "",
+        examAnswers: draft.examAnswers && typeof draft.examAnswers === "object" ? draft.examAnswers : {},
+        subjectId: draft.subjectId != null ? normalizePositiveInt(draft.subjectId) : null,
+        unitId: draft.unitId != null ? normalizePositiveInt(draft.unitId) : null,
+        unitName: String(draft.unitName || ""),
+        sessionRight: Number(draft.sessionRight) || 0,
+        sessionWrong: Number(draft.sessionWrong) || 0,
+        practiceResumeHint: null,
+        submitted: false,
+        checkResult: null,
+        selectedAnswer: "",
+        multiSelected: [],
+        textAnswer: "",
+        currentQuestion: null,
+        playLoadError: "",
+        seqJumpOpen: false,
+        seqJumpInput: "",
+      },
+      () => {
+        syncNavTitle();
+        this.loadCurrentQuestion();
+      },
+    );
+  },
+
+  discardPracticeDraft() {
+    clearPracticeDraft();
+    this.setData({ practiceResumeHint: null });
+    wx.showToast({ title: "已放弃草稿", icon: "none" });
   },
 
   async loadKnowledgeUnits(subjectId) {
@@ -131,10 +246,13 @@ Page({
     }
   },
 
-  startFromWrongBook(questionIds, feedbackMode) {
+  startFromWrongBook(questionIds, feedbackMode, sessionOrigin = "") {
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
+    const origin =
+      sessionOrigin === "review_today" || sessionOrigin === "wrong_book" ? sessionOrigin : "";
     wx.showLoading({ title: "加载中" });
+    clearPracticeDraft();
     request({
       path: "/api/student/practice/build",
       method: "POST",
@@ -154,6 +272,10 @@ Page({
             currentIndex: 0,
             feedbackMode: feedbackMode || "immediate",
             practiceModule: "wrong_retry",
+            sessionOrigin: origin,
+            sessionRight: 0,
+            sessionWrong: 0,
+            playLoadError: "",
             subjectId: null,
             units: [],
             unitId: null,
@@ -183,7 +305,15 @@ Page({
       })
       .catch((e) => {
         wx.hideLoading();
-        wx.showToast({ title: e.message || "无法开始练习", icon: "none" });
+        wx.showModal({
+          title: "无法开始练习",
+          content: e.message || "请检查网络后重试",
+          confirmText: "重试",
+          cancelText: "取消",
+          success: (r) => {
+            if (r.confirm) this.startFromWrongBook(ids, feedbackMode, origin);
+          },
+        });
       });
   },
 
@@ -508,6 +638,7 @@ Page({
       const res = await request({ path: "/api/student/practice/build", method: "POST", data: body });
       const ids = (res.data && res.data.question_ids) || [];
       if (!ids.length) throw new Error("没有题目");
+      clearPracticeDraft();
       this.setData(
         {
           questionIds: ids,
@@ -518,6 +649,10 @@ Page({
           checkResult: null,
           seqJumpOpen: false,
           seqJumpInput: "",
+          sessionOrigin: "",
+          sessionRight: 0,
+          sessionWrong: 0,
+          playLoadError: "",
         },
         () => {
           wx.hideLoading();
@@ -527,16 +662,39 @@ Page({
       );
     } catch (e) {
       wx.hideLoading();
-      wx.showToast({ title: e.message || "组卷失败", icon: "none" });
+      wx.showModal({
+        title: "组卷失败",
+        content: e.message || "请检查网络后重试",
+        confirmText: "重试",
+        cancelText: "取消",
+        success: (r) => {
+          if (r.confirm) this.buildAndStart();
+        },
+      });
     }
   },
 
+  onWrapUpDone() {
+    const round = (Number(this.data.wrapUpRight) || 0) + (Number(this.data.wrapUpWrong) || 0);
+    void (async () => {
+      await showPostSessionDailyFeedback(round);
+      this.restartWizard();
+    })();
+  },
+
+  async onExamResultDone() {
+    const n = (this.data.examResults || []).length;
+    await showPostSessionDailyFeedback(n);
+    this.restartWizard();
+  },
+
   restartWizard() {
+    clearPracticeDraft();
     let returnTarget = null;
     try {
       const app = getApp();
       const pr = app && app.globalData && app.globalData.practiceReturnPage;
-      if (pr && (pr.type === "record-done" || pr.type === "record-wrong")) {
+      if (pr && (pr.type === "record-done" || pr.type === "record-wrong" || pr.type === "review_today")) {
         returnTarget = pr;
         app.globalData.practiceReturnPage = null;
       }
@@ -566,8 +724,24 @@ Page({
       checkResult: null,
       seqJumpOpen: false,
       seqJumpInput: "",
+      sessionOrigin: "",
+      sessionRight: 0,
+      sessionWrong: 0,
+      playLoadError: "",
+      wrapUpRight: 0,
+      wrapUpWrong: 0,
     });
     syncNavTitle();
+
+    if (returnTarget && returnTarget.type === "review_today") {
+      wx.navigateTo({ url: "/pages/review-today/index" });
+      if (sid) {
+        this.loadKnowledgeUnits(sid);
+      } else {
+        this.bootstrap();
+      }
+      return;
+    }
 
     if (returnTarget) {
       try {
@@ -592,6 +766,10 @@ Page({
     }
   },
 
+  retryLoadQuestion() {
+    this.setData({ playLoadError: "" }, () => this.loadCurrentQuestion());
+  },
+
   async loadCurrentQuestion() {
     const ids = this.data.questionIds || [];
     const idx = this.data.currentIndex;
@@ -601,7 +779,7 @@ Page({
     }
     const id = ids[idx];
     const feedbackMode = this.data.feedbackMode;
-    this.setData({ loading: true });
+    this.setData({ loading: true, playLoadError: "" });
     try {
       const res = await request({ path: `/api/student/questions/${id}`, method: "GET" });
       const raw = res.data || {};
@@ -644,9 +822,50 @@ Page({
         () => this.syncPlayButton(),
       );
     } catch (e) {
-      this.setData({ loading: false });
-      wx.showToast({ title: e.message || "加载失败", icon: "none" });
+      this.setData({ loading: false, currentQuestion: null, playLoadError: e.message || "加载失败" });
     }
+  },
+
+  submitCheckNow() {
+    const ids = this.data.questionIds || [];
+    const idx = this.data.currentIndex;
+    const qid = ids[idx];
+    wx.showLoading({ title: "判题" });
+    request({
+      path: `/api/student/questions/${qid}/check`,
+      method: "POST",
+      data: { user_answer: this.getUserAnswer() },
+    })
+      .then((res) => {
+        wx.hideLoading();
+        const cr = res.data || {};
+        const origin = this.data.sessionOrigin;
+        let sr = Number(this.data.sessionRight) || 0;
+        let sw = Number(this.data.sessionWrong) || 0;
+        if (origin === "review_today" || origin === "wrong_book") {
+          if (cr.correct) sr += 1;
+          else sw += 1;
+        }
+        if (origin === "review_today") {
+          try {
+            markReviewPracticeCompleted(localDateKey(new Date()));
+            refreshHomeSummaryIfOpen();
+          } catch (_) {}
+        }
+        this.setData({ submitted: true, checkResult: cr, sessionRight: sr, sessionWrong: sw }, () => this.syncPlayButton());
+      })
+      .catch((e) => {
+        wx.hideLoading();
+        wx.showModal({
+          title: "提交失败",
+          content: e.message || "请检查网络后重试",
+          confirmText: "重试",
+          cancelText: "取消",
+          success: (r) => {
+            if (r.confirm) this.submitCheckNow();
+          },
+        });
+      });
   },
 
   getUserAnswer() {
@@ -818,6 +1037,12 @@ Page({
         });
         wx.hideLoading();
         const results = (res.data && res.data.results) || [];
+        if (this.data.sessionOrigin === "review_today" && results.length > 0) {
+          try {
+            markReviewPracticeCompleted(localDateKey(new Date()));
+            refreshHomeSummaryIfOpen();
+          } catch (_) {}
+        }
         this.setData(
           {
             step: "exam_result",
@@ -830,32 +1055,44 @@ Page({
         );
       } catch (e) {
         wx.hideLoading();
-        wx.showToast({ title: e.message || "交卷失败", icon: "none" });
+        wx.showModal({
+          title: "交卷失败",
+          content: e.message || "请检查网络后重试",
+          confirmText: "重试",
+          cancelText: "取消",
+          success: (r) => {
+            if (r.confirm) this.onPlayPrimary();
+          },
+        });
       }
       return;
     }
 
     if (!this.data.submitted) {
       if (this.data.playBtnDisabled) return;
-      wx.showLoading({ title: "判题" });
-      try {
-        const res = await request({
-          path: `/api/student/questions/${qid}/check`,
-          method: "POST",
-          data: { user_answer: this.getUserAnswer() },
-        });
-        wx.hideLoading();
-        this.setData({ submitted: true, checkResult: res.data || {} }, () => this.syncPlayButton());
-      } catch (e) {
-        wx.hideLoading();
-        wx.showToast({ title: e.message || "提交失败", icon: "none" });
-      }
+      this.submitCheckNow();
       return;
     }
 
     if (last) {
       this.bumpSeqProgressHint();
-      this.restartWizard();
+      const origin = this.data.sessionOrigin;
+      if (this.data.feedbackMode === "immediate" && (origin === "review_today" || origin === "wrong_book")) {
+        clearPracticeDraft();
+        this.setData(
+          {
+            step: "practice_wrapup",
+            wrapUpRight: Number(this.data.sessionRight) || 0,
+            wrapUpWrong: Number(this.data.sessionWrong) || 0,
+          },
+          () => syncNavTitle(),
+        );
+        return;
+      }
+      void (async () => {
+        await showPostSessionDailyFeedback(ids.length);
+        this.restartWizard();
+      })();
       return;
     }
     this.bumpSeqProgressHint();

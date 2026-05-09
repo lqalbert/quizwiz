@@ -1,18 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
-
-function pad(n) {
-  return n < 10 ? `0${n}` : `${n}`;
-}
-
-function formatRange(startIso, endIso) {
-  if (!startIso || !endIso) return "";
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  const f = (d) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `${f(s)} ～ ${f(e)}`;
-}
+const { formatBeijingRange } = require("../../utils/beijingTime.js");
 
 Page({
   data: {
@@ -45,7 +33,7 @@ Page({
         return {
           ...item,
           phaseLabel,
-          timeRange: formatRange(item.start_time, item.end_time),
+          timeRange: formatBeijingRange(item.start_time, item.end_time),
         };
       });
       this.setData({ exams, loading: false });
