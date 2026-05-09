@@ -3,19 +3,102 @@
     <view class="page-hero-accent"></view>
     <view class="page-hero-body">
       <text class="page-hero-eyebrow">学习</text>
-      <text class="page-hero-title">专题目录</text>
-      <text class="page-hero-lead muted">选一个专题，巩固对应知识</text>
+      <text class="page-hero-title">班级资料</text>
+      <text class="page-hero-lead muted">按科目浏览教师上传的资料，可预览或下载</text>
     </view>
   </view>
-  <view class="ios-card">
-    <block wx:for="{{items}}" wx:key="id">
-      <view class="ios-cell" bindtap="openItem" data-id="{{item.id}}">
-        <view class="ios-cell-main">
-          <text class="ios-cell-title">{{item.title}}</text>
-          <text class="ios-cell-sub">{{item.sub}}</text>
+
+  <view wx:if="{{classes === null}}" class="ios-card pad-card">
+    <text class="muted">加载中…</text>
+  </view>
+
+  <view wx:elif="{{classes.length > 0}}" class="class-bar ios-card">
+    <text class="class-bar-label muted">当前班级</text>
+    <picker wx:if="{{classes.length > 1}}" mode="selector" range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClassPick">
+      <view class="class-picker-trigger">
+        <text class="class-picker-text">{{currentClassLabel}}</text>
+        <text class="class-picker-chev">›</text>
+      </view>
+    </picker>
+    <text wx:else class="class-picker-text single">{{currentClassLabel}}</text>
+  </view>
+
+  <view wx:elif="{{classes.length === 0}}" class="ios-card pad-card">
+    <text class="muted">请先加入班级后查看资料</text>
+  </view>
+
+  <view wx:elif="{{classes.length > 0 && resourcesEmpty}}" class="ios-card pad-card">
+    <text class="muted">暂无可见资料</text>
+  </view>
+
+  <block wx:else>
+    <block wx:for="{{sections}}" wx:key="subject_key">
+      <text class="section-label">{{item.subject_name}}</text>
+      <view class="wf-wrap">
+        <view class="wf-col">
+          <block wx:for="{{item.left}}" wx:key="id" wx:for-item="card">
+            <view
+              class="wf-card"
+              bindtap="onTapCard"
+              data-id="{{card.id}}"
+              data-ft="{{card.file_type}}"
+              data-url="{{card.file_url_abs}}"
+              data-name="{{card.name}}"
+              data-candl="{{card.can_dl ? '1' : '0'}}"
+            >
+              <view class="wf-card-type">{{card.file_type}}</view>
+              <text class="wf-card-name">{{card.name}}</text>
+              <view class="wf-card-actions">
+                <view
+                  class="wf-btn"
+                  data-id="{{card.id}}"
+                  data-name="{{card.name}}"
+                  data-url="{{card.file_url_abs}}"
+                  data-candl="{{card.can_dl ? '1' : '0'}}"
+                  catchtap="onTapDownload"
+                >
+                  下载
+                </view>
+              </view>
+            </view>
+          </block>
         </view>
-        <text class="ios-cell-chevron">›</text>
+        <view class="wf-col">
+          <block wx:for="{{item.right}}" wx:key="id" wx:for-item="card">
+            <view
+              class="wf-card"
+              bindtap="onTapCard"
+              data-id="{{card.id}}"
+              data-ft="{{card.file_type}}"
+              data-url="{{card.file_url_abs}}"
+              data-name="{{card.name}}"
+              data-candl="{{card.can_dl ? '1' : '0'}}"
+            >
+              <view class="wf-card-type">{{card.file_type}}</view>
+              <text class="wf-card-name">{{card.name}}</text>
+              <view class="wf-card-actions">
+                <view
+                  class="wf-btn"
+                  data-id="{{card.id}}"
+                  data-name="{{card.name}}"
+                  data-url="{{card.file_url_abs}}"
+                  data-candl="{{card.can_dl ? '1' : '0'}}"
+                  catchtap="onTapDownload"
+                >
+                  下载
+                </view>
+              </view>
+            </view>
+          </block>
+        </view>
       </view>
     </block>
+  </block>
+
+  <view wx:if="{{videoPreviewVisible}}" class="video-mask" catchtouchmove="noop" bindtap="closeVideoPreview">
+    <view class="video-dialog" catchtap="noop">
+      <video class="video-player" src="{{videoPreviewUrl}}" controls></video>
+      <view class="video-close" bindtap="closeVideoPreview">关闭</view>
+    </view>
   </view>
 </view>

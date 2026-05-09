@@ -896,7 +896,35 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   )
 }
 
+/** 班级学生学情抽屉 / GET …/insights 响应 */
+type ClassStudentInsightPayload = {
+  student?: { id: number; name: string; student_no: string }
+  practice_summary: {
+    questions_touched: number
+    attempts: number
+    correct: number
+    wrong: number
+    wrong_questions: number
+    accuracy_pct: number
+    practice_events_30d: number
+  }
+  practice_daily: Array<{ practice_date: string; attempts: number }>
+  exams: Array<{
+    exam_id: number
+    title: string
+    exam_phase_label: string
+    subject_name: string
+    start_time: string
+    end_time: string
+    duration: number
+    submission_status_text: string
+    submit_time?: string | null
+    total_score?: number | null
+  }>
+}
+
 function ClassPage() {
+  const navigate = useNavigate()
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const authUserRaw = localStorage.getItem(AUTH_USER_KEY)
   const authUser: AuthUser | null = useMemo(() => {
@@ -948,9 +976,16 @@ function ClassPage() {
   const [joinRequests, setJoinRequests] = useState<
     Array<{ id: number; student_name: string; student_no: string; source: string; requested_at: string }>
   >([])
+  const [leaveRequests, setLeaveRequests] = useState<
+    Array<{ id: number; student_id: number; student_name: string; student_no: string; requested_at: string }>
+  >([])
   const [createForm] = Form.useForm()
   const [addStudentForm] = Form.useForm()
   const [addTeacherForm] = Form.useForm()
+  const [studentInsightOpen, setStudentInsightOpen] = useState(false)
+  const [studentInsightLoading, setStudentInsightLoading] = useState(false)
+  const [studentInsightTitle, setStudentInsightTitle] = useState('')
+  const [studentInsightData, setStudentInsightData] = useState<ClassStudentInsightPayload | null>(null)
 
   const loadClasses = async () => {
     if (!CAN_USE_API) return
@@ -981,31 +1016,36 @@ function ClassPage() {
     }
   }
 
-  const deleteClassWithConfirm = async (classId: number) => {
-    if (!CAN_USE_API) return
-    if (
-      !window.confirm(
-        '确认删除该班级？将一并删除本班学生归属、科任关联、考试班级分配、邀请与入班申请等关联数据，且不可恢复（学生账号与题库不受影响）。',
-      )
-    ) {
-      return
-    }
-    try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}`, {
-        method: 'DELETE',
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
-      message.success('班级已删除')
-      if (selectedClassId === classId) {
-        setOpenDetail(false)
-        setSelectedClassId(null)
-      }
-      await loadClasses()
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '删除班级失败')
-    }
+  const deleteClassWithConfirm = (classId: number) => {
+    Modal.confirm({
+      title: '确认删除该班级？',
+      content:
+        '将一并删除本班学生归属、科任关联、考试班级分配、邀请与入班/退出班级申请等关联数据，且不可恢复（学生账号与题库不受影响）。',
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        if (!CAN_USE_API) return
+        try {
+          const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}`, {
+            method: 'DELETE',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+          message.success('班级已删除')
+          if (selectedClassId === classId) {
+            setOpenDetail(false)
+            setSelectedClassId(null)
+          }
+          await loadClasses()
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : '删除班级失败'
+          message.error(msg)
+          return Promise.reject(new Error(msg))
+        }
+      },
+    })
   }
 
   const selectedClassCanManage = useMemo(
@@ -1031,6 +1071,7 @@ function ClassPage() {
       )
       setInviteJoinLogs(Array.isArray(data.join_logs) ? data.join_logs : [])
       setJoinRequests(Array.isArray(data.join_requests) ? data.join_requests : [])
+      setLeaveRequests(Array.isArray(data.leave_requests) ? data.leave_requests : [])
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载邀请码配置失败')
     } finally {
@@ -1052,6 +1093,28 @@ function ClassPage() {
       message.error(error instanceof Error ? error.message : '加载学生失败')
     } finally {
       setStudentsLoading(false)
+    }
+  }
+
+  const loadStudentInsights = async (studentId: number, displayName: string) => {
+    if (!CAN_USE_API || !selectedClassId) return
+    setStudentInsightOpen(true)
+    setStudentInsightLoading(true)
+    setStudentInsightTitle(displayName)
+    setStudentInsightData(null)
+    try {
+      const response = await teacherAdminFetch(
+        `${API_BASE_URL}/api/classes/${selectedClassId}/students/${studentId}/insights`,
+        { headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined },
+      )
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载学情失败(${response.status})`)
+      setStudentInsightData((payload?.data as ClassStudentInsightPayload) ?? null)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载学情失败')
+      setStudentInsightOpen(false)
+    } finally {
+      setStudentInsightLoading(false)
     }
   }
 
@@ -1282,41 +1345,52 @@ function ClassPage() {
                           v && row?.name && v !== row.name ? v : '—',
                       },
                       { title: '学号', dataIndex: 'student_no' },
-                      ...(canManageClass
-                        ? [
-                            {
-                              title: '操作',
-                              key: 'action',
-                              render: (_: unknown, row: { id: number; name: string }) => (
-                                <Button
-                                  danger
-                                  type="link"
-                                  onClick={async () => {
-                                    if (!selectedClassId || !CAN_USE_API) return
-                                    try {
-                                      const response = await teacherAdminFetch(
-                                        `${API_BASE_URL}/api/classes/${selectedClassId}/students/${row.id}`,
-                                        {
-                                          method: 'DELETE',
-                                          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-                                        },
-                                      )
-                                      const payload = await response.json().catch(() => ({}))
-                                      if (!response.ok) throw new Error(payload?.message || `移出失败(${response.status})`)
-                                      message.success(`已移出 ${row.name}`)
-                                      await loadStudents(selectedClassId)
-                                      await loadClasses()
-                                    } catch (error) {
-                                      message.error(error instanceof Error ? error.message : '移出学生失败')
-                                    }
-                                  }}
-                                >
+                      {
+                        title: '操作',
+                        key: 'action',
+                        width: 200,
+                        render: (_: unknown, row: { id: number; name: string }) => (
+                          <Space wrap>
+                            <Button type="link" style={{ padding: 0 }} onClick={() => void loadStudentInsights(row.id, row.name)}>
+                              查看详情
+                            </Button>
+                            {canManageClass ? (
+                              <Popconfirm
+                                title={`确认将「${row.name}」移出本班？`}
+                                description="移出后该生不再归属本班级；凡考试曾分配给本班的，其答卷将被删除（与是否仍在别班无关），个人刷题数据保留。"
+                                okText="确认移出"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                onConfirm={async () => {
+                                  if (!selectedClassId || !CAN_USE_API) return
+                                  try {
+                                    const response = await teacherAdminFetch(
+                                      `${API_BASE_URL}/api/classes/${selectedClassId}/students/${row.id}`,
+                                      {
+                                        method: 'DELETE',
+                                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+                                      },
+                                    )
+                                    const payload = await response.json().catch(() => ({}))
+                                    if (!response.ok) throw new Error(payload?.message || `移出失败(${response.status})`)
+                                    message.success(`已移出 ${row.name}`)
+                                    await loadStudents(selectedClassId)
+                                    await loadClasses()
+                                  } catch (error) {
+                                    const msg = error instanceof Error ? error.message : '移出学生失败'
+                                    message.error(msg)
+                                    return Promise.reject(new Error(msg))
+                                  }
+                                }}
+                              >
+                                <Button danger type="link">
                                   移出班级
                                 </Button>
-                              ),
-                            },
-                          ]
-                        : []),
+                              </Popconfirm>
+                            ) : null}
+                          </Space>
+                        ),
+                      },
                     ]}
                     dataSource={students.map((student) => ({ ...student, key: String(student.id) }))}
                   />
@@ -1351,11 +1425,14 @@ function ClassPage() {
                             {
                               title: '操作',
                               key: 'action',
-                              render: (_: unknown, row: { teacher_id: number; subject_id: number; teacher_name: string }) => (
-                                <Button
-                                  danger
-                                  type="link"
-                                  onClick={async () => {
+                              render: (_: unknown, row: { teacher_id: number; subject_id: number; teacher_name: string; subject_name: string }) => (
+                                <Popconfirm
+                                  title={`确认移除科任「${row.teacher_name}」的「${row.subject_name}」任课？`}
+                                  description="移除后该教师不再在本班教授该科目，不影响题库与学生数据。"
+                                  okText="确认移除"
+                                  cancelText="取消"
+                                  okButtonProps={{ danger: true }}
+                                  onConfirm={async () => {
                                     if (!selectedClassId || !CAN_USE_API) return
                                     try {
                                       const response = await teacherAdminFetch(
@@ -1370,12 +1447,16 @@ function ClassPage() {
                                       message.success(`已移除 ${row.teacher_name}`)
                                       await loadTeachers(selectedClassId)
                                     } catch (error) {
-                                      message.error(error instanceof Error ? error.message : '移除科任教师失败')
+                                      const msg = error instanceof Error ? error.message : '移除科任教师失败'
+                                      message.error(msg)
+                                      return Promise.reject(new Error(msg))
                                     }
                                   }}
                                 >
-                                  移除
-                                </Button>
+                                  <Button danger type="link">
+                                    移除
+                                  </Button>
+                                </Popconfirm>
                               ),
                             },
                           ]
@@ -1570,9 +1651,210 @@ function ClassPage() {
                 ]}
               />
             </Card>
+            <Card size="small" title="待审核退出班级申请">
+              <Table
+                size="small"
+                pagination={{ pageSize: 5 }}
+                dataSource={leaveRequests.map((item) => ({ ...item, key: String(item.id) }))}
+                columns={[
+                  { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
+                  { title: '学生', dataIndex: 'student_name' },
+                  { title: '学号', dataIndex: 'student_no' },
+                  ...(canManageClass
+                    ? [
+                        {
+                          title: '操作',
+                          key: 'action',
+                          render: (_: unknown, row: { id: number }) => (
+                            <Space>
+                              <Popconfirm
+                                title="确认同意该学生退出班级？"
+                                description="学生将从本班移除；凡考试曾分配给本班的，其答卷将被删除（与是否仍在别班无关），个人刷题数据保留。"
+                                okText="同意退出"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                onConfirm={async () => {
+                                  if (!selectedClassId || !CAN_USE_API) return
+                                  try {
+                                    const response = await teacherAdminFetch(
+                                      `${API_BASE_URL}/api/classes/${selectedClassId}/leave-requests/${row.id}`,
+                                      {
+                                        method: 'PATCH',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                                        },
+                                        body: JSON.stringify({ action: 'approve' }),
+                                      },
+                                    )
+                                    const payload = await response.json().catch(() => ({}))
+                                    if (!response.ok) throw new Error(payload?.message || `处理失败(${response.status})`)
+                                    message.success('已同意退出班级')
+                                    await loadStudents(selectedClassId)
+                                    await loadClasses()
+                                    await loadInviteConfig(selectedClassId)
+                                  } catch (error) {
+                                    message.error(error instanceof Error ? error.message : '同意退出失败')
+                                  }
+                                }}
+                              >
+                                <Button type="link">同意</Button>
+                              </Popconfirm>
+                              <Popconfirm
+                                title="确认拒绝该退出班级申请？"
+                                okText="拒绝"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                onConfirm={async () => {
+                                  if (!selectedClassId || !CAN_USE_API) return
+                                  try {
+                                    const response = await teacherAdminFetch(
+                                      `${API_BASE_URL}/api/classes/${selectedClassId}/leave-requests/${row.id}`,
+                                      {
+                                        method: 'PATCH',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                                        },
+                                        body: JSON.stringify({ action: 'reject' }),
+                                      },
+                                    )
+                                    const payload = await response.json().catch(() => ({}))
+                                    if (!response.ok) throw new Error(payload?.message || `处理失败(${response.status})`)
+                                    message.success('已拒绝退出班级申请')
+                                    await loadInviteConfig(selectedClassId)
+                                  } catch (error) {
+                                    message.error(error instanceof Error ? error.message : '拒绝退出班级申请失败')
+                                  }
+                                }}
+                              >
+                                <Button danger type="link">
+                                  拒绝
+                                </Button>
+                              </Popconfirm>
+                            </Space>
+                          ),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </Card>
           </Space>
         </Card>
       </Drawer>
+
+      <Modal
+        title={`学生学情 — ${studentInsightTitle}`}
+        open={studentInsightOpen}
+        width={900}
+        onCancel={() => {
+          setStudentInsightOpen(false)
+          setStudentInsightData(null)
+        }}
+        footer={
+          <Button
+            onClick={() => {
+              setStudentInsightOpen(false)
+              setStudentInsightData(null)
+            }}
+          >
+            关闭
+          </Button>
+        }
+        destroyOnClose
+      >
+        {studentInsightLoading ? (
+          <div style={{ textAlign: 'center', padding: 48 }}>
+            <Spin />
+          </div>
+        ) : studentInsightData ? (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card size="small" title="刷题概况（全库累计）">
+              <Row gutter={[16, 12]}>
+                <Col xs={12} sm={8}>
+                  <Statistic title="涉及题目数" value={studentInsightData.practice_summary.questions_touched} />
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Statistic title="作答次数" value={studentInsightData.practice_summary.attempts} />
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Statistic title="仍有错题未清零" value={studentInsightData.practice_summary.wrong_questions} />
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Statistic title="答对次数" value={studentInsightData.practice_summary.correct} />
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Statistic title="答错次数" value={studentInsightData.practice_summary.wrong} />
+                </Col>
+                <Col xs={12} sm={8}>
+                  <Statistic title="正确率（按对错次数）" value={studentInsightData.practice_summary.accuracy_pct} suffix="%" />
+                </Col>
+              </Row>
+              <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                近 30 天刷题事件数（即时判题、考试交卷等记录）：{studentInsightData.practice_summary.practice_events_30d}
+              </Typography.Paragraph>
+            </Card>
+            <Card size="small" title="最近练习日汇总（按日聚合，最多 21 天）">
+              <Table
+                size="small"
+                pagination={false}
+                dataSource={studentInsightData.practice_daily.map((r) => ({ ...r, key: r.practice_date }))}
+                columns={[
+                  { title: '日期', dataIndex: 'practice_date', width: 140 },
+                  { title: '当日作答次数', dataIndex: 'attempts', width: 160 },
+                ]}
+                locale={{ emptyText: '暂无按日汇总数据' }}
+              />
+            </Card>
+            <Card size="small" title="与本班关联的考试（含未参与，最多 100 场）">
+              <Table
+                size="small"
+                dataSource={studentInsightData.exams.map((r) => ({ ...r, key: String(r.exam_id) }))}
+                pagination={{ pageSize: 8, showTotal: (t) => `共 ${t} 场` }}
+                columns={[
+                  {
+                    title: '考试',
+                    dataIndex: 'title',
+                    render: (_: unknown, row: ClassStudentInsightPayload['exams'][number]) => (
+                      <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/exams/${row.exam_id}`)}>
+                        {row.title || '—'}
+                      </Button>
+                    ),
+                  },
+                  { title: '科目', dataIndex: 'subject_name', width: 100 },
+                  { title: '阶段', dataIndex: 'exam_phase_label', width: 88 },
+                  {
+                    title: '考试时间',
+                    key: 'time',
+                    width: 200,
+                    render: (_: unknown, row: ClassStudentInsightPayload['exams'][number]) =>
+                      row.start_time && row.end_time
+                        ? `${formatBeijingDateTime(row.start_time)} ～ ${formatBeijingDateTime(row.end_time)}`
+                        : '—',
+                  },
+                  { title: '作答状态', dataIndex: 'submission_status_text', width: 100 },
+                  {
+                    title: '提交时间',
+                    dataIndex: 'submit_time',
+                    width: 170,
+                    render: (v: string | null | undefined) => (v ? formatBeijingDateTime(v, true) : '—'),
+                  },
+                  {
+                    title: '得分',
+                    dataIndex: 'total_score',
+                    width: 80,
+                    render: (v: number | null | undefined) => (v != null && !Number.isNaN(Number(v)) ? Number(v).toFixed(1) : '—'),
+                  },
+                ]}
+                locale={{ emptyText: '暂无关联考试' }}
+              />
+            </Card>
+          </Space>
+        ) : (
+          <Empty description="暂无数据" />
+        )}
+      </Modal>
 
       {canManageClass ? (
         <Modal
@@ -3893,21 +4175,31 @@ function ExamPage() {
     }
   }
 
-  const deleteExamWithConfirm = async (row: { id: number }, confirmMessage: string) => {
-    if (!CAN_USE_API) return
-    if (!window.confirm(confirmMessage)) return
-    try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}`, {
-        method: 'DELETE',
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
-      message.success('考试已删除')
-      await loadExams()
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '删除考试失败')
-    }
+  const deleteExamWithConfirm = (row: { id: number }, confirmMessage: string) => {
+    Modal.confirm({
+      title: '删除考试',
+      content: confirmMessage,
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        if (!CAN_USE_API) return
+        try {
+          const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${row.id}`, {
+            method: 'DELETE',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+          message.success('考试已删除')
+          await loadExams()
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : '删除考试失败'
+          message.error(msg)
+          return Promise.reject(new Error(msg))
+        }
+      },
+    })
   }
 
   const openExamQuestionPreview = async () => {
@@ -4277,7 +4569,7 @@ function ExamPage() {
                               danger
                               type="link"
                               onClick={() =>
-                                void deleteExamWithConfirm(
+                                deleteExamWithConfirm(
                                   row,
                                   '确认删除该考试吗？删除后考试与答卷数据不可恢复，题库中的题目仍保留，之后可单独删除题目。',
                                 )
@@ -4345,7 +4637,7 @@ function ExamPage() {
                               danger
                               type="link"
                               onClick={() =>
-                                void deleteExamWithConfirm(
+                                deleteExamWithConfirm(
                                   row,
                                   '确认删除该进行中的考试吗？将删除考试及关联答卷等数据且不可恢复，题库中的题目仍保留，之后可单独删除题目。',
                                 )
@@ -4454,7 +4746,7 @@ function ExamPage() {
                               danger
                               type="link"
                               onClick={() =>
-                                void deleteExamWithConfirm(
+                                deleteExamWithConfirm(
                                   row,
                                   '确认删除该已结束考试吗？答卷记录将被删除且不可恢复，题库中的题目仍保留，之后可单独删除题目。',
                                 )
@@ -4879,21 +5171,31 @@ function ExamDetailPage() {
         ? '确认删除该已结束考试吗？答卷记录将被删除且不可恢复，题库中的题目仍保留，之后可单独删除题目。'
         : '确认删除该考试吗？删除后考试与答卷数据不可恢复，题库中的题目仍保留，之后可单独删除题目。'
 
-  const deleteExamFromDetail = async () => {
+  const deleteExamFromDetail = () => {
     if (!CAN_USE_API || !detail?.id) return
-    if (!window.confirm(deleteExamConfirmMessage)) return
-    try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${detail.id}`, {
-        method: 'DELETE',
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
-      message.success('考试已删除')
-      navigate('/exams')
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '删除考试失败')
-    }
+    Modal.confirm({
+      title: '删除考试',
+      content: deleteExamConfirmMessage,
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const response = await teacherAdminFetch(`${API_BASE_URL}/api/exams/${detail.id}`, {
+            method: 'DELETE',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(payload?.message || `删除失败(${response.status})`)
+          message.success('考试已删除')
+          navigate('/exams')
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : '删除考试失败'
+          message.error(msg)
+          return Promise.reject(new Error(msg))
+        }
+      },
+    })
   }
 
   const filteredSubmissionRows = (detail?.student_submissions || []).filter((item) => {
@@ -4934,7 +5236,7 @@ function ExamDetailPage() {
         extra={
           <Space>
             {detail?.can_manage ? (
-              <Button danger type="default" onClick={() => void deleteExamFromDetail()}>
+              <Button danger type="default" onClick={() => deleteExamFromDetail()}>
                 删除考试
               </Button>
             ) : null}
@@ -6601,7 +6903,6 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const [openCreate, setOpenCreate] = useState(false)
   const [openVisibility, setOpenVisibility] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [folderFilter, setFolderFilter] = useState<string | undefined>(undefined)
   const [keyword, setKeyword] = useState('')
   const [resourceListPage, setResourceListPage] = useState(1)
   const [resourceListPageSize, setResourceListPageSize] = useState(20)
@@ -6614,25 +6915,19 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       file_url: string
       file_type: string
       folder: string
+      subject_id?: number | null
+      subject_name?: string
       uploader_name: string
       created_at: string
       visible_classes: Array<{ class_id: number; class_name: string; class_grade: string }>
     }>
   >([])
-  const [folderOptions, setFolderOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [subjectOptions, setSubjectOptions] = useState<Array<{ value: number; label: string }>>([])
   const [classOptions, setClassOptions] = useState<Array<{ value: number; label: string }>>([])
   const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([])
   const [visibilityResource, setVisibilityResource] = useState<{ id: number; name: string } | null>(null)
   const [createForm] = Form.useForm()
   const [visibilityForm] = Form.useForm()
-
-  const folderLabelMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    folderOptions.forEach((item) => {
-      map[item.value] = item.label
-    })
-    return map
-  }, [folderOptions])
 
   const loadMeta = async () => {
     if (!CAN_USE_API) return
@@ -6643,16 +6938,16 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
         if (response.status === 403) {
-          setFolderOptions([])
+          setSubjectOptions([])
           setClassOptions([])
           return
         }
         throw new Error(payload?.message || `加载资料库元数据失败(${response.status})`)
       }
-      setFolderOptions(
-        (Array.isArray(payload?.data?.folders) ? payload.data.folders : []).map((item: Record<string, unknown>) => ({
-          value: String(item.key || ''),
-          label: String(item.label || ''),
+      setSubjectOptions(
+        (Array.isArray(payload?.data?.subjects) ? payload.data.subjects : []).map((item: Record<string, unknown>) => ({
+          value: Number(item.id || 0),
+          label: String(item.name || ''),
         })),
       )
       setClassOptions(
@@ -6666,16 +6961,14 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
     }
   }
 
-  const loadResources = async (overrides?: { folder?: string; keyword?: string; page?: number; pageSize?: number }) => {
+  const loadResources = async (overrides?: { keyword?: string; page?: number; pageSize?: number }) => {
     if (!CAN_USE_API) return
     try {
       setLoading(true)
       const params = new URLSearchParams()
-      const effectiveFolder = overrides?.folder ?? folderFilter
       const effectiveKeyword = overrides?.keyword ?? keyword
       const page = overrides?.page ?? resourceListPage
       const pageSize = overrides?.pageSize ?? resourceListPageSize
-      if (effectiveFolder) params.set('folder', effectiveFolder)
       if (effectiveKeyword.trim()) params.set('keyword', effectiveKeyword.trim())
       params.set('page', String(page))
       params.set('pageSize', String(pageSize))
@@ -6704,6 +6997,8 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
           file_url: String(item.file_url || ''),
           file_type: String(item.file_type || ''),
           folder: String(item.folder || 'other'),
+          subject_id: item.subject_id != null && item.subject_id !== '' ? Number(item.subject_id) : null,
+          subject_name: String(item.subject_name || ''),
           uploader_name: String(item.uploader_name || ''),
           created_at: String(item.created_at || ''),
           visible_classes: Array.isArray(item.visible_classes) ? (item.visible_classes as Array<{ class_id: number; class_name: string; class_grade: string }>) : [],
@@ -6850,7 +7145,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
           name: String(values.name || '').trim(),
           fileUrl: String(values.fileUrl || '').trim(),
           fileType: String(values.fileType || '').trim() || 'file',
-          folder: String(values.folder || 'other').trim(),
+          subjectId: Number(values.subjectId),
           classIds: Array.isArray(values.classIds) ? values.classIds : [],
         }),
       })
@@ -6905,26 +7200,6 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       window.URL.revokeObjectURL(blobUrl)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '下载资料失败')
-    }
-  }
-
-  const moveResourceFolder = async (id: number, folder: string) => {
-    if (!CAN_USE_API) return
-    try {
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/resources/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-        body: JSON.stringify({ folder }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message || `移动资料失败(${response.status})`)
-      message.success('资料已移动')
-      await loadResources()
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '移动资料失败')
     }
   }
 
@@ -6987,10 +7262,19 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
     window.open(absoluteUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const RESOURCE_MAX_BYTES = 1024 * 1024 * 1024
+
   const uploadProps: UploadProps = {
     name: 'file',
     maxCount: 1,
     fileList: uploadFileList,
+    beforeUpload: (file) => {
+      if (file.size > RESOURCE_MAX_BYTES) {
+        message.error('文件大小不能超过 1GB')
+        return Upload.LIST_IGNORE
+      }
+      return true
+    },
     customRequest: async (options) => {
       if (!CAN_USE_API) return
       const file = options.file as File
@@ -7040,14 +7324,6 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const listTabContent = (
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
       <Space wrap>
-        <Select
-          allowClear
-          placeholder="分类文件夹"
-          style={{ width: 180 }}
-          value={folderFilter}
-          onChange={(value) => setFolderFilter(value)}
-          options={folderOptions}
-        />
         <Input.Search
           placeholder="资料名称搜索"
           allowClear
@@ -7065,10 +7341,9 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
         </Button>
         <Button
           onClick={() => {
-            setFolderFilter(undefined)
             setKeyword('')
             setResourceListPage(1)
-            void loadResources({ folder: '', keyword: '', page: 1 })
+            void loadResources({ keyword: '', page: 1 })
           }}
         >
           重置
@@ -7079,7 +7354,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
             type="primary"
             onClick={() => {
               createForm.resetFields()
-              createForm.setFieldsValue({ folder: 'other', fileType: 'file', classIds: [] })
+              createForm.setFieldsValue({ fileType: 'file', classIds: [] })
               setUploadFileList([])
               setOpenCreate(true)
             }}
@@ -7106,9 +7381,15 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
         }}
         scroll={{ x: canManageResource ? 1200 : 1060 }}
         columns={[
-          { title: '资料名称', dataIndex: 'name', width: 140, ellipsis: true },
-          { title: '分类', dataIndex: 'folder', width: 110, render: (value: string) => folderLabelMap[value] || value || '-' },
-          { title: '类型', dataIndex: 'file_type', width: 100 },
+          { title: '文件名称', dataIndex: 'name', width: 160, ellipsis: true },
+          {
+            title: '科目',
+            dataIndex: 'subject_name',
+            width: 100,
+            ellipsis: true,
+            render: (v: string) => (v && String(v).trim() ? v : '-'),
+          },
+          { title: '类型', dataIndex: 'file_type', width: 88 },
           {
             title: '可见班级',
             dataIndex: 'visible_classes',
@@ -7129,7 +7410,6 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
               file_type: string
               visible_classes: Array<{ class_id: number }>
               name: string
-              folder: string
             }) => (
               <Space size={4} wrap>
                 <Button size="small" type="link" onClick={() => previewResource(row)}>
@@ -7143,17 +7423,6 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
                     <Button size="small" type="link" onClick={() => openVisibilityModal(row)}>
                       设置可见班级
                     </Button>
-                    <Select
-                      size="small"
-                      placeholder="移动"
-                      style={{ width: 92 }}
-                      options={folderOptions
-                        .filter((item) => item.value !== row.folder)
-                        .map((item) => ({ value: item.value, label: item.label }))}
-                      onChange={(value) => {
-                        if (value) void moveResourceFolder(row.id, value)
-                      }}
-                    />
                     <Popconfirm title="确认删除该资料？" okText="删除" cancelText="取消" onConfirm={() => void deleteResource(row.id)}>
                       <Button size="small" type="link" danger>
                         删除
@@ -7260,34 +7529,28 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
           confirmLoading={saving || uploading}
         >
           <Form form={createForm} layout="vertical">
-            <Form.Item name="name" label="资料名称" rules={[{ required: true, message: '请输入资料名称' }]}>
-              <Input placeholder="例如：函数专题课件.pdf" />
+            <Form.Item name="name" label="文件名称" rules={[{ required: true, message: '请输入文件名称' }]}>
+              <Input placeholder="展示给师生看的名称" />
             </Form.Item>
-            <Form.Item label="上传文件">
+            <Form.Item label="文件上传" required>
               <Upload {...uploadProps}>
                 <Button loading={uploading}>选择文件并上传</Button>
               </Upload>
-              <Typography.Text type="secondary">支持 PDF/Office/图片/MP4，最大100MB</Typography.Text>
+              <Typography.Text type="secondary">
+                支持常见文档/图片/音视频等格式，单文件最大 1GB；上传完成后将自动识别类型。
+              </Typography.Text>
             </Form.Item>
-            <Form.Item name="fileUrl" label="文件地址" rules={[{ required: true, message: '请先上传文件或填写地址' }]}>
-              <Input placeholder="上传后自动回填，也可手工填写外链" />
+            <Form.Item name="fileUrl" hidden rules={[{ required: true, message: '请先上传文件' }]}>
+              <Input />
             </Form.Item>
-            <Form.Item name="fileType" label="文件类型">
-              <Select
-                options={[
-                  { value: 'pdf', label: 'PDF' },
-                  { value: 'doc', label: '文档' },
-                  { value: 'video', label: '视频' },
-                  { value: 'image', label: '图片' },
-                  { value: 'file', label: '其他' },
-                ]}
-              />
+            <Form.Item name="fileType" hidden>
+              <Input />
             </Form.Item>
-            <Form.Item name="folder" label="分类文件夹" rules={[{ required: true, message: '请选择分类' }]}>
-              <Select options={folderOptions} />
+            <Form.Item name="subjectId" label="文件科目" rules={[{ required: true, message: '请选择科目' }]}>
+              <Select placeholder="请选择科目" options={subjectOptions} showSearch optionFilterProp="label" />
             </Form.Item>
-            <Form.Item name="classIds" label="可见班级（为空表示全部可见）">
-              <Select mode="multiple" allowClear options={classOptions} />
+            <Form.Item name="classIds" label="可见班级（不选表示全部班级可见）">
+              <Select mode="multiple" allowClear placeholder="全部可见" options={classOptions} />
             </Form.Item>
           </Form>
         </Modal>
@@ -7885,6 +8148,9 @@ function SystemSettingsPage() {
     'class.join_request.submit': '提交入班申请',
     'class.join_request.approve': '通过入班申请',
     'class.join_request.reject': '拒绝入班申请',
+    'class.leave_request.submit': '提交退出班级申请',
+    'class.leave_request.approve': '同意退出班级申请',
+    'class.leave_request.reject': '拒绝退出班级申请',
     'class.invite_code.reset': '重置邀请码',
     'class.invite_config.update': '更新邀请码配置',
   }
@@ -7948,6 +8214,12 @@ function SystemSettingsPage() {
     }
     if (row.action === 'class.join_request.approve' || row.action === 'class.join_request.reject') {
       return `申请ID：${String(detail.requestId || '-')}${detail.studentId ? `，学生ID：${String(detail.studentId)}` : ''}`
+    }
+    if (row.action === 'class.leave_request.submit') {
+      return `申请ID：${String(detail.requestId || '-')}，学生ID：${String(detail.studentId || '-')}`
+    }
+    if (row.action === 'class.leave_request.approve' || row.action === 'class.leave_request.reject') {
+      return `申请ID：${String(detail.requestId || '-')}，学生ID：${String(detail.studentId || '-')}`
     }
     if (row.action === 'class.invite_code.reset') {
       return `邀请码：${String(detail.invite_code || '-')}`
@@ -8333,6 +8605,9 @@ function SystemSettingsPage() {
                 { value: 'class.join_request.submit', label: '提交入班申请' },
                 { value: 'class.join_request.approve', label: '通过入班申请' },
                 { value: 'class.join_request.reject', label: '拒绝入班申请' },
+                { value: 'class.leave_request.submit', label: '提交退出班级申请' },
+                { value: 'class.leave_request.approve', label: '同意退出班级申请' },
+                { value: 'class.leave_request.reject', label: '拒绝退出班级申请' },
                 { value: 'class.invite_code.reset', label: '重置邀请码' },
                 { value: 'class.invite_config.update', label: '更新邀请码配置' },
               ]}

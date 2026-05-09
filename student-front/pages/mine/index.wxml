@@ -20,18 +20,36 @@
       </view>
     </view>
 
+    <view wx:if="{{leavePendingCount > 0}}" class="ios-card leave-pending-tip">
+      <text class="leave-pending-tip-text">你有 {{leavePendingCount}} 条退出班级申请正在等待教师审核；通过前仍在原班级，功能可正常使用。</text>
+    </view>
+
     <text class="section-label">我的班级</text>
     <view class="ios-card" wx:if="{{classes.length}}">
       <view wx:for="{{classes}}" wx:key="id" class="class-row">
-        <text class="class-name">{{item.name}}</text>
-        <text class="class-grade muted">{{item.grade}}</text>
+        <view class="class-row-text">
+          <text class="class-name">{{item.name}}</text>
+          <text class="class-grade muted">{{item.grade}}</text>
+        </view>
+        <text wx:if="{{item.leave_pending}}" class="leave-pending-label muted">退出审核中</text>
+        <button
+          wx:else
+          class="leave-class-btn"
+          size="mini"
+          type="warn"
+          plain="{{true}}"
+          data-id="{{item.id}}"
+          bindtap="onRequestLeaveClass"
+        >
+          退出班级
+        </button>
       </view>
     </view>
     <view class="ios-card empty-class-card" wx:elif="{{needJoinClass}}">
-      <text class="empty-class muted">加入班级后，将在此显示你的班级</text>
+      <text class="empty-class muted">加入班级后，将在此显示你的班级（入班请在登录页完成）</text>
     </view>
     <view class="ios-card empty-class-card" wx:else>
-      <text class="empty-class muted">暂无班级，可点击下方「加入班级」</text>
+      <text class="empty-class muted">暂无班级（入班请在登录页完成）</text>
     </view>
 
     <text class="section-label">资料</text>
@@ -49,7 +67,13 @@
   <text class="section-label">功能</text>
   <view class="ios-card">
     <block wx:for="{{menus}}" wx:key="title">
-      <view class="ios-cell" bindtap="onMenu" data-title="{{item.title}}" data-path="{{item.path}}">
+      <view
+        class="ios-cell"
+        bindtap="onMenu"
+        data-title="{{item.title}}"
+        data-path="{{item.path}}"
+        data-action="{{item.action}}"
+      >
         <text class="ios-cell-title plain">{{item.title}}</text>
         <view class="cell-right">
           <text wx:if="{{item.extra}}" class="extra muted">{{item.extra}}</text>

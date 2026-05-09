@@ -22,7 +22,8 @@ const WECHAT_MINI_APPID = String(process.env.WECHAT_MINI_APPID || '').trim()
 const WECHAT_MINI_SECRET = String(process.env.WECHAT_MINI_SECRET || '').trim()
 const UPLOAD_ROOT = path.resolve(process.cwd(), 'uploads')
 const UPLOAD_PUBLIC_BASE = process.env.UPLOAD_PUBLIC_BASE || `http://localhost:${API_PORT}`
-const UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024
+/** 资料库上传单文件上限（与 multer resourceUpload 一致） */
+const RESOURCE_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
 /** 接口契约版本：递增表示行为变更。线上与本地 curl /api/health 对比此字段可确认是否已部署同一套 API。 */
 const API_REVISION = 5
 
@@ -44,7 +45,7 @@ const resourceUploadStorage = multer.diskStorage({
 const resourceUpload = multer({
   storage: resourceUploadStorage,
   limits: {
-    fileSize: UPLOAD_SIZE_LIMIT,
+    fileSize: RESOURCE_UPLOAD_MAX_BYTES,
     files: 1,
   },
   fileFilter: (_req, file, cb) => {
@@ -528,6 +529,36 @@ const ensureClassInviteSchema = async () => {
   )
 }
 
+const ensureClassLeaveRequestSchema = async () => {
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS class_leave_requests (
+      id BIGSERIAL PRIMARY KEY,
+      class_id BIGINT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      reviewer_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      review_note TEXT
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_class_leave_requests_one_pending
+    ON class_leave_requests (class_id, student_id)
+    WHERE status = 'pending'
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_class_leave_requests_class_time
+    ON class_leave_requests (class_id, requested_at DESC)
+    `,
+  )
+}
+
 const ensureStudentWarningSchema = async () => {
   /** 须先建表再 ALTER：空库若先 ALTER 会报 relation does not exist */
   await pool.query(
@@ -634,6 +665,7 @@ const ensureResourceSchema = async () => {
     )
     `,
   )
+  await pool.query(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS subject_id BIGINT REFERENCES subjects(id) ON DELETE SET NULL`)
 }
 
 const ensureStudentPracticeSchema = async () => {
@@ -1034,6 +1066,28 @@ const upsertStudentAndJoinClass = async ({
     [classId, studentId, inviteCode || null, joinChannel || 'admin_manual', operatorId || null],
   )
   return { studentId }
+}
+
+/**
+ * 学生退出某班级时：凡考试曾在 exam_classes 中关联过该班，即删除该生该场考试的答卷（answers 随 exam_submissions 级联删除），
+ * 不区分该生是否仍在其它班级。删除本班学业预警个案。个人刷题统计（student_question_stats / practice_events 等）一律保留。
+ */
+const clearExamDataWhenLeavingClass = async (client, studentId, classIdLeaving) => {
+  await client.query(`DELETE FROM student_warning_cases WHERE class_id = $1 AND student_id = $2`, [
+    classIdLeaving,
+    studentId,
+  ])
+  await client.query(
+    `
+    DELETE FROM exam_submissions es
+    WHERE es.student_id = $1
+      AND EXISTS (
+        SELECT 1 FROM exam_classes ec
+        WHERE ec.exam_id = es.exam_id AND ec.class_id = $2
+      )
+    `,
+    [studentId, classIdLeaving],
+  )
 }
 
 const getExamDefaultConfig = async (client) => {
@@ -2181,11 +2235,28 @@ app.get('/api/classes/:id/invite-config', authRequired, async (req, res) => {
       `,
       [classId],
     )
+    const leaveRequestResult = await client.query(
+      `
+      SELECT
+        lr.id,
+        lr.student_id,
+        lr.requested_at,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
+        s.student_no
+      FROM class_leave_requests lr
+      JOIN students s ON s.id = lr.student_id
+      WHERE lr.class_id = $1 AND lr.status = 'pending'
+      ORDER BY lr.requested_at DESC, lr.id DESC
+      LIMIT 50
+      `,
+      [classId],
+    )
     return res.json({
       data: {
         ...classResult.rows[0],
         join_logs: logsResult.rows,
         join_requests: requestResult.rows,
+        leave_requests: leaveRequestResult.rows,
       },
     })
   } catch (error) {
@@ -2505,6 +2576,16 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
       [studentId],
     )
     const classes = classesResult.rows
+    const leavePendingResult = await pool.query(
+      `
+      SELECT r.id, r.class_id, c.name AS class_name, r.requested_at
+      FROM class_leave_requests r
+      JOIN classes c ON c.id = r.class_id
+      WHERE r.student_id = $1 AND r.status = 'pending'
+      ORDER BY r.requested_at DESC
+      `,
+      [studentId],
+    )
     return res.json({
       data: {
         student: {
@@ -2517,6 +2598,7 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
         },
         classes,
         need_join_class: classes.length === 0,
+        pending_leave_requests: leavePendingResult.rows,
       },
     })
   } catch (error) {
@@ -2570,6 +2652,73 @@ app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
     })
   } catch (error) {
     return res.status(500).json({ message: '更新资料失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 学生申请退出某班级（须教师审核通过后才会真正退班；通过后删除「考试曾关联该班」的答卷，与是否仍在别班无关；个人刷题数据保留） */
+app.post('/api/student/leave-class-request', studentAuthRequired, async (req, res) => {
+  const classId = Number(req.body?.class_id ?? req.body?.classId)
+  const studentId = req.studentAuth.studentId
+  if (!Number.isInteger(classId) || classId <= 0) {
+    return res.status(400).json({ message: 'class_id 不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const member = await client.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classId, studentId],
+    )
+    if (!member.rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '您不在该班级中' })
+    }
+    const dup = await client.query(
+      `SELECT id FROM class_leave_requests WHERE class_id = $1 AND student_id = $2 AND status = 'pending' LIMIT 1`,
+      [classId, studentId],
+    )
+    if (dup.rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '该班级已有待审核的退班申请' })
+    }
+    const ins = await client.query(
+      `
+      INSERT INTO class_leave_requests (class_id, student_id, status, requested_at)
+      VALUES ($1, $2, 'pending', NOW())
+      RETURNING id, class_id, requested_at
+      `,
+      [classId, studentId],
+    )
+    const row = ins.rows[0]
+    const cname = await client.query(`SELECT name FROM classes WHERE id = $1 LIMIT 1`, [classId])
+    await writeOperationLog({
+      client,
+      operatorId: null,
+      action: 'class.leave_request.submit',
+      targetType: 'class',
+      targetId: String(classId),
+      detail: { requestId: row?.id, studentId, source: 'mini_program' },
+    })
+    await client.query('COMMIT')
+    return res.status(201).json({
+      data: {
+        id: row?.id,
+        class_id: classId,
+        class_name: String(cname.rows[0]?.name || ''),
+        status: 'pending',
+        requested_at: row?.requested_at,
+        message: '已提交退班申请，请等待老师审核',
+      },
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    const code = error && error.code
+    if (code === '23505') {
+      return res.status(400).json({ message: '该班级已有待审核的退班申请' })
+    }
+    return res.status(500).json({ message: '提交退班申请失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
   }
 })
 
@@ -2739,8 +2888,9 @@ app.get('/api/student/resources', studentAuthRequired, studentClassMembershipReq
     const whereClause = `WHERE ${conditions.join(' AND ')}`
     const resourceResult = await pool.query(
       `
-      SELECT r.id, r.name, r.file_url, r.file_type, r.folder, r.created_at
+      SELECT r.id, r.name, r.file_url, r.file_type, r.folder, r.subject_id, COALESCE(s.name, '') AS subject_name, r.created_at
       FROM resources r
+      LEFT JOIN subjects s ON s.id = r.subject_id
       ${whereClause}
       ORDER BY r.created_at DESC, r.id DESC
       LIMIT 500
@@ -2757,6 +2907,8 @@ app.get('/api/student/resources', studentAuthRequired, studentClassMembershipReq
           file_url: fileUrl,
           file_type: row.file_type,
           folder: row.folder,
+          subject_id: row.subject_id != null ? Number(row.subject_id) : null,
+          subject_name: String(row.subject_name || ''),
           created_at: row.created_at,
           can_system_download: Boolean(fileUrl && fileUrl.startsWith(expectedPrefix)),
         }
@@ -4611,6 +4763,118 @@ app.patch('/api/classes/:id/join-requests/:requestId', authRequired, async (req,
   }
 })
 
+app.patch('/api/classes/:id/leave-requests/:requestId', authRequired, async (req, res) => {
+  const classId = Number(req.params.id)
+  const requestId = Number(req.params.requestId)
+  const action = String(req.body?.action || '').trim().toLowerCase()
+  if (Number.isNaN(classId) || Number.isNaN(requestId)) {
+    return res.status(400).json({ message: '参数不合法' })
+  }
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ message: 'action 仅支持 approve 或 reject' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const access = await assertClassManageAccess(client, classId, req.auth)
+    if (!access.ok) {
+      await client.query('ROLLBACK')
+      return res.status(access.code).json({ message: access.message })
+    }
+    const requestResult = await client.query(
+      `
+      SELECT id, class_id, student_id, status
+      FROM class_leave_requests
+      WHERE id = $1 AND class_id = $2
+      FOR UPDATE
+      `,
+      [requestId, classId],
+    )
+    const requestRow = requestResult.rows[0]
+    if (!requestRow) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '退班申请不存在' })
+    }
+    if (String(requestRow.status) !== 'pending') {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '该退班申请已处理' })
+    }
+    const studentId = Number(requestRow.student_id)
+
+    if (action === 'reject') {
+      await client.query(
+        `
+        UPDATE class_leave_requests
+        SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1
+        WHERE id = $2
+        `,
+        [req.auth?.userId || null, requestId],
+      )
+      await writeOperationLog({
+        client,
+        operatorId: req.auth?.userId,
+        action: 'class.leave_request.reject',
+        targetType: 'class',
+        targetId: String(classId),
+        detail: { requestId, studentId },
+      })
+      await client.query('COMMIT')
+      return res.json({ data: { id: requestId, status: 'rejected' } })
+    }
+
+    const mem = await client.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classId, studentId],
+    )
+    if (!mem.rows[0]) {
+      await client.query(
+        `
+        UPDATE class_leave_requests
+        SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1, review_note = '学生已不在该班级'
+        WHERE id = $2
+        `,
+        [req.auth?.userId || null, requestId],
+      )
+      await writeOperationLog({
+        client,
+        operatorId: req.auth?.userId,
+        action: 'class.leave_request.reject',
+        targetType: 'class',
+        targetId: String(classId),
+        detail: { requestId, studentId, reason: 'not_member' },
+      })
+      await client.query('COMMIT')
+      return res.json({ data: { id: requestId, status: 'rejected', message: '学生已不在该班，申请已关闭' } })
+    }
+
+    await clearExamDataWhenLeavingClass(client, studentId, classId)
+    await client.query(`DELETE FROM class_members WHERE class_id = $1 AND student_id = $2`, [classId, studentId])
+    await client.query(
+      `
+      UPDATE class_leave_requests
+      SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1
+      WHERE id = $2
+      `,
+      [req.auth?.userId || null, requestId],
+    )
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'class.leave_request.approve',
+      targetType: 'class',
+      targetId: String(classId),
+      detail: { requestId, studentId },
+    })
+    await client.query('COMMIT')
+    return res.json({ data: { id: requestId, status: 'approved' } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '处理退班申请失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
 app.get('/api/classes/:id/students', authRequired, async (req, res) => {
   const classId = Number(req.params.id)
   if (Number.isNaN(classId)) return res.status(400).json({ message: '班级ID不合法' })
@@ -4864,6 +5128,14 @@ app.delete('/api/classes/:id/students/:studentId', authRequired, async (req, res
   try {
     const access = await assertClassManageAccess(client, classId, req.auth)
     if (!access.ok) return res.status(access.code).json({ message: access.message })
+    const memCheck = await client.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classId, studentId],
+    )
+    if (!memCheck.rows[0]) {
+      return res.status(404).json({ message: '该学生不在当前班级中' })
+    }
+    await clearExamDataWhenLeavingClass(client, studentId, classId)
     const result = await client.query(
       `
       DELETE FROM class_members
@@ -4874,6 +5146,14 @@ app.delete('/api/classes/:id/students/:studentId', authRequired, async (req, res
     if (result.rowCount === 0) {
       return res.status(404).json({ message: '该学生不在当前班级中' })
     }
+    await client.query(
+      `
+      UPDATE class_leave_requests
+      SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $3, review_note = '教师已将学生移出班级'
+      WHERE class_id = $1 AND student_id = $2 AND status = 'pending'
+      `,
+      [classId, studentId, req.auth?.userId || null],
+    )
     await writeOperationLog({
       client,
       operatorId: req.auth?.userId,
@@ -4885,6 +5165,169 @@ app.delete('/api/classes/:id/students/:studentId', authRequired, async (req, res
     return res.json({ data: { class_id: classId, student_id: studentId } })
   } catch (error) {
     return res.status(500).json({ message: '移出学生失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 班级内某学生的刷题与考试概况（须能查看该班级） */
+app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (req, res) => {
+  const classId = Number(req.params.id)
+  const studentId = Number(req.params.studentId)
+  if (Number.isNaN(classId) || Number.isNaN(studentId)) {
+    return res.status(400).json({ message: '班级或学生参数不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    const access = await assertClassReadAccess(client, classId, req.auth)
+    if (!access.ok) return res.status(access.code).json({ message: access.message })
+    const mem = await client.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classId, studentId],
+    )
+    if (!mem.rows[0]) {
+      return res.status(404).json({ message: '该学生不在当前班级中' })
+    }
+    const studentR = await client.query(
+      `
+      SELECT
+        s.id,
+        s.name AS nickname,
+        s.real_name,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS name,
+        s.student_no
+      FROM students s
+      WHERE s.id = $1
+      LIMIT 1
+      `,
+      [studentId],
+    )
+    const student = studentR.rows[0]
+    if (!student) return res.status(404).json({ message: '学生不存在' })
+
+    const statsR = await client.query(
+      `
+      SELECT
+        COUNT(*)::int AS questions_touched,
+        COALESCE(SUM(attempts), 0)::int AS attempts,
+        COALESCE(SUM(correct_count), 0)::int AS correct,
+        COALESCE(SUM(wrong_count), 0)::int AS wrong,
+        COUNT(*) FILTER (WHERE wrong_count > 0)::int AS wrong_questions
+      FROM student_question_stats
+      WHERE student_id = $1
+      `,
+      [studentId],
+    )
+    const st = statsR.rows[0] || {}
+    const correct = Number(st.correct || 0)
+    const wrong = Number(st.wrong || 0)
+    const denom = correct + wrong
+    const accuracy_pct = denom > 0 ? Math.round((100 * correct) / denom) : 0
+
+    const ev30R = await client.query(
+      `
+      SELECT COUNT(*)::int AS c
+      FROM student_practice_events
+      WHERE student_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+      `,
+      [studentId],
+    )
+    const practiceEvents30d = Number(ev30R.rows[0]?.c || 0)
+
+    const dailyR = await client.query(
+      `
+      SELECT practice_date::text AS practice_date, attempts::int AS attempts
+      FROM student_practice_day
+      WHERE student_id = $1
+      ORDER BY practice_date DESC
+      LIMIT 21
+      `,
+      [studentId],
+    )
+
+    const examsR = await client.query(
+      `
+      SELECT
+        e.id AS exam_id,
+        e.title,
+        e.status AS exam_status,
+        s.name AS subject_name,
+        e.start_time,
+        e.end_time,
+        e.duration,
+        es.id AS submission_id,
+        es.status AS submission_status,
+        es.start_time AS submission_start_time,
+        es.submit_time,
+        es.total_score
+      FROM exam_classes ec
+      JOIN exams e ON e.id = ec.exam_id
+      JOIN subjects s ON s.id = e.subject_id
+      LEFT JOIN exam_submissions es ON es.exam_id = e.id AND es.student_id = $2
+      WHERE ec.class_id = $1
+      ORDER BY e.start_time DESC NULLS LAST, e.id DESC
+      LIMIT 100
+      `,
+      [classId, studentId],
+    )
+
+    const examPhaseLabel = (row) => {
+      const examStatus = Number(row.exam_status || 0)
+      if (examStatus === 1) return '未开始'
+      if (examStatus === 2) return '进行中'
+      if (examStatus === 3) return '已结束'
+      return '—'
+    }
+    const submissionStatusText = (stRaw) => {
+      const n = Number(stRaw)
+      if (!n) return '未作答'
+      if (n === 3 || n === 2) return '已出分'
+      if (n === 1) return '进行中'
+      return `状态${n}`
+    }
+
+    return res.json({
+      data: {
+        student: {
+          id: Number(student.id),
+          name: student.name,
+          nickname: student.nickname,
+          real_name: student.real_name,
+          student_no: student.student_no,
+        },
+        practice_summary: {
+          questions_touched: Number(st.questions_touched || 0),
+          attempts: Number(st.attempts || 0),
+          correct,
+          wrong,
+          wrong_questions: Number(st.wrong_questions || 0),
+          accuracy_pct,
+          practice_events_30d: practiceEvents30d,
+        },
+        practice_daily: dailyR.rows.map((r) => ({
+          practice_date: r.practice_date,
+          attempts: Number(r.attempts || 0),
+        })),
+        exams: examsR.rows.map((row) => ({
+          exam_id: Number(row.exam_id),
+          title: row.title,
+          exam_status: Number(row.exam_status || 0),
+          exam_phase_label: examPhaseLabel(row),
+          subject_name: row.subject_name,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          duration: Number(row.duration || 0),
+          submission_id: row.submission_id != null ? Number(row.submission_id) : null,
+          submission_status: row.submission_status != null ? Number(row.submission_status) : null,
+          submission_status_text: submissionStatusText(row.submission_status),
+          submission_start_time: row.submission_start_time,
+          submit_time: row.submit_time,
+          total_score: row.total_score != null ? Number(row.total_score) : null,
+        })),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载学生学情失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
   }
@@ -7280,14 +7723,13 @@ app.get('/api/resources/meta', authRequired, async (_req, res) => {
         values,
       ),
     ])
+    const subjectResult = await pool.query(`SELECT id, name FROM subjects ORDER BY sort_order ASC, id ASC`)
     return res.json({
       data: {
-        folders: [
-          { key: 'courseware', label: '课件' },
-          { key: 'exercise', label: '习题解析' },
-          { key: 'video', label: '视频' },
-          { key: 'other', label: '其他' },
-        ],
+        subjects: subjectResult.rows.map((item) => ({
+          id: Number(item.id),
+          name: String(item.name || ''),
+        })),
         classes: classResult.rows.map((item) => ({
           id: item.id,
           name: item.name,
@@ -7307,7 +7749,7 @@ app.post('/api/resources/upload', authRequired, (req, res) => {
   resourceUpload.single('file')(req, res, (error) => {
     if (error) {
       if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ message: '文件大小不能超过100MB' })
+        return res.status(400).json({ message: '文件大小不能超过 1GB' })
       }
       return res.status(400).json({ message: error instanceof Error ? error.message : '上传失败' })
     }
@@ -7391,11 +7833,14 @@ app.get('/api/resources', authRequired, async (req, res) => {
           r.file_url,
           r.file_type,
           r.folder,
+          r.subject_id,
+          COALESCE(s.name, '') AS subject_name,
           r.uploader_id,
           r.created_at,
           COALESCE(u.name, '') AS uploader_name
         FROM resources r
         LEFT JOIN users u ON u.id = r.uploader_id
+        LEFT JOIN subjects s ON s.id = r.subject_id
         ${whereClause}
       ),
       tot AS (SELECT COUNT(*)::int AS c FROM base)
@@ -7438,6 +7883,8 @@ app.get('/api/resources', authRequired, async (req, res) => {
         file_url: row.file_url,
         file_type: row.file_type,
         folder: row.folder,
+        subject_id: row.subject_id != null ? Number(row.subject_id) : null,
+        subject_name: String(row.subject_name || ''),
         uploader_id: row.uploader_id,
         uploader_name: row.uploader_name || '',
         created_at: row.created_at,
@@ -7559,24 +8006,33 @@ app.post('/api/resources', authRequired, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   const fileUrl = String(req.body?.fileUrl || '').trim()
   const fileType = String(req.body?.fileType || '').trim() || 'file'
-  const folder = String(req.body?.folder || '').trim() || 'other'
+  const folder = 'other'
+  const subjectId = Number(req.body?.subjectId ?? req.body?.subject_id)
   const classIds = Array.isArray(req.body?.classIds) ? req.body.classIds.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0) : []
   if (!name) return res.status(400).json({ message: '资料名称不能为空' })
   if (!fileUrl) return res.status(400).json({ message: '文件地址不能为空' })
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: '请选择文件科目' })
+  }
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    const subOk = await client.query(`SELECT 1 FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subOk.rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '科目不存在' })
+    }
     if (!(await validateResourceClassScope({ req, classIds, client }))) {
       await client.query('ROLLBACK')
       return res.status(403).json({ message: '仅可设置自己负责班级为可见范围' })
     }
     const insertResult = await client.query(
       `
-      INSERT INTO resources (name, file_url, file_type, uploader_id, folder, created_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
+      INSERT INTO resources (name, file_url, file_type, uploader_id, folder, subject_id, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
       RETURNING id
       `,
-      [name, fileUrl, fileType, req.auth?.userId || null, folder],
+      [name, fileUrl, fileType, req.auth?.userId || null, folder, subjectId],
     )
     const resourceId = Number(insertResult.rows[0]?.id || 0)
     const uniqueClassIds = Array.from(new Set(classIds))
@@ -7596,7 +8052,7 @@ app.post('/api/resources', authRequired, async (req, res) => {
       action: 'resource.create',
       targetType: 'resource',
       targetId: String(resourceId),
-      detail: { folder, class_ids: uniqueClassIds },
+      detail: { folder, subject_id: subjectId, class_ids: uniqueClassIds },
     })
     await client.query('COMMIT')
     return res.json({ data: { id: resourceId } })
@@ -7614,6 +8070,9 @@ app.patch('/api/resources/:id', authRequired, async (req, res) => {
   if (!Number.isInteger(resourceId) || resourceId <= 0) return res.status(400).json({ message: '资料ID不合法' })
   const name = String(req.body?.name || '').trim()
   const folder = String(req.body?.folder || '').trim()
+  const rawSubject = req.body?.subjectId ?? req.body?.subject_id
+  const hasSubjectUpdate = rawSubject !== undefined && rawSubject !== null && String(rawSubject).trim() !== ''
+  const subjectId = hasSubjectUpdate ? Number(rawSubject) : null
   const classIds = Array.isArray(req.body?.classIds) ? req.body.classIds.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0) : null
   const client = await pool.connect()
   try {
@@ -7622,12 +8081,23 @@ app.patch('/api/resources/:id', authRequired, async (req, res) => {
       await client.query('ROLLBACK')
       return res.status(403).json({ message: '仅可设置自己负责班级为可见范围' })
     }
+    if (hasSubjectUpdate && (!Number.isInteger(subjectId) || subjectId <= 0)) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '科目参数不合法' })
+    }
+    if (hasSubjectUpdate) {
+      const subOk = await client.query(`SELECT 1 FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+      if (!subOk.rows[0]) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: '科目不存在' })
+      }
+    }
     const exists = await client.query(`SELECT id FROM resources WHERE id = $1 LIMIT 1`, [resourceId])
     if (!exists.rows[0]) {
       await client.query('ROLLBACK')
       return res.status(404).json({ message: '资料不存在' })
     }
-    if (name || folder) {
+    if (name || folder || hasSubjectUpdate) {
       const updates = []
       const values = []
       if (name) {
@@ -7637,6 +8107,10 @@ app.patch('/api/resources/:id', authRequired, async (req, res) => {
       if (folder) {
         values.push(folder)
         updates.push(`folder = $${values.length}`)
+      }
+      if (hasSubjectUpdate) {
+        values.push(subjectId)
+        updates.push(`subject_id = $${values.length}`)
       }
       values.push(resourceId)
       await client.query(`UPDATE resources SET ${updates.join(', ')} WHERE id = $${values.length}`, values)
@@ -7663,6 +8137,7 @@ app.patch('/api/resources/:id', authRequired, async (req, res) => {
       detail: {
         name: name || undefined,
         folder: folder || undefined,
+        subject_id: hasSubjectUpdate ? subjectId : undefined,
         class_ids: classIds || undefined,
       },
     })
@@ -9639,6 +10114,7 @@ const runBootMigrations = async () => {
   await ensureKnowledgeUnitSchema()
   await ensureSystemConfigTable()
   await ensureClassInviteSchema()
+  await ensureClassLeaveRequestSchema()
   await ensureStudentWarningSchema()
   await ensureQuestionDuplicateMarkSchema()
   await ensureQuestionRecycleSchema()

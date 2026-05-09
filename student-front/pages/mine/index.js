@@ -13,11 +13,12 @@ Page({
     studentNo: "",
     avatarLetter: "?",
     classes: [],
+    leavePendingCount: 0,
     needJoinClass: false,
     nameEditVisible: false,
     nameDraft: "",
     menus: [
-      { title: "加入班级", extra: "", path: "/pages/login/index" },
+      { title: "退出班级", action: "leave_hint" },
       { title: "错题本", extra: "", path: "/pages/record-wrong/index" },
       { title: "已做题", extra: "", path: "/pages/record-done/index" },
     ],
@@ -35,6 +36,7 @@ Page({
         studentNo: "",
         avatarLetter: "?",
         classes: [],
+        leavePendingCount: 0,
         needJoinClass: false,
         nameEditVisible: false,
         nameDraft: "",
@@ -52,7 +54,12 @@ Page({
     try {
       const res = await request({ path: "/api/student/profile", method: "GET" });
       const st = (res.data && res.data.student) || {};
-      const classes = (res.data && res.data.classes) || [];
+      const classesRaw = (res.data && res.data.classes) || [];
+      const pendingLeave = (res.data && res.data.pending_leave_requests) || [];
+      const classes = classesRaw.map((c) => ({
+        ...c,
+        leave_pending: pendingLeave.some((p) => Number(p.class_id) === Number(c.id)),
+      }));
       const need = Boolean(res.data && res.data.need_join_class);
       const display = String(st.display_name || "").trim() || String(st.name || "同学").trim() || "同学";
       wx.setStorageSync("need_join_class", need ? "1" : "0");
@@ -62,6 +69,7 @@ Page({
         studentNo: String(st.student_no || "").trim(),
         avatarLetter: firstChar(display),
         classes,
+        leavePendingCount: pendingLeave.length,
         needJoinClass: need,
       });
     } catch (e) {
@@ -74,6 +82,7 @@ Page({
         this.setData({
           loggedIn: false,
           classes: [],
+          leavePendingCount: 0,
           needJoinClass: false,
           nameEditVisible: false,
         });
@@ -132,10 +141,59 @@ Page({
   },
 
   onMenu(e) {
+    const action = e.currentTarget.dataset.action;
+    if (action === "leave_hint") {
+      if (!this.data.loggedIn) {
+        wx.showModal({
+          title: "退出班级说明",
+          content: "请先登录。加入班级请在登录页完成；退出班级请在下方「我的班级」中操作，需教师审核通过后方可生效；通过后凡曾关联该班的考试答卷会删除（与是否仍在别班无关），个人刷题记录保留。",
+          showCancel: false,
+          confirmText: "我知道了",
+        });
+        return;
+      }
+      wx.showModal({
+        title: "退出班级说明",
+        content:
+          "须由教师审核通过后，你才会从班级中退出；审核通过前你仍在原班级。\n\n退出后，凡曾关联该班的考试，你的答卷会被删除（即使你还在其它班级）；个人刷题（练习）记录会保留。\n\n请在下方「我的班级」中，选择要退出的班级并提交申请。",
+        showCancel: false,
+        confirmText: "我知道了",
+      });
+      return;
+    }
     const path = e.currentTarget.dataset.path;
     if (path) {
       wx.navigateTo({ url: path });
     }
+  },
+
+  onRequestLeaveClass(e) {
+    const classId = e.currentTarget.dataset.id;
+    if (!classId) return;
+    wx.showModal({
+      title: "退出班级",
+      content:
+        "须教师审核通过后方可退出该班级；审核通过前你仍在原班级。\n\n退出后，凡曾关联该班的考试，你的答卷会被删除（即使你还在其它班级）；个人刷题记录会保留。\n\n是否提交退出申请？",
+      confirmText: "提交申请",
+      cancelText: "取消",
+      success: async (r) => {
+        if (!r.confirm) return;
+        wx.showLoading({ title: "提交中" });
+        try {
+          await request({
+            path: "/api/student/leave-class-request",
+            method: "POST",
+            data: { class_id: classId },
+          });
+          wx.hideLoading();
+          wx.showToast({ title: "已提交，请等待教师审核", icon: "none" });
+          await this.loadProfile();
+        } catch (err) {
+          wx.hideLoading();
+          wx.showToast({ title: (err && err.message) || "提交失败", icon: "none" });
+        }
+      },
+    });
   },
 
   onPlaceholder() {},
@@ -156,6 +214,7 @@ Page({
           studentNo: "",
           avatarLetter: "?",
           classes: [],
+          leavePendingCount: 0,
           needJoinClass: false,
           nameEditVisible: false,
           nameDraft: "",
