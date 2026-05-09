@@ -262,7 +262,7 @@ app.use(
   ),
 )
 app.use(express.json({ limit: '2mb' }))
-app.use('/uploads', express.static(UPLOAD_ROOT))
+app.use('/uploads', express.static(UPLOAD_ROOT, { maxAge: '7d', etag: true, lastModified: true }))
 
 const authRequired = (req, res, next) => {
   const header = req.headers.authorization || ''

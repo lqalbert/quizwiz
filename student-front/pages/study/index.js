@@ -98,6 +98,19 @@ function mapOpenDocumentFileType(ext) {
   return map[e] || undefined;
 }
 
+/**
+ * 本地上传的资料 file_url 指向 /uploads/，可由静态服务直出。
+ * 直链 wx.downloadFile 不走 Node 鉴权接口，明显更快；失败再回退 API。
+ */
+function canUseDirectStudyDownload(fileUrlAbs) {
+  const s = String(fileUrlAbs || "").trim();
+  if (!s || /\.\./.test(s)) return false;
+  const isHttps = /^https:\/\//i.test(s);
+  const isLocalHttp = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(s);
+  if (!isHttps && !isLocalHttp) return false;
+  return /\/uploads\//i.test(s);
+}
+
 /** downloadFile 在 4xx/5xx 时仍可能走 success，且临时文件里是 JSON 错误体（勿用 utf8 读二进制大文件） */
 function sniffDownloadTempIsJsonError(tempFilePath) {
   return new Promise((resolve) => {
@@ -344,21 +357,33 @@ Page({
     else this._audioCtx.play();
   },
 
-  downloadResourceToTemp(resourceId, displayName, loadingTitle) {
-    const classId = this.data.classId;
-    if (!classId || !Number.isFinite(resourceId) || resourceId <= 0) {
-      wx.showToast({ title: "无法打开", icon: "none" });
-      return Promise.reject(new Error("bad"));
-    }
-    const token = wx.getStorageSync("student_token") || "";
-    const base = getApiBase().replace(/\/$/, "");
-    const q = [
-      `class_id=${encodeURIComponent(String(classId))}`,
-      token ? `access_token=${encodeURIComponent(token)}` : "",
-    ]
-      .filter(Boolean)
-      .join("&");
-    const url = `${base}/api/student/resources/${encodeURIComponent(String(resourceId))}/download?${q}`;
+  tempFileStartsWithJsonBrace(tempFilePath) {
+    return new Promise((resolve) => {
+      wx.getFileSystemManager().readFile({
+        filePath: tempFilePath,
+        position: 0,
+        length: 1,
+        success(r) {
+          const raw = r.data;
+          if (raw instanceof ArrayBuffer && raw.byteLength) {
+            resolve(new Uint8Array(raw)[0] === 0x7b);
+            return;
+          }
+          if (typeof raw === "string" && raw.trim().startsWith("{")) {
+            resolve(true);
+            return;
+          }
+          resolve(false);
+        },
+        fail: () => resolve(false),
+      });
+    });
+  },
+
+  /**
+   * @param {boolean} silent 为 true 时不 Toast（直链失败时静默换 API）
+   */
+  runWxDownloadOnce(url, header, displayName, resourceKey, loadingTitle, silent) {
     const ext = getFileExt(displayName, "");
     const safeExt = ext && /^[a-z0-9]+$/i.test(ext) ? String(ext).toLowerCase() : "";
     let userPath = "";
@@ -371,48 +396,94 @@ Page({
       Boolean(userPath && safeExt) &&
       (typeof wx.canIUse !== "function" || wx.canIUse("downloadFile.object.filePath"));
     const filePath = canFilePath
-      ? `${userPath}/qw_res_${resourceId}_${Date.now()}.${safeExt}`
+      ? `${userPath}/qw_res_${resourceKey}_${Date.now()}.${safeExt}`
       : undefined;
     wx.showLoading({ title: loadingTitle || "加载中", mask: true });
     return new Promise((resolve, reject) => {
       const opts = {
         url,
-        header: token ? { Authorization: `Bearer ${token}` } : {},
+        header: header || {},
         success: async (res) => {
           wx.hideLoading();
           const path = res.filePath || res.tempFilePath;
           if (!path) {
-            wx.showToast({ title: "文件获取失败", icon: "none" });
+            if (!silent) wx.showToast({ title: "文件获取失败", icon: "none" });
             reject(new Error("nopath"));
             return;
           }
           const sc = res.statusCode;
           if (sc !== undefined && sc !== 200) {
-            const sniff = await sniffDownloadTempIsJsonError(path);
-            const hint = !sniff.ok && sniff.message ? sniff.message : `请求失败(${sc})`;
-            wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
+            if (!silent) {
+              const sniff = await sniffDownloadTempIsJsonError(path);
+              const hint = !sniff.ok && sniff.message ? sniff.message : `请求失败(${sc})`;
+              wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
+            }
             reject(new Error("http"));
             return;
           }
-          const sniff200 = await sniffDownloadTempIsJsonError(path);
-          if (!sniff200.ok) {
-            const hint = sniff200.message || "文件获取失败";
-            wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
-            reject(new Error("jsonerr"));
-            return;
+          const brace = await this.tempFileStartsWithJsonBrace(path);
+          if (brace) {
+            const sniff200 = await sniffDownloadTempIsJsonError(path);
+            if (!sniff200.ok) {
+              if (!silent) {
+                const hint = sniff200.message || "文件获取失败";
+                wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
+              }
+              reject(new Error("jsonerr"));
+              return;
+            }
           }
           resolve(path);
         },
         fail: (err) => {
           wx.hideLoading();
-          const em = (err && err.errMsg) || "";
-          wx.showToast({ title: em ? em.slice(0, 40) : "网络失败", icon: "none" });
+          if (!silent) {
+            const em = (err && err.errMsg) || "";
+            wx.showToast({ title: em ? em.slice(0, 40) : "网络失败", icon: "none" });
+          }
           reject(new Error("net"));
         },
       };
       if (filePath) opts.filePath = filePath;
       wx.downloadFile(opts);
     });
+  },
+
+  _downloadResourceViaApi(resourceId, displayName, loadingTitle) {
+    const classId = this.data.classId;
+    const token = wx.getStorageSync("student_token") || "";
+    const base = getApiBase().replace(/\/$/, "");
+    const q = [
+      `class_id=${encodeURIComponent(String(classId))}`,
+      token ? `access_token=${encodeURIComponent(token)}` : "",
+    ]
+      .filter(Boolean)
+      .join("&");
+    const url = `${base}/api/student/resources/${encodeURIComponent(String(resourceId))}/download?${q}`;
+    return this.runWxDownloadOnce(
+      url,
+      token ? { Authorization: `Bearer ${token}` } : {},
+      displayName,
+      resourceId,
+      loadingTitle,
+      false,
+    );
+  },
+
+  /** @param {string} [fileUrlAbs] 列表里的绝对地址；本地上传时优先直链下载 */
+  downloadResourceToTemp(resourceId, displayName, loadingTitle, fileUrlAbs) {
+    const classId = this.data.classId;
+    if (!classId || !Number.isFinite(resourceId) || resourceId <= 0) {
+      wx.showToast({ title: "无法打开", icon: "none" });
+      return Promise.reject(new Error("bad"));
+    }
+    const abs = String(fileUrlAbs || "").trim();
+    if (canUseDirectStudyDownload(abs)) {
+      return this.runWxDownloadOnce(abs, {}, displayName, resourceId, loadingTitle, true).catch(() =>
+        this._downloadResourceViaApi(resourceId, displayName, loadingTitle),
+      );
+    }
+    return this._downloadResourceViaApi(resourceId, displayName, loadingTitle);
   },
 
   openDocumentFromTemp(tempFilePath, displayName, failHint) {
@@ -428,19 +499,19 @@ Page({
     });
   },
 
-  async openDocPreviewFromResource(id, displayName) {
+  async openDocPreviewFromResource(id, displayName, fileUrlAbs) {
     this.closeAudioPreview();
     this.closeVideoPreview();
     try {
-      const p = await this.downloadResourceToTemp(id, displayName, "预览中");
+      const p = await this.downloadResourceToTemp(id, displayName, "正在打开…", fileUrlAbs);
       this.openDocumentFromTemp(p, displayName, "无法预览，可点「下载」重试");
     } catch (_) {}
   },
 
-  async openAudioPreviewFromResource(id, displayName) {
+  async openAudioPreviewFromResource(id, displayName, fileUrlAbs) {
     this.closeVideoPreview();
     try {
-      const p = await this.downloadResourceToTemp(id, displayName, "加载中");
+      const p = await this.downloadResourceToTemp(id, displayName, "正在加载…", fileUrlAbs);
       if (!this._audioCtx) return;
       this._audioCtx.stop();
       this._audioCtx.src = p;
@@ -483,10 +554,10 @@ Page({
         return;
       }
       if (isAudioExt(ext)) {
-        void this.openAudioPreviewFromResource(id, name);
+        void this.openAudioPreviewFromResource(id, name, url);
         return;
       }
-      void this.openDocPreviewFromResource(id, name);
+      void this.openDocPreviewFromResource(id, name, url);
       return;
     }
     wx.showActionSheet({
@@ -521,12 +592,13 @@ Page({
       wx.showToast({ title: "资料无效", icon: "none" });
       return;
     }
-    void this.downloadAndOpen(id, name);
+    const fileUrl = String(e.currentTarget.dataset.url || "");
+    void this.downloadAndOpen(id, name, fileUrl);
   },
 
-  downloadAndOpen(resourceId, displayName) {
+  downloadAndOpen(resourceId, displayName, fileUrlAbs) {
     this.closeVideoPreview();
-    void this.downloadResourceToTemp(resourceId, displayName, "下载中")
+    void this.downloadResourceToTemp(resourceId, displayName, "正在保存…", fileUrlAbs)
       .then((p) => {
         this.openDocumentFromTemp(p, displayName, "无法打开该格式，可尝试保存后查看");
       })

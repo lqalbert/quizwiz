@@ -4,7 +4,7 @@
     <view class="page-hero-body">
       <text class="page-hero-eyebrow">学习</text>
       <text class="page-hero-title">班级资料</text>
-      <text class="page-hero-lead muted">按科目浏览资料；点击卡片即可预览（图片 / 视频 / 文档 / 常见音频）</text>
+      <text class="page-hero-lead muted">按科目浏览；本地上传的文件会优先走高速直链，大文件首次打开可能需稍等</text>
     </view>
   </view>
 
