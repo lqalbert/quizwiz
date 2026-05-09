@@ -3955,42 +3955,58 @@ const loadStudentClassPeerIds = async (executor, studentId) => {
   return r.rows.map((x) => Number(x.sid)).filter((n) => Number.isInteger(n) && n > 0)
 }
 
+const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+
 const mergePeerPracticeRows = (peerIds, rows) => {
   const byId = new Map()
   for (const row of rows || []) {
     byId.set(Number(row.student_id), row)
   }
-  return peerIds.map((id) => ({
-    student_id: id,
-    practice_questions: Number(byId.get(id)?.practice_questions || 0),
-    wrong_count: Number(byId.get(id)?.wrong_count || 0),
-    total_attempts: Number(byId.get(id)?.total_attempts || 0),
-  }))
+  return peerIds.map((id) => {
+    const row = byId.get(id)
+    const wc = Number(row?.wrong_count || 0)
+    const wa = row?.wrong_attempts != null && row?.wrong_attempts !== '' ? Number(row.wrong_attempts) : wc
+    return {
+      student_id: id,
+      practice_questions: Number(row?.practice_questions || 0),
+      wrong_count: wc,
+      wrong_attempts: wa,
+      total_attempts: Number(row?.total_attempts || 0),
+    }
+  })
 }
 
-/** 班级内排名：正确率优先，其次本周期答题次数（不去重），再比错题次数少者靠前 */
+const rawWrongAttempts = (r) => {
+  const w = Number(r.wrong_attempts != null ? r.wrong_attempts : r.wrong_count || 0)
+  return Number.isFinite(w) && w >= 0 ? w : 0
+}
+
+/** 班级内排名：按 答题数×正确率（比例）；正确率用原始判题答错次数计算。平局：答题数（展示）多、展示错题数少者靠前 */
 const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   const mine = merged.find((x) => x.student_id === studentId) || {
     student_id: studentId,
     practice_questions: 0,
     wrong_count: 0,
+    wrong_attempts: 0,
     total_attempts: 0,
   }
   const total = mine.total_attempts
-  const wrong = mine.wrong_count
-  const correct = Math.max(0, total - wrong)
+  const rw = rawWrongAttempts(mine)
+  const correct = Math.max(0, total - rw)
   const accuracy_pct = total > 0 ? Math.round((100 * correct) / total) : 0
   const practice_questions = mine.practice_questions
+  const wrong = mine.wrong_count
 
-  const accOf = (r) => {
+  const rankProduct = (r) => {
     const t = r.total_attempts
     if (t <= 0) return -1
-    return Math.round((100 * (t - r.wrong_count)) / t)
+    const rw0 = rawWrongAttempts(r)
+    return (r.practice_questions * (t - rw0)) / t
   }
   const active = merged.filter((r) => r.total_attempts > 0)
   active.sort((a, b) => {
-    const da = accOf(b) - accOf(a)
-    if (da !== 0) return da
+    const d = rankProduct(b) - rankProduct(a)
+    if (Math.abs(d) > 1e-9) return d
     if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
     return a.wrong_count - b.wrong_count
   })
@@ -4011,7 +4027,77 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   }
 }
 
-const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+/**
+ * 今日：答题数/错题数=当天每题最多计 1（distinct）；周/月/全部=按上海日历日先算当日 distinct 再累加。
+ * total_attempts / wrong_attempts 为本周期原始判题次数，供正确率与排名乘积中的「正确率」使用。
+ */
+const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, period) => {
+  const p = String(period || '').toLowerCase()
+  const base = `
+    e.source IN ${PRACTICE_EVENT_SOURCES}
+    AND e.student_id = ANY($1::bigint[])
+  `
+  const todayEq = `(e.created_at AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date`
+  const weekEq = `date_trunc('week', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('week', (now() AT TIME ZONE 'Asia/Shanghai'))`
+  const monthEq = `date_trunc('month', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('month', (now() AT TIME ZONE 'Asia/Shanghai'))`
+
+  if (p === 'today') {
+    return executor.query(
+      `
+      SELECT e.student_id,
+        COUNT(DISTINCT e.question_id)::int AS practice_questions,
+        COUNT(DISTINCT CASE WHEN NOT e.is_correct THEN e.question_id END)::int AS wrong_count,
+        COUNT(*)::int AS total_attempts,
+        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_attempts
+      FROM student_practice_events e
+      WHERE ${base} AND ${todayEq}
+      GROUP BY e.student_id
+      `,
+      [peerIdsForQuery],
+    )
+  }
+
+  const periodPred = p === 'week' ? weekEq : p === 'month' ? monthEq : 'TRUE'
+  return executor.query(
+    `
+    WITH ev AS (
+      SELECT e.student_id, e.question_id, e.is_correct, e.created_at
+      FROM student_practice_events e
+      WHERE ${base} AND ${periodPred}
+    ),
+    daily AS (
+      SELECT ev.student_id,
+        (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date AS d,
+        COUNT(DISTINCT ev.question_id)::int AS dq,
+        COUNT(DISTINCT CASE WHEN NOT ev.is_correct THEN ev.question_id END)::int AS dw
+      FROM ev ev
+      GROUP BY ev.student_id, (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date
+    ),
+    summed AS (
+      SELECT student_id,
+        COALESCE(SUM(dq), 0)::int AS practice_questions,
+        COALESCE(SUM(dw), 0)::int AS wrong_count
+      FROM daily
+      GROUP BY student_id
+    ),
+    raw_tot AS (
+      SELECT ev.student_id,
+        COUNT(*)::int AS total_attempts,
+        COUNT(*) FILTER (WHERE NOT ev.is_correct)::int AS wrong_attempts
+      FROM ev ev
+      GROUP BY ev.student_id
+    )
+    SELECT r.student_id,
+      COALESCE(s.practice_questions, 0)::int AS practice_questions,
+      COALESCE(s.wrong_count, 0)::int AS wrong_count,
+      COALESCE(r.total_attempts, 0)::int AS total_attempts,
+      COALESCE(r.wrong_attempts, 0)::int AS wrong_attempts
+    FROM raw_tot r
+    LEFT JOIN summed s ON s.student_id = r.student_id
+    `,
+    [peerIdsForQuery],
+  )
+}
 
 /** 首页：刷题/考试相关汇总 */
 app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
@@ -4041,62 +4127,24 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
     const inClassPeerCount = classPeerIds.length
     const peerIdsForQuery = inClassPeerCount > 0 ? classPeerIds : [studentId]
 
-    const eventsSql = (datePredicateSql) => `
-      SELECT e.student_id,
-        COUNT(*)::int AS practice_questions,
-        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
-        COUNT(*)::int AS total_attempts
-      FROM student_practice_events e
-      WHERE e.source IN ${PRACTICE_EVENT_SOURCES}
-        AND e.student_id = ANY($1::bigint[])
-        AND ${datePredicateSql}
-      GROUP BY e.student_id
-    `
-
-    const todayEvR = await pool.query(
-      eventsSql(`(e.created_at AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date`),
-      [peerIdsForQuery],
-    )
-    const weekEvR = await pool.query(
-      eventsSql(
-        `date_trunc('week', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('week', (now() AT TIME ZONE 'Asia/Shanghai'))`,
-      ),
-      [peerIdsForQuery],
-    )
-    const monthEvR = await pool.query(
-      eventsSql(
-        `date_trunc('month', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('month', (now() AT TIME ZONE 'Asia/Shanghai'))`,
-      ),
-      [peerIdsForQuery],
-    )
-
-    const allEvR = await pool.query(
-      `
-      SELECT e.student_id,
-        COUNT(*)::int AS practice_questions,
-        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
-        COUNT(*)::int AS total_attempts
-      FROM student_practice_events e
-      WHERE e.source IN ${PRACTICE_EVENT_SOURCES}
-        AND e.student_id = ANY($1::bigint[])
-      GROUP BY e.student_id
-      `,
-      [peerIdsForQuery],
-    )
+    const todayEvR = await loadPracticePeerAggregatesForPeriod(pool, peerIdsForQuery, 'today')
+    const weekEvR = await loadPracticePeerAggregatesForPeriod(pool, peerIdsForQuery, 'week')
+    const monthEvR = await loadPracticePeerAggregatesForPeriod(pool, peerIdsForQuery, 'month')
 
     const evSelfR = await pool.query(
       `SELECT 1 FROM student_practice_events WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
       [studentId],
     )
     const hasPracticeEvents = Boolean(evSelfR.rows[0])
-    let allMergedRows = allEvR.rows
+    let allMergedRows = (await loadPracticePeerAggregatesForPeriod(pool, peerIdsForQuery, 'all')).rows
     if (!hasPracticeEvents) {
       const allStatsR = await pool.query(
         `
         SELECT student_id,
           COALESCE(SUM(attempts), 0)::int AS practice_questions,
           COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
-          COALESCE(SUM(attempts), 0)::int AS total_attempts
+          COALESCE(SUM(attempts), 0)::int AS total_attempts,
+          COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
         FROM student_question_stats
         WHERE student_id = ANY($1::bigint[])
         GROUP BY student_id
@@ -4141,11 +4189,89 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
         },
         practice_periods,
         timezone_note:
-          '刷题 Tab 按 Asia/Shanghai 自然日/周/月；指标为周期内判题次数（同一题多次提交重复计，不去重），不含班级正式考试。无事件记录时「全部」回退为题库 attempts 累计。',
+          '刷题 Tab 按 Asia/Shanghai。今日：答题数/错题数为当天每题最多计 1 次；本周/月/全部：先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
       },
     })
   } catch (error) {
     return res.status(500).json({ message: '加载学习概况失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 本周期班级刷题排名列表（含姓名），period=today|week|month|all */
+app.get('/api/student/stats/practice-class-rank', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+  const period = String(req.query.period || 'today').toLowerCase()
+  if (!['today', 'week', 'month', 'all'].includes(period)) {
+    return res.status(400).json({ message: 'period 仅支持 today、week、month、all' })
+  }
+  const studentId = req.studentAuth.studentId
+  try {
+    const classPeerIds = await loadStudentClassPeerIds(pool, studentId)
+    if (classPeerIds.length === 0) {
+      return res.json({ data: { period, rows: [] } })
+    }
+    let aggRows = (await loadPracticePeerAggregatesForPeriod(pool, classPeerIds, period)).rows
+    if (period === 'all') {
+      const evSelfR = await pool.query(
+        `SELECT 1 FROM student_practice_events WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
+        [studentId],
+      )
+      if (!evSelfR.rows[0]) {
+        const fallR = await pool.query(
+          `
+          SELECT student_id,
+            COALESCE(SUM(attempts), 0)::int AS practice_questions,
+            COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
+            COALESCE(SUM(attempts), 0)::int AS total_attempts,
+            COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
+          FROM student_question_stats
+          WHERE student_id = ANY($1::bigint[])
+          GROUP BY student_id
+          `,
+          [classPeerIds],
+        )
+        aggRows = fallR.rows
+      }
+    }
+    const merged = mergePeerPracticeRows(classPeerIds, aggRows)
+    const rankProduct = (r) => {
+      const t = r.total_attempts
+      if (t <= 0) return -1
+      const rw0 = rawWrongAttempts(r)
+      return (r.practice_questions * (t - rw0)) / t
+    }
+    const active = merged.filter((r) => r.total_attempts > 0)
+    active.sort((a, b) => {
+      const d = rankProduct(b) - rankProduct(a)
+      if (Math.abs(d) > 1e-9) return d
+      if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
+      return a.wrong_count - b.wrong_count
+    })
+    const nameR = await pool.query(`SELECT id, name, student_no FROM students WHERE id = ANY($1::bigint[])`, [classPeerIds])
+    const nameMap = new Map(
+      nameR.rows.map((row) => [
+        Number(row.id),
+        { name: String(row.name || '').trim() || '同学', student_no: String(row.student_no || '').trim() },
+      ]),
+    )
+    const rows = active.map((r, i) => {
+      const t = r.total_attempts
+      const rw0 = rawWrongAttempts(r)
+      const accuracy_pct = t > 0 ? Math.round((100 * (t - rw0)) / t) : 0
+      const meta = nameMap.get(r.student_id) || { name: '同学', student_no: '' }
+      return {
+        rank: i + 1,
+        student_id: r.student_id,
+        name: meta.name,
+        student_no: meta.student_no,
+        practice_questions: r.practice_questions,
+        wrong_count: r.wrong_count,
+        accuracy_pct,
+        is_me: r.student_id === studentId,
+      }
+    })
+    return res.json({ data: { period, rows } })
+  } catch (error) {
+    return res.status(500).json({ message: '加载班级排名失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 

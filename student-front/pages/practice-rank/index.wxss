@@ -1,0 +1,97 @@
+.rank-page {
+  padding: 16rpx 24rpx 32rpx;
+  box-sizing: border-box;
+  min-height: 100vh;
+}
+
+.rank-hint {
+  display: block;
+  font-size: 24rpx;
+  margin-bottom: 20rpx;
+  line-height: 1.45;
+}
+
+.rank-loading,
+.rank-empty {
+  text-align: center;
+  padding: 48rpx 24rpx;
+  font-size: 28rpx;
+}
+
+.rank-err {
+  padding: 28rpx;
+  text-align: center;
+}
+
+.rank-retry {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.rank-scroll {
+  max-height: calc(100vh - 200rpx);
+}
+
+.rank-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 22rpx 20rpx;
+  margin-bottom: 12rpx;
+  background: #fff;
+  border-radius: 16rpx;
+  box-shadow: var(--ios-shadow);
+  border: 2rpx solid transparent;
+  box-sizing: border-box;
+}
+
+.rank-row--me {
+  border-color: rgba(0, 122, 255, 0.35);
+  background: rgba(0, 122, 255, 0.06);
+}
+
+.rank-num {
+  width: 56rpx;
+  font-size: 30rpx;
+  font-weight: 800;
+  color: var(--ios-tint);
+  flex-shrink: 0;
+}
+
+.rank-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 12rpx;
+}
+
+.rank-name {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.rank-no {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+}
+
+.rank-stats {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.rank-stat {
+  display: block;
+  font-size: 22rpx;
+  color: var(--ios-secondary);
+  line-height: 1.35;
+}
+
+.rank-stat--acc {
+  font-weight: 700;
+  color: var(--ios-label);
+  margin-top: 4rpx;
+}

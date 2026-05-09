@@ -154,6 +154,11 @@ Page({
     wx.switchTab({ url: "/pages/quiz/index" });
   },
 
+  goPracticeClassRank() {
+    const period = this.data.practiceTab || "today";
+    wx.navigateTo({ url: `/pages/practice-rank/index?period=${encodeURIComponent(period)}` });
+  },
+
   buildPracticePanelFromPeriod(p) {
     if (!p) {
       return {

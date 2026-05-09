@@ -90,7 +90,7 @@
         <text class="home-dash-title">刷题</text>
         <text class="home-dash-link link-tint" bindtap="goQuiz">去刷题</text>
       </view>
-      <text class="home-dash-sub muted">不含班级正式考试；各 Tab 为对应周期内判题次数（不去重）。排名：正确率→答题量→错题次数</text>
+      <text class="home-dash-sub muted">不含班级正式考试；今日同题计 1 次，本周/月/全部按自然日合计后再相加。正确率为原始判题正确率。排名按答题数×正确率</text>
 
       <view wx:if="{{!practice_periods}}" class="home-dash-empty muted">暂无刷题统计</view>
       <block wx:else>
@@ -106,28 +106,28 @@
           </view>
         </view>
         <view class="home-practice-grid">
-          <view class="home-practice-metric" bindtap="goRecordDone">
+          <view class="home-practice-metric" bindtap="goQuiz">
             <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
-            <text class="home-practice-metric-lab">答题次数</text>
-            <text class="home-practice-metric-h muted">本周期判题次数，同一题多次计</text>
+            <text class="home-practice-metric-lab">答题数</text>
+            <text class="home-practice-metric-h muted">今日每题计 1；周/月/全部按日合计</text>
           </view>
           <view class="home-practice-metric home-practice-metric--warn" bindtap="goRecordWrong">
             <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
             <text class="home-practice-metric-lab">错题数</text>
-            <text class="home-practice-metric-h muted">本周期答错次数</text>
+            <text class="home-practice-metric-h muted">今日每题错题计 1；周/月/全部按日合计</text>
           </view>
-          <view class="home-practice-metric" bindtap="goRecordDone">
+          <view class="home-practice-metric home-practice-metric--static">
             <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>
             <text class="home-practice-metric-lab">正确率</text>
-            <text class="home-practice-metric-h muted">本周期内</text>
+            <text class="home-practice-metric-h muted">按本周期判题次数</text>
           </view>
-          <view class="home-practice-metric home-practice-metric--rank">
+          <view class="home-practice-metric home-practice-metric--rank" bindtap="goPracticeClassRank">
             <text class="home-practice-metric-val home-practice-metric-val--rank">{{practicePanel.rank_main}}</text>
             <text class="home-practice-metric-lab">班级排名</text>
             <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>
           </view>
         </view>
-        <view class="home-dash-foot muted" bindtap="goQuiz">点指标或此处进入刷题 · 做题记录与错题本可点对应项</view>
+        <view class="home-dash-foot muted" bindtap="goQuiz">点答题数或此处进刷题 · 错题数进错题本 · 点班级排名看全班榜</view>
       </block>
     </view>
   </block>

@@ -376,6 +376,10 @@
   border-color: rgba(0, 122, 255, 0.18);
 }
 
+.home-practice-metric--static:active {
+  opacity: 1;
+}
+
 .home-practice-metric-val {
   display: block;
   font-size: 44rpx;

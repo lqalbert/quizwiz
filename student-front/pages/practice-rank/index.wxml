@@ -1,0 +1,28 @@
+<view class="page-wrap rank-page">
+  <text class="rank-hint muted">与首页当前 Tab 统计口径一致 · {{periodLabel}}</text>
+
+  <view wx:if="{{loading}}" class="rank-loading muted">加载中…</view>
+  <view wx:elif="{{err}}" class="ios-card rank-err">
+    <text class="muted">{{err}}</text>
+    <view class="link-tint rank-retry" bindtap="loadRank">重试</view>
+  </view>
+  <view wx:elif="{{!rows.length}}" class="rank-empty muted">本周期暂无同学作答记录</view>
+  <scroll-view wx:else scroll-y class="rank-scroll" show-scrollbar="{{false}}">
+    <view
+      wx:for="{{rows}}"
+      wx:key="student_id"
+      class="rank-row {{item.is_me ? 'rank-row--me' : ''}}"
+    >
+      <text class="rank-num">{{item.rank}}</text>
+      <view class="rank-main">
+        <text class="rank-name">{{item.name}}</text>
+        <text wx:if="{{item.student_no}}" class="rank-no muted">学号 {{item.student_no}}</text>
+      </view>
+      <view class="rank-stats">
+        <text class="rank-stat">答题 {{item.practice_questions}}</text>
+        <text class="rank-stat">错题 {{item.wrong_count}}</text>
+        <text class="rank-stat rank-stat--acc">{{item.accuracy_pct}}%</text>
+      </view>
+    </view>
+  </scroll-view>
+</view>

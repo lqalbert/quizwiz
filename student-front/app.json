@@ -8,7 +8,8 @@
     "pages/record-wrong/index",
     "pages/record-done/index",
     "pages/exam-list/index",
-    "pages/exam-take/index"
+    "pages/exam-take/index",
+    "pages/practice-rank/index"
   ],
   "window": {
     "navigationBarTitleText": "题灵智库",
