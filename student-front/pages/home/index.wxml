@@ -90,7 +90,7 @@
         <text class="home-dash-title">刷题</text>
         <text class="home-dash-link link-tint" bindtap="goQuiz">去刷题</text>
       </view>
-      <text class="home-dash-sub muted">不含班级正式考试；今日/周/月按判题记录统计（新刷题才有数）；「全部」含历史汇总。排名：正确率→练题数→错题次数</text>
+      <text class="home-dash-sub muted">不含班级正式考试；各 Tab 为对应周期内判题次数（不去重）。排名：正确率→答题量→错题次数</text>
 
       <view wx:if="{{!practice_periods}}" class="home-dash-empty muted">暂无刷题统计</view>
       <block wx:else>
@@ -108,13 +108,13 @@
         <view class="home-practice-grid">
           <view class="home-practice-metric" bindtap="goRecordDone">
             <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
-            <text class="home-practice-metric-lab">练题数</text>
-            <text class="home-practice-metric-h muted">去重题目数</text>
+            <text class="home-practice-metric-lab">答题次数</text>
+            <text class="home-practice-metric-h muted">本周期判题次数，同一题多次计</text>
           </view>
           <view class="home-practice-metric home-practice-metric--warn" bindtap="goRecordWrong">
             <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
             <text class="home-practice-metric-lab">错题数</text>
-            <text class="home-practice-metric-h muted">作答错误次数</text>
+            <text class="home-practice-metric-h muted">本周期答错次数</text>
           </view>
           <view class="home-practice-metric" bindtap="goRecordDone">
             <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>

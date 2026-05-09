@@ -3968,7 +3968,7 @@ const mergePeerPracticeRows = (peerIds, rows) => {
   }))
 }
 
-/** 班级内排名：正确率优先，其次练题数（去重题目数），再比错题作答次数少者靠前 */
+/** 班级内排名：正确率优先，其次本周期答题次数（不去重），再比错题次数少者靠前 */
 const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   const mine = merged.find((x) => x.student_id === studentId) || {
     student_id: studentId,
@@ -4043,7 +4043,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
 
     const eventsSql = (datePredicateSql) => `
       SELECT e.student_id,
-        COUNT(DISTINCT e.question_id)::int AS practice_questions,
+        COUNT(*)::int AS practice_questions,
         COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
         COUNT(*)::int AS total_attempts
       FROM student_practice_events e
@@ -4073,7 +4073,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
     const allEvR = await pool.query(
       `
       SELECT e.student_id,
-        COUNT(DISTINCT e.question_id)::int AS practice_questions,
+        COUNT(*)::int AS practice_questions,
         COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
         COUNT(*)::int AS total_attempts
       FROM student_practice_events e
@@ -4094,9 +4094,9 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
       const allStatsR = await pool.query(
         `
         SELECT student_id,
-          COUNT(*)::int AS practice_questions,
+          COALESCE(SUM(attempts), 0)::int AS practice_questions,
           COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
-          COALESCE(SUM(correct_count + wrong_count), 0)::int AS total_attempts
+          COALESCE(SUM(attempts), 0)::int AS total_attempts
         FROM student_question_stats
         WHERE student_id = ANY($1::bigint[])
         GROUP BY student_id
@@ -4141,7 +4141,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
         },
         practice_periods,
         timezone_note:
-          '刷题 Tab 按 Asia/Shanghai；今日/周/月仅统计日常判题与练习模式（事件表，不含班级正式考试）。若尚无事件记录，「全部」会回退为题库累计汇总以便看到历史练习；有事件后以事件为准。',
+          '刷题 Tab 按 Asia/Shanghai 自然日/周/月；指标为周期内判题次数（同一题多次提交重复计，不去重），不含班级正式考试。无事件记录时「全部」回退为题库 attempts 累计。',
       },
     })
   } catch (error) {
