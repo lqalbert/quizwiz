@@ -1,5 +1,6 @@
-.record-root {
-  padding-bottom: 200rpx;
+.page-wrap.record-root {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .loading-pill {
@@ -17,7 +18,7 @@
 .catalog-wrap {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 420rpx);
+  height: calc(100vh - 240rpx);
   min-height: 480rpx;
   background: #fff;
   border-radius: var(--ios-radius-card);
@@ -81,9 +82,9 @@
 }
 
 .wrong-list-scroll {
-  max-height: calc(100vh - 560rpx);
+  max-height: calc(100vh - 360rpx);
   min-height: 280rpx;
-  padding-bottom: 40rpx;
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 
@@ -125,7 +126,7 @@
 }
 
 .load-more-wrap {
-  padding: 28rpx 0 48rpx;
+  padding: 16rpx 0 8rpx;
   text-align: center;
 }
 

@@ -1,0 +1,89 @@
+<wxs src="../../wxs/tags.wxs" module="tg" />
+
+<view class="page-wrap exam-take-page" wx:if="{{mode === 'take'}}">
+  <view class="exam-topbar">
+    <text class="exam-topbar-title">{{examTitle}}</text>
+    <text class="exam-topbar-timer {{timeWarn ? 'exam-topbar-timer--warn' : ''}}">{{timerLabel}}</text>
+  </view>
+  <view class="progress-track">
+    <view class="progress-fill" style="width: {{progressPct}}%;"></view>
+  </view>
+  <view class="exam-nav">
+    <text class="exam-nav-stat">{{currentIndex + 1}} / {{questions.length}}</text>
+  </view>
+
+  <block wx:if="{{currentQuestion}}">
+    <view class="ios-card play-card">
+      <text class="type-pill muted">{{currentQuestion.question_type_text}}</text>
+      <text class="stem-text">{{currentQuestion.stem}}</text>
+
+      <block wx:if="{{currentQuestion.question_type == 1}}">
+        <view
+          wx:for="{{currentQuestion.options}}"
+          wx:key="option_key"
+          class="opt-pill {{selectedAnswer === item.option_key ? 'opt-pill-on' : ''}}"
+          data-k="{{item.option_key}}"
+          bindtap="onPickSingle"
+        >
+          <text class="opt-pill-k">{{item.option_key}}</text>
+          <text class="opt-pill-t">{{item.option_text}}</text>
+        </view>
+      </block>
+
+      <block wx:if="{{currentQuestion.question_type == 2}}">
+        <view
+          wx:for="{{currentQuestion.options}}"
+          wx:key="option_key"
+          class="opt-pill {{tg.includes(multiSelected, item.option_key) ? 'opt-pill-on' : ''}}"
+          data-k="{{item.option_key}}"
+          bindtap="onToggleMulti"
+        >
+          <text class="opt-pill-k">{{item.option_key}}</text>
+          <text class="opt-pill-t">{{item.option_text}}</text>
+        </view>
+      </block>
+
+      <block wx:if="{{currentQuestion.question_type == 3}}">
+        <view class="judge-row">
+          <view class="judge-pill {{selectedAnswer === 'A' || selectedAnswer === '对' ? 'judge-pill-on' : ''}}" data-v="A" bindtap="onPickJudge">对</view>
+          <view class="judge-pill {{selectedAnswer === 'B' || selectedAnswer === '错' ? 'judge-pill-on' : ''}}" data-v="B" bindtap="onPickJudge">错</view>
+        </view>
+      </block>
+
+      <block wx:if="{{currentQuestion.question_type == 4 || currentQuestion.question_type == 5}}">
+        <textarea class="answer-area" placeholder="请输入答案" placeholder-class="ph" value="{{textAnswer}}" bindinput="onTextAnswer" />
+      </block>
+    </view>
+
+    <view class="exam-actions">
+      <view class="ui-btn-secondary exam-btn" bindtap="onPrev" wx:if="{{currentIndex > 0}}">上一题</view>
+      <view class="ui-btn-secondary exam-btn exam-btn--ghost" bindtap="onNext" wx:if="{{currentIndex < questions.length - 1}}">下一题</view>
+      <view class="btn-primary exam-submit {{submitting ? 'disabled' : ''}}" bindtap="onSubmitPaper">交卷</view>
+    </view>
+  </block>
+</view>
+
+<view class="page-wrap exam-take-page" wx:elif="{{mode === 'submitted'}}">
+  <view class="page-hero page-hero--compact">
+    <view class="page-hero-accent"></view>
+    <view class="page-hero-body">
+      <text class="page-hero-title">答卷已提交</text>
+      <text class="page-hero-meta muted" wx:if="{{totalScore != null}}">得分：{{totalScore}} 分</text>
+    </view>
+  </view>
+  <scroll-view scroll-y class="exam-review-scroll">
+    <view wx:for="{{review}}" wx:key="question_id" class="ios-card exam-review-card">
+      <text class="r-stem">{{item.stem}}</text>
+      <text class="r-flag {{item.correct ? 'fb-ok' : 'fb-bad'}}">{{item.correct ? '正确' : '错误'}}</text>
+      <text class="r-meta muted">你的答案：{{item.user_answer || '（空）'}}</text>
+      <text class="r-meta muted">参考答案：{{item.correct_answer}}</text>
+      <text class="r-exp" wx:if="{{item.explanation}}">解析：{{item.explanation}}</text>
+    </view>
+  </scroll-view>
+  <view class="btn-primary mt exam-back" bindtap="goBack">返回考试列表</view>
+</view>
+
+<view class="page-wrap exam-take-page" wx:else>
+  <view class="exam-err muted">{{loadErr || "加载中…"}}</view>
+  <view class="btn-primary mt exam-back" bindtap="goBack">返回</view>
+</view>

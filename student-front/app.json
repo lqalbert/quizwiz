@@ -1,12 +1,14 @@
 {
   "pages": [
+    "pages/login/index",
     "pages/home/index",
     "pages/quiz/index",
     "pages/study/index",
     "pages/mine/index",
-    "pages/login/index",
     "pages/record-wrong/index",
-    "pages/record-done/index"
+    "pages/record-done/index",
+    "pages/exam-list/index",
+    "pages/exam-take/index"
   ],
   "window": {
     "navigationBarTitleText": "题灵智库",

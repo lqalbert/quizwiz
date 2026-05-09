@@ -274,28 +274,59 @@ page {
   color: var(--ios-secondary);
 }
 
-/* —— 内页返回上一级：仅图标 ‹ —— */
+/* 刷题 / 已做题 / 错题本 · 目录态：入口名大标题，「选择科目与单元」为副线提示 */
+.page-hero--catalog-root .page-hero-title {
+  font-size: 48rpx;
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1.12;
+  color: var(--ios-label);
+}
+
+.page-hero--catalog-root .page-hero-lead {
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  line-height: 1.45;
+}
+
+/* —— 内页返回：‹ +「返回上一级」—— */
 .nav-row {
   margin-bottom: 20rpx;
+}
+
+.nav-back-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-left: -8rpx;
+  padding: 4rpx 0;
+}
+
+.nav-back-row:active {
+  opacity: 0.55;
 }
 
 .nav-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 72rpx;
-  min-height: 72rpx;
-  margin-left: -8rpx;
-  font-size: 56rpx;
+  min-width: 48rpx;
+  min-height: 64rpx;
+  margin-left: 0;
+  font-size: 52rpx;
   font-weight: 300;
   line-height: 1;
   color: var(--ios-tint);
-  padding: 8rpx;
+  padding: 8rpx 4rpx 8rpx 8rpx;
   box-sizing: border-box;
 }
 
-.nav-back:active {
-  opacity: 0.55;
+.nav-back-hint {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--ios-tint);
+  padding: 8rpx 12rpx 8rpx 0;
+  line-height: 1.3;
 }
 
 /* —— 做题顶栏：重选 / 跳转 / 题号 / 练习·考试 —— */
@@ -456,6 +487,22 @@ page {
 .ui-row-btn--ghost.ui-row-btn--icon {
   color: var(--ios-tint);
   border-color: rgba(0, 122, 255, 0.28);
+}
+
+/* 底栏：‹ +「返回上一级」 */
+.ui-row-btn--ghost.ui-row-btn--back {
+  min-width: auto;
+  padding: 0 22rpx;
+  gap: 6rpx;
+  color: var(--ios-tint);
+  border-color: rgba(0, 122, 255, 0.28);
+  font-weight: 600;
+}
+
+.ui-row-btn-chevron {
+  font-size: 40rpx;
+  font-weight: 300;
+  line-height: 1;
 }
 
 .ui-row-btn--ghost:active {

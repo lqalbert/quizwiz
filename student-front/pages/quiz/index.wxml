@@ -5,14 +5,12 @@
     <view class="loading-pill muted">加载题目…</view>
   </block>
 
-  <!-- 左栏科目 + 右栏知识单元 -->
   <block wx:elif="{{step === 'catalog'}}">
-    <view class="page-hero catalog-hero">
+    <view class="page-hero catalog-hero page-hero--catalog-root">
       <view class="page-hero-accent"></view>
       <view class="page-hero-body">
-        <text class="page-hero-eyebrow">刷题</text>
-        <text class="page-hero-title">选择科目与单元</text>
-        <text class="page-hero-lead muted">左侧选科目 · 右侧选知识单元</text>
+        <text class="page-hero-title">刷题</text>
+        <text class="page-hero-lead muted">选择科目与单元</text>
       </view>
     </view>
     <view class="catalog-wrap">
@@ -48,8 +46,9 @@
 
   <!-- 刷题模式四宫格：针对当前知识单元 -->
   <block wx:elif="{{step === 'practice_style'}}">
-    <view class="nav-row">
-      <text class="nav-back" bindtap="backFromPracticeStyle">‹</text>
+    <view class="nav-row nav-back-row" bindtap="backFromPracticeStyle">
+      <text class="nav-back">‹</text>
+      <text class="nav-back-hint">返回上一级</text>
     </view>
     <view class="page-hero page-hero--compact">
       <view class="page-hero-accent"></view>
@@ -130,8 +129,9 @@
 
   <!-- 知识小节 = 知识点列表 -->
   <block wx:elif="{{step === 'subsections'}}">
-    <view class="nav-row">
-      <text class="nav-back" bindtap="backFromSubsections">‹</text>
+    <view class="nav-row nav-back-row" bindtap="backFromSubsections">
+      <text class="nav-back">‹</text>
+      <text class="nav-back-hint">返回上一级</text>
     </view>
     <view class="page-hero page-hero--compact">
       <view class="page-hero-accent"></view>
@@ -168,8 +168,9 @@
         <text class="sub-footer-sub muted">可多选，再点一次取消勾选</text>
       </view>
       <view class="sub-footer-btns">
-        <view class="ui-row-btn ui-row-btn--ghost ui-row-btn--icon" bindtap="backFromSubsections">
-          <text>‹</text>
+        <view class="ui-row-btn ui-row-btn--ghost ui-row-btn--back" bindtap="backFromSubsections">
+          <text class="ui-row-btn-chevron">‹</text>
+          <text>返回上一级</text>
         </view>
         <view class="ui-row-btn ui-row-btn--primary" bindtap="startSectionPracticeNow">立即刷题</view>
       </view>
@@ -177,8 +178,9 @@
   </block>
 
   <block wx:elif="{{step === 'mock'}}">
-    <view class="nav-row">
-      <text class="nav-back" bindtap="backFromMock">‹</text>
+    <view class="nav-row nav-back-row" bindtap="backFromMock">
+      <text class="nav-back">‹</text>
+      <text class="nav-back-hint">返回上一级</text>
     </view>
     <view class="page-hero page-hero--compact">
       <view class="page-hero-accent"></view>
@@ -215,7 +217,7 @@
 
   <block wx:elif="{{step === 'play'}}">
     <view class="ui-toolbar">
-      <view class="ui-chip ui-chip--tint" bindtap="restartWizard">重选</view>
+      <view class="ui-chip ui-chip--tint" bindtap="restartWizard">返回上一级</view>
       <block wx:if="{{practiceModule === 'sequential'}}">
         <view class="ui-toolbar-mid">
           <text class="ui-stat">{{currentIndex + 1}} / {{questionIds.length}}</text>
@@ -324,6 +326,6 @@
         </block>
       </view>
     </scroll-view>
-    <view class="btn-primary mt" bindtap="restartWizard">完成</view>
+    <view class="btn-primary mt" bindtap="restartWizard">返回上一级</view>
   </block>
 </view>

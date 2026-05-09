@@ -19,9 +19,14 @@ Page({
 
   onLoad() {
     const apiBase = wx.getStorageSync("api_base") || "";
+    const step = initialStep();
+    if (step === "authed") {
+      wx.switchTab({ url: "/pages/home/index" });
+      return;
+    }
     this.setData({
       apiBaseInput: apiBase,
-      step: initialStep(),
+      step,
     });
   },
 

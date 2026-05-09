@@ -1,4 +1,26 @@
 <view class="page-wrap home-page">
+  <block wx:if="{{loggedIn && examTasks.length}}">
+    <view class="home-exam-banner ios-card">
+      <view class="home-exam-banner-head">
+        <text class="home-exam-banner-title">考试任务</text>
+        <text class="home-exam-banner-sub muted">进行中 · 请及时作答并交卷</text>
+      </view>
+      <view
+        wx:for="{{examTasks}}"
+        wx:key="id"
+        class="home-exam-row"
+        bindtap="goExamTake"
+        data-id="{{item.id}}"
+      >
+        <view class="home-exam-row-main">
+          <text class="home-exam-row-title">{{item.title}}</text>
+          <text class="home-exam-row-meta muted">{{item.subject_name}} · {{item.submission_label}}</text>
+        </view>
+        <text class="home-exam-row-go">去考试</text>
+      </view>
+      <view class="home-exam-footer link-tint" bindtap="goExamList">全部考试</view>
+    </view>
+  </block>
   <view class="page-hero home-hero">
     <view class="page-hero-accent"></view>
     <view class="page-hero-body">
@@ -25,12 +47,15 @@
 
     <block wx:else>
       <view class="home-stat-grid" wx:if="{{totals}}">
-        <view class="home-stat-tile">
+        <view class="home-stat-tile home-stat-tile--link" bindtap="goRecordDone">
           <view class="home-ico-wrap">
-            <view class="home-ico">
-              <view class="home-ico-bar home-ico-bar-lg"></view>
-              <view class="home-ico-bar home-ico-bar-md"></view>
-              <view class="home-ico-bar home-ico-bar-sm"></view>
+            <view class="home-ico home-ico--stat">
+              <view class="home-g-sheet">
+                <view class="home-g-sheet-line"></view>
+                <view class="home-g-sheet-line"></view>
+                <view class="home-g-sheet-line home-g-sheet-line--short"></view>
+                <view class="home-g-sheet-fold"></view>
+              </view>
             </view>
           </view>
           <text class="home-stat-value">{{totals.questions_touched}}</text>
@@ -38,9 +63,15 @@
         </view>
         <view class="home-stat-tile">
           <view class="home-ico-wrap">
-            <view class="home-ico home-ico-bolt">
-              <view class="home-ico-zig a"></view>
-              <view class="home-ico-zig b"></view>
+            <view class="home-ico home-ico--stat">
+              <view class="home-g-dots">
+                <view class="home-g-dot"></view>
+                <view class="home-g-dot"></view>
+                <view class="home-g-dot"></view>
+                <view class="home-g-dot"></view>
+                <view class="home-g-dot"></view>
+                <view class="home-g-dot"></view>
+              </view>
             </view>
           </view>
           <text class="home-stat-value">{{totals.attempts}}</text>
@@ -48,15 +79,28 @@
         </view>
         <view class="home-stat-tile">
           <view class="home-ico-wrap">
-            <view class="home-ico home-ico-ring"></view>
+            <view class="home-ico home-ico--stat">
+              <view class="home-g-mark">
+                <view class="home-g-ring"></view>
+                <view class="home-g-symbol">
+                  <view class="home-g-chk-icon"></view>
+                </view>
+              </view>
+            </view>
           </view>
           <text class="home-stat-value">{{totals.accuracy_pct}}%</text>
           <text class="home-stat-label muted">正确率</text>
         </view>
-        <view class="home-stat-tile">
+        <view class="home-stat-tile home-stat-tile--link" bindtap="goRecordWrong">
           <view class="home-ico-wrap">
-            <view class="home-ico home-ico-warn">
-              <view class="home-ico-tri"></view>
+            <view class="home-ico home-ico--stat">
+              <view class="home-g-mark">
+                <view class="home-g-ring"></view>
+                <view class="home-g-symbol home-g-symbol--x">
+                  <view class="home-g-x home-g-x--a"></view>
+                  <view class="home-g-x home-g-x--b"></view>
+                </view>
+              </view>
             </view>
           </view>
           <text class="home-stat-value">{{totals.wrong_questions}}</text>
@@ -140,36 +184,4 @@
       </block>
     </block>
   </block>
-
-  <view class="ios-card hero-cta" bindtap="goQuiz">
-    <view class="hero-cta-inner">
-      <view class="hero-cta-text">
-        <text class="hero-cta-label">继续练习</text>
-        <text class="hero-cta-desc muted">{{resumeHint}}</text>
-      </view>
-      <view class="hero-cta-icon-wrap">
-        <text class="hero-cta-icon">›</text>
-      </view>
-    </view>
-  </view>
-
-  <text class="section-label">快捷入口</text>
-  <view class="ios-card">
-    <view class="ios-cell" bindtap="goLogin" wx:if="{{!loggedIn}}">
-      <text class="ios-cell-title">登录 / 加入班级</text>
-      <text class="ios-cell-chevron">›</text>
-    </view>
-    <view class="ios-cell" bindtap="goStudy">
-      <text class="ios-cell-title">学习目录</text>
-      <text class="ios-cell-chevron">›</text>
-    </view>
-    <view class="ios-cell" bindtap="hintWrong">
-      <text class="ios-cell-title">错题本</text>
-      <text class="ios-cell-chevron">›</text>
-    </view>
-    <view class="ios-cell" bindtap="goRecordDone">
-      <text class="ios-cell-title">已做题</text>
-      <text class="ios-cell-chevron">›</text>
-    </view>
-  </view>
 </view>

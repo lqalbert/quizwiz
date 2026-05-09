@@ -4,10 +4,10 @@ const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
-  if (!token) {
-    wx.navigateTo({ url: "/pages/login/index" });
-    return false;
-  }
+    if (!token) {
+      wx.reLaunch({ url: "/pages/login/index" });
+      return false;
+    }
   return true;
 }
 
@@ -64,7 +64,7 @@ Page({
     }
     const token = wx.getStorageSync("student_token");
     if (!token) {
-      wx.navigateTo({ url: "/pages/login/index" });
+      wx.reLaunch({ url: "/pages/login/index" });
       return;
     }
     try {
@@ -496,6 +496,11 @@ Page({
         return;
       }
     }
+    try {
+      const app = getApp();
+      if (app && app.globalData) app.globalData.practiceReturnPage = null;
+    } catch (_) {}
+
     wx.showLoading({ title: "组卷中" });
     try {
       const res = await request({ path: "/api/student/practice/build", method: "POST", data: body });
@@ -525,6 +530,16 @@ Page({
   },
 
   restartWizard() {
+    let returnTarget = null;
+    try {
+      const app = getApp();
+      const pr = app && app.globalData && app.globalData.practiceReturnPage;
+      if (pr && (pr.type === "record-done" || pr.type === "record-wrong")) {
+        returnTarget = pr;
+        app.globalData.practiceReturnPage = null;
+      }
+    } catch (_) {}
+
     const sid = this.data.subjectId;
     this.setData({
       step: "catalog",
@@ -551,6 +566,23 @@ Page({
       seqJumpInput: "",
     });
     syncNavTitle();
+
+    if (returnTarget) {
+      try {
+        getApp().globalData.recordPageRestore = {
+          subjectId: normalizePositiveInt(returnTarget.subjectId),
+          unitId: normalizePositiveInt(returnTarget.unitId),
+          unitName: String(returnTarget.unitName || "").trim(),
+        };
+      } catch (_) {}
+      const path =
+        returnTarget.type === "record-done"
+          ? "/pages/record-done/index?restore=1"
+          : "/pages/record-wrong/index?restore=1";
+      wx.navigateTo({ url: path });
+      return;
+    }
+
     if (sid) {
       this.loadKnowledgeUnits(sid);
     } else {

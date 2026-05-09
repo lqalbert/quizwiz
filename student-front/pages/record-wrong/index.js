@@ -6,10 +6,10 @@ const LIST_PAGE_SIZE = 25;
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
-  if (!token) {
-    wx.navigateTo({ url: "/pages/login/index" });
-    return false;
-  }
+    if (!token) {
+      wx.reLaunch({ url: "/pages/login/index" });
+      return false;
+    }
   return true;
 }
 
@@ -33,8 +33,39 @@ Page({
     pagination: { total: 0, page: 1, pageSize: LIST_PAGE_SIZE },
   },
 
-  onLoad() {
+  onLoad(options) {
     if (!ensureToken()) return;
+    const restore = options && String(options.restore || "") === "1";
+    if (restore) {
+      let r = null;
+      try {
+        r = getApp().globalData.recordPageRestore;
+        getApp().globalData.recordPageRestore = null;
+      } catch (_) {}
+      const sid = normalizePositiveInt(r && r.subjectId);
+      const uid = normalizePositiveInt(r && r.unitId);
+      const unitName = String((r && r.unitName) || "").trim() || "知识单元";
+      if (sid && uid) {
+        this.setData({
+          step: "list",
+          subjectId: sid,
+          unitId: uid,
+          unitName,
+          list: [],
+          hasMore: false,
+          pagination: { total: 0, page: 1, pageSize: LIST_PAGE_SIZE },
+        });
+        (async () => {
+          try {
+            await this.bootstrap();
+            await this.loadKnowledgeUnits(sid);
+            await this.loadWrongList(true);
+          } catch (_) {}
+        })();
+        wx.setNavigationBarTitle({ title: "错题本" });
+        return;
+      }
+    }
     this.bootstrap();
     wx.setNavigationBarTitle({ title: "错题本" });
   },
@@ -69,7 +100,7 @@ Page({
         return;
       }
       if (e.statusCode === 401 || String(e.message || "").includes("登录")) {
-        wx.navigateTo({ url: "/pages/login/index" });
+        wx.reLaunch({ url: "/pages/login/index" });
         return;
       }
       wx.showToast({ title: e.message || "加载科目失败", icon: "none" });
@@ -167,7 +198,7 @@ Page({
         return;
       }
       if (e.statusCode === 401 || String(e.message || "").includes("登录")) {
-        wx.navigateTo({ url: "/pages/login/index" });
+        wx.reLaunch({ url: "/pages/login/index" });
         return;
       }
       wx.showToast({ title: e.message || "加载失败", icon: "none" });
@@ -190,13 +221,20 @@ Page({
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
     if (!wx.getStorageSync("student_token")) {
-      wx.navigateTo({ url: "/pages/login/index" });
+      wx.reLaunch({ url: "/pages/login/index" });
       return;
     }
     try {
-      getApp().globalData.pendingPractice = {
+      const app = getApp();
+      app.globalData.pendingPractice = {
         questionIds: ids,
         feedbackMode: feedbackMode === "exam" ? "exam" : "immediate",
+      };
+      app.globalData.practiceReturnPage = {
+        type: "record-wrong",
+        subjectId: this.data.subjectId,
+        unitId: this.data.unitId,
+        unitName: String(this.data.unitName || "").trim(),
       };
     } catch (_) {}
     wx.switchTab({ url: "/pages/quiz/index" });

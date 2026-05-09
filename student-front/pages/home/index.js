@@ -3,7 +3,6 @@ const { request } = require("../../utils/request.js");
 Page({
   data: {
     dateText: "",
-    resumeHint: "选择科目、知识点与练习方式后开始",
     loggedIn: false,
     statsLoading: false,
     statsError: "",
@@ -18,6 +17,7 @@ Page({
     table_month: [],
     chartRows: [],
     timezone_note: "",
+    examTasks: [],
   },
 
   onLoad() {
@@ -35,8 +35,10 @@ Page({
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
       this.loadHomeSummary();
+      this.loadExamTasks();
     } else {
       this.setData({
+        examTasks: [],
         statsLoading: false,
         statsError: "",
         totals: null,
@@ -51,6 +53,35 @@ Page({
         timezone_note: "",
       });
     }
+  },
+
+  async loadExamTasks() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ examTasks: [] });
+      return;
+    }
+    try {
+      const res = await request({ path: "/api/student/exams", method: "GET" });
+      const rows = (res && res.data) || [];
+      const examTasks = rows.filter((e) => {
+        if (e.phase !== "ongoing") return false;
+        const st = e.submission_status == null || e.submission_status === "" ? 0 : Number(e.submission_status);
+        return st !== 2 && st !== 3;
+      });
+      this.setData({ examTasks });
+    } catch (_) {
+      this.setData({ examTasks: [] });
+    }
+  },
+
+  goExamTake(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    if (!Number.isInteger(id) || id <= 0) return;
+    wx.navigateTo({ url: `/pages/exam-take/index?id=${id}` });
+  },
+
+  goExamList() {
+    wx.navigateTo({ url: "/pages/exam-list/index" });
   },
 
   setPeriod(e) {
@@ -106,33 +137,21 @@ Page({
     }
   },
 
-  goQuiz() {
-    if (!wx.getStorageSync("student_token")) {
-      wx.navigateTo({ url: "/pages/login/index" });
-      return;
-    }
-    wx.switchTab({ url: "/pages/quiz/index" });
-  },
-
-  goStudy() {
-    wx.switchTab({ url: "/pages/study/index" });
-  },
-
   goLogin() {
-    wx.navigateTo({ url: "/pages/login/index" });
+    wx.reLaunch({ url: "/pages/login/index" });
   },
 
   goRecordDone() {
     if (!wx.getStorageSync("student_token")) {
-      wx.navigateTo({ url: "/pages/login/index" });
+      wx.reLaunch({ url: "/pages/login/index" });
       return;
     }
     wx.navigateTo({ url: "/pages/record-done/index" });
   },
 
-  hintWrong() {
+  goRecordWrong() {
     if (!wx.getStorageSync("student_token")) {
-      wx.navigateTo({ url: "/pages/login/index" });
+      wx.reLaunch({ url: "/pages/login/index" });
       return;
     }
     wx.navigateTo({ url: "/pages/record-wrong/index" });

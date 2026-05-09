@@ -8,6 +8,10 @@ App({
     apiBase: "",
     /** 错题本等跳转刷题：{ questionIds: number[], feedbackMode?: 'immediate'|'exam' }，消费后清空 */
     pendingPractice: null,
+    /** 从已做题/错题本进刷题后，返回时要恢复的上下文：{ type:'record-done'|'record-wrong', subjectId, unitId, unitName } */
+    practiceReturnPage: null,
+    /** navigateTo 记录页前写入，在记录页 onLoad ?restore=1 时读出后清空 */
+    recordPageRestore: null,
   },
 
   onLaunch() {
@@ -29,6 +33,19 @@ App({
       } catch (_) {
         /* 部分基础库/环境无 getAccountInfoSync */
       }
+    }
+  },
+
+  onShow() {
+    const token = wx.getStorageSync("student_token") || "";
+    this.globalData.token = token;
+    const pages = getCurrentPages();
+    if (!pages.length) return;
+    const cur = pages[pages.length - 1];
+    const route = cur && (cur.route || cur.__route__ || "");
+    const onLoginPage = route === "pages/login/index";
+    if (!token && !onLoginPage) {
+      wx.reLaunch({ url: "/pages/login/index" });
     }
   },
 });

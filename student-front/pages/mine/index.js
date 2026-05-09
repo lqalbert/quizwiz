@@ -45,7 +45,7 @@ Page({
   },
 
   goLogin() {
-    wx.navigateTo({ url: "/pages/login/index" });
+    wx.reLaunch({ url: "/pages/login/index" });
   },
 
   async loadProfile() {

@@ -1,0 +1,80 @@
+.exam-list-page {
+  padding-top: 8rpx;
+}
+
+.exam-list-hero {
+  margin-bottom: 24rpx;
+}
+
+.exam-list-loading,
+.exam-list-empty,
+.exam-list-err {
+  padding: 32rpx 28rpx;
+  text-align: center;
+}
+
+.exam-list-retry {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.exam-card {
+  padding: 28rpx 24rpx;
+  margin-bottom: 20rpx;
+}
+
+.exam-card-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: var(--ios-label);
+  line-height: 1.3;
+}
+
+.exam-card-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 26rpx;
+}
+
+.exam-card-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+
+.exam-card-status {
+  font-size: 24rpx;
+}
+
+.exam-phase {
+  font-size: 22rpx;
+  font-weight: 700;
+  padding: 6rpx 14rpx;
+  border-radius: 8rpx;
+}
+
+.exam-phase--ongoing {
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.exam-phase--upcoming {
+  color: #8e8e93;
+  background: rgba(60, 60, 67, 0.08);
+}
+
+.exam-phase--ended {
+  color: #8e8e93;
+  background: rgba(60, 60, 67, 0.08);
+}
+
+.exam-card-time {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.4;
+}

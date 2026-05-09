@@ -1,9 +1,10 @@
-/* 刷题 tab：减少全局 page-wrap 顶留白，内容整体上移 */
+/* 刷题 tab：减少全局 page-wrap 顶留白；底边仅安全区，避免大块留白 */
 .page-wrap.quiz-root {
   padding-top: 4rpx;
   padding-left: 24rpx;
   padding-right: 24rpx;
-  padding-bottom: 200rpx;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
   box-sizing: border-box;
 }
 
@@ -45,7 +46,7 @@
 .mock-scroll {
   max-height: 52vh;
   margin-top: 8rpx;
-  padding-bottom: 8rpx;
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 
@@ -368,7 +369,7 @@
 .catalog-wrap {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 396rpx);
+  height: calc(100vh - 240rpx);
   min-height: 480rpx;
   background: #fff;
   border-radius: var(--ios-radius-card);
@@ -638,10 +639,12 @@
 }
 
 .subsection-scroll {
-  max-height: calc(100vh - 528rpx);
+  max-height: calc(100vh - 400rpx);
   min-height: 280rpx;
-  margin-bottom: 16rpx;
-  padding-bottom: 220rpx;
+  margin-bottom: 0;
+  /* 为固定底栏留出可滚过最后一行的空间，避免 220rpx 大留白 */
+  padding-bottom: calc(120rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(120rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 

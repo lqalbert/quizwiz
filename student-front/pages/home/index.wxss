@@ -2,6 +2,82 @@
   padding-top: 8rpx;
 }
 
+/* 首页最顶：待完成考试（进行中且未交卷） */
+.home-exam-banner {
+  padding: 0;
+  margin-bottom: 20rpx;
+  overflow: hidden;
+  border: 2rpx solid rgba(0, 122, 255, 0.22);
+}
+
+.home-exam-banner-head {
+  padding: 22rpx 24rpx 12rpx;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.08) 0%, transparent 100%);
+}
+
+.home-exam-banner-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--ios-label);
+  letter-spacing: -0.02em;
+}
+
+.home-exam-banner-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+}
+
+.home-exam-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 24rpx;
+  border-top: 1rpx solid var(--ios-separator);
+}
+
+.home-exam-row:active {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.home-exam-row-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 16rpx;
+}
+
+.home-exam-row-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--ios-label);
+  line-height: 1.35;
+}
+
+.home-exam-row-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.35;
+}
+
+.home-exam-row-go {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--ios-tint);
+}
+
+.home-exam-footer {
+  padding: 18rpx 24rpx 22rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  text-align: center;
+  border-top: 1rpx solid var(--ios-separator);
+}
+
 .home-hero {
   margin-bottom: 36rpx;
 }
@@ -65,6 +141,15 @@
   box-sizing: border-box;
 }
 
+.home-stat-tile--link {
+  border: 2rpx solid rgba(0, 122, 255, 0.22);
+}
+
+.home-stat-tile--link:active {
+  opacity: 0.88;
+  transform: scale(0.98);
+}
+
 .home-ico-wrap {
   display: flex;
   align-items: center;
@@ -72,102 +157,153 @@
   margin-bottom: 12rpx;
 }
 
+/* 四宫格图标：统一 56rpx 渐变底 + 白/浅色几何，语义区分 */
 .home-ico {
   width: 56rpx;
   height: 56rpx;
   border-radius: 18rpx;
   background: linear-gradient(155deg, #5cadff 0%, #007aff 55%, #0056c8 100%);
   box-shadow: 0 6rpx 16rpx rgba(0, 122, 255, 0.28), inset 0 1rpx 0 rgba(255, 255, 255, 0.35);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 0 12rpx;
   box-sizing: border-box;
 }
 
-.home-ico-bar {
-  height: 6rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.95);
+.home-ico--stat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* 已练题目：题纸 + 横线（做过的题单） */
+.home-g-sheet {
+  width: 30rpx;
+  height: 34rpx;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 6rpx;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.12);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8rpx;
+  box-sizing: border-box;
+}
+
+.home-g-sheet-line {
+  width: 18rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+  background: rgba(0, 86, 200, 0.38);
   margin-bottom: 5rpx;
 }
 
-.home-ico-bar:last-child {
-  margin-bottom: 0;
+.home-g-sheet-line--short {
+  width: 12rpx;
 }
 
-.home-ico-bar-lg {
-  width: 30rpx;
-}
-
-.home-ico-bar-md {
-  width: 22rpx;
-}
-
-.home-ico-bar-sm {
-  width: 14rpx;
-}
-
-.home-ico-bolt {
-  align-items: center;
-  padding: 0;
-  position: relative;
-  overflow: visible;
-}
-
-.home-ico-zig {
+.home-g-sheet-fold {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8rpx;
-  height: 32rpx;
-  border-radius: 4rpx;
-  background: rgba(255, 255, 255, 0.95);
-  margin-left: -4rpx;
-  margin-top: -16rpx;
-}
-
-.home-ico-zig.a {
-  transform: rotate(32deg);
-}
-
-.home-ico-zig.b {
-  transform: rotate(-32deg);
-}
-
-.home-ico-ring {
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: linear-gradient(155deg, #5cadff 0%, #007aff 55%, #0056c8 100%);
-}
-
-.home-ico-ring::after {
-  content: "";
-  display: block;
-  width: 24rpx;
-  height: 24rpx;
-  border-radius: 50%;
-  border: 5rpx solid rgba(255, 255, 255, 0.95);
-  box-sizing: border-box;
-  margin: 0 auto;
-}
-
-.home-ico-warn {
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  position: relative;
-}
-
-.home-ico-tri {
+  top: 0;
+  right: 0;
   width: 0;
   height: 0;
   border-style: solid;
-  border-width: 0 14rpx 24rpx 14rpx;
-  border-color: transparent transparent rgba(255, 255, 255, 0.95) transparent;
-  margin-top: 6rpx;
+  border-width: 0 10rpx 10rpx 0;
+  border-color: transparent rgba(0, 122, 255, 0.35) transparent transparent;
+}
+
+/* 做题次数：6 点阵（练习频度 / 多次作答） */
+.home-g-dots {
+  width: 36rpx;
+  height: 28rpx;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+}
+
+.home-g-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 2rpx;
+  margin: 2rpx;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.12);
+}
+
+/* 正确率 / 错题数：圆环 + 居中的勾或叉 */
+.home-g-mark {
+  position: relative;
+  width: 38rpx;
+  height: 38rpx;
+}
+
+.home-g-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34rpx;
+  height: 34rpx;
+  margin-left: -17rpx;
+  margin-top: -17rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.95);
+  box-sizing: border-box;
+}
+
+/* 与圆环同心：符号放在环心 */
+.home-g-symbol {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* 对勾：L 形边框 + 旋转，环心对齐 */
+.home-g-chk-icon {
+  width: 10rpx;
+  height: 16rpx;
+  box-sizing: border-box;
+  border-right: 4rpx solid rgba(255, 255, 255, 0.96);
+  border-bottom: 4rpx solid rgba(255, 255, 255, 0.96);
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0 0 3rpx 0;
+  transform: rotate(45deg);
+  transform-origin: 50% 50%;
+  margin-top: -3rpx;
+}
+
+.home-g-symbol--x {
+  width: 22rpx;
+  height: 22rpx;
+  display: block;
+}
+
+.home-g-x {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18rpx;
+  height: 4rpx;
+  margin-left: -9rpx;
+  margin-top: -2rpx;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 2rpx;
+}
+
+.home-g-x--a {
+  transform: rotate(45deg);
+}
+
+.home-g-x--b {
+  transform: rotate(-45deg);
 }
 
 .home-stat-value {
@@ -374,55 +510,3 @@
   line-height: 1.45;
 }
 
-.hero-cta {
-  margin-bottom: 8rpx;
-}
-
-.hero-cta-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 36rpx 28rpx;
-}
-
-.hero-cta-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.hero-cta-label {
-  display: block;
-  font-size: 34rpx;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.hero-cta-desc {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 26rpx;
-  line-height: 1.35;
-}
-
-.hero-cta-icon-wrap {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 50%;
-  background: rgba(0, 122, 255, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 24rpx;
-}
-
-.hero-cta-icon {
-  font-size: 40rpx;
-  font-weight: 300;
-  color: var(--ios-tint);
-  line-height: 1;
-}
-
-.hero-cta:active {
-  opacity: 0.92;
-  transform: scale(0.99);
-}

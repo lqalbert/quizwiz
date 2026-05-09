@@ -3716,18 +3716,31 @@ function QuestionBankPage() {
 }
 
 function ExamPage() {
+  /** datetime-local 需要「本地墙钟」的 YYYY-MM-DDTHH:mm，不能用 toISOString().slice(否则与 UTC 混用会偏 8 小时等） */
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  const formatDateTimeLocal = (d: Date) =>
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  /** 无 Z 的 "YYYY-MM-DDTHH:mm" 在各浏览器解析不一致，按本地日历显式解析 */
+  const parseDateTimeLocal = (s: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(s).trim())
+    if (!m) return new Date(NaN)
+    const y = Number(m[1])
+    const mo = Number(m[2])
+    const d = Number(m[3])
+    const h = Number(m[4])
+    const mi = Number(m[5])
+    return new Date(y, mo - 1, d, h, mi, 0, 0)
+  }
   const getLocalDateTimeMin = () => {
     const now = new Date()
     now.setSeconds(0, 0)
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-    return now.toISOString().slice(0, 16)
+    return formatDateTimeLocal(now)
   }
   const toLocalDateTimeInput = (value?: string) => {
     if (!value) return ''
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return ''
-    date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-    return date.toISOString().slice(0, 16)
+    return formatDateTimeLocal(date)
   }
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const authUserRaw = localStorage.getItem(AUTH_USER_KEY)
@@ -4413,8 +4426,8 @@ function ExamPage() {
               return
             }
             const now = new Date()
-            const start = new Date(values.startTime)
-            const end = new Date(values.endTime)
+            const start = parseDateTimeLocal(values.startTime)
+            const end = parseDateTimeLocal(values.endTime)
             if (Number.isNaN(start.getTime()) || start < now) {
               message.warning('开始时间不能早于当前时间')
               return
@@ -4440,8 +4453,8 @@ function ExamPage() {
                     score: questionScoreMap[questionId] ?? examDefaults.defaultQuestionScore,
                     sortOrder: index + 1,
                   })),
-                  startTime: new Date(values.startTime).toISOString(),
-                  endTime: new Date(values.endTime).toISOString(),
+                  startTime: start.toISOString(),
+                  endTime: end.toISOString(),
                 }),
                 },
               )

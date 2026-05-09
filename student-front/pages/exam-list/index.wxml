@@ -1,0 +1,28 @@
+<view class="page-wrap exam-list-page">
+  <view class="page-hero exam-list-hero">
+    <view class="page-hero-accent"></view>
+    <view class="page-hero-body">
+      <text class="page-hero-title">参加考试</text>
+      <text class="page-hero-lead muted">老师发布的班级考试，在开放时间内作答并交卷</text>
+    </view>
+  </view>
+  <view wx:if="{{loading}}" class="exam-list-loading muted">加载中…</view>
+  <view wx:elif="{{err}}" class="ios-card exam-list-err">
+    <text class="muted">{{err}}</text>
+    <view class="link-tint exam-list-retry" bindtap="loadExams">重试</view>
+  </view>
+  <view wx:elif="{{!exams.length}}" class="ios-card exam-list-empty">
+    <text class="muted">暂无可见考试（需已加入班级且老师已关联考试）</text>
+  </view>
+  <view wx:else class="exam-list-cards">
+    <view wx:for="{{exams}}" wx:key="id" class="ios-card exam-card" bindtap="openExam" data-id="{{item.id}}">
+      <text class="exam-card-title">{{item.title}}</text>
+      <text class="exam-card-sub muted">{{item.subject_name}}</text>
+      <view class="exam-card-meta">
+        <text class="exam-phase exam-phase--{{item.phase}}">{{item.phaseLabel}}</text>
+        <text class="exam-card-status muted">{{item.submission_label}}</text>
+      </view>
+      <text class="exam-card-time muted">{{item.timeRange}}</text>
+    </view>
+  </view>
+</view>

@@ -753,6 +753,32 @@ const isStudentAnswerCorrect = (questionType, correctText, userRaw) => {
   return soft(c0) === soft(u0)
 }
 
+/** 正式考试 answers.student_answer JSONB */
+const packExamStudentAnswer = (raw) => JSON.stringify({ v: raw == null ? '' : String(raw) })
+
+const unpackExamStudentAnswer = (jsonbVal) => {
+  if (jsonbVal == null || jsonbVal === '') return ''
+  if (typeof jsonbVal === 'string') {
+    try {
+      const o = JSON.parse(jsonbVal)
+      if (o && typeof o.v === 'string') return o.v
+    } catch (_) {
+      return jsonbVal
+    }
+  }
+  if (typeof jsonbVal === 'object' && jsonbVal && typeof jsonbVal.v === 'string') return String(jsonbVal.v)
+  return String(jsonbVal)
+}
+
+const examPhaseFromRow = (row) => {
+  const now = Date.now()
+  const s = new Date(row.start_time).getTime()
+  const e = new Date(row.end_time).getTime()
+  if (now < s) return 'upcoming'
+  if (now <= e) return 'ongoing'
+  return 'ended'
+}
+
 const incrementStudentQuestionStats = async (client, studentId, questionId, isCorrect) => {
   const correctInc = isCorrect ? 1 : 0
   const wrongInc = isCorrect ? 0 : 1
@@ -3128,6 +3154,440 @@ app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, r
     }
     return res.json({ data: { results } })
   } catch (error) {
+    return res.status(500).json({ message: '交卷失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 学生可见的班级考试列表 */
+app.get('/api/student/exams', studentAuthRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT DISTINCT ON (e.id)
+        e.id,
+        e.title,
+        e.subject_id,
+        s.name AS subject_name,
+        e.start_time,
+        e.end_time,
+        e.duration,
+        e.description,
+        es.id AS submission_id,
+        es.status AS submission_status,
+        es.submit_time,
+        es.total_score
+      FROM exams e
+      JOIN subjects s ON s.id = e.subject_id
+      JOIN exam_classes ec ON ec.exam_id = e.id
+      JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $1
+      LEFT JOIN exam_submissions es ON es.exam_id = e.id AND es.student_id = $1
+      WHERE e.end_time >= NOW() - INTERVAL '120 days'
+      ORDER BY e.id, e.start_time DESC
+      `,
+      [studentId],
+    )
+    const data = rows.map((row) => {
+      const phase = examPhaseFromRow(row)
+      const st = Number(row.submission_status || 0)
+      let submission_label = '未开始'
+      if (st === 1) submission_label = '答题中'
+      else if (st === 2 || st === 3) submission_label = '已交卷'
+      return {
+        id: row.id,
+        title: row.title,
+        subject_id: row.subject_id,
+        subject_name: row.subject_name,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        duration: row.duration,
+        description: row.description,
+        phase,
+        submission_id: row.submission_id,
+        submission_status: st || null,
+        submission_label,
+        submit_time: row.submit_time,
+        total_score: row.total_score != null ? Number(row.total_score) : null,
+      }
+    })
+    return res.json({ data })
+  } catch (error) {
+    return res.status(500).json({ message: '加载考试列表失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 考试会话：题目（无答案）、草稿、截止时间；必要时自动创建 submission */
+app.get('/api/student/exams/:examId/session', studentAuthRequired, async (req, res) => {
+  const examId = Number(req.params.examId)
+  const studentId = req.studentAuth.studentId
+  if (!Number.isInteger(examId) || examId <= 0) {
+    return res.status(400).json({ message: '考试ID不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    const examR = await client.query(
+      `
+      SELECT e.id, e.title, e.subject_id, e.start_time, e.end_time, e.duration, e.description
+      FROM exams e
+      WHERE e.id = $1
+        AND EXISTS (
+          SELECT 1 FROM exam_classes ec
+          JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $2
+          WHERE ec.exam_id = e.id
+        )
+      LIMIT 1
+      `,
+      [examId, studentId],
+    )
+    const exam = examR.rows[0]
+    if (!exam) return res.status(403).json({ message: '无权参加该考试' })
+
+    const phase = examPhaseFromRow(exam)
+    if (phase === 'upcoming') {
+      return res.status(403).json({ message: '考试尚未开始', data: { phase } })
+    }
+
+    let subR = await client.query(
+      `SELECT id, status, start_time, submit_time, total_score FROM exam_submissions WHERE exam_id = $1 AND student_id = $2 LIMIT 1`,
+      [examId, studentId],
+    )
+    let submission = subR.rows[0]
+
+    if (!submission && phase === 'ongoing') {
+      const ins = await client.query(
+        `
+        INSERT INTO exam_submissions (exam_id, student_id, start_time, status)
+        VALUES ($1, $2, NOW(), 1)
+        ON CONFLICT (exam_id, student_id) DO UPDATE SET start_time = exam_submissions.start_time
+        RETURNING id, status, start_time, submit_time, total_score
+        `,
+        [examId, studentId],
+      )
+      submission = ins.rows[0]
+    }
+
+    if (!submission) {
+      return res.status(403).json({ message: '考试已结束或未分配答卷', data: { phase } })
+    }
+
+    const st = Number(submission.status)
+    if (st === 2 || st === 3) {
+      const ansR = await client.query(
+        `
+        SELECT a.question_id, a.student_answer, a.score, a.is_correct, q.stem, q.question_type, q.answer_text, q.explanation
+        FROM answers a
+        JOIN questions q ON q.id = a.question_id AND q.deleted_at IS NULL
+        WHERE a.submission_id = $1
+        ORDER BY a.question_id ASC
+        `,
+        [submission.id],
+      )
+      return res.json({
+        data: {
+          mode: 'submitted',
+          phase,
+          exam: {
+            id: exam.id,
+            title: exam.title,
+            duration: exam.duration,
+            end_time: exam.end_time,
+          },
+          submission: {
+            id: submission.id,
+            status: st,
+            submit_time: submission.submit_time,
+            total_score: submission.total_score != null ? Number(submission.total_score) : null,
+          },
+          review: ansR.rows.map((a) => ({
+            question_id: a.question_id,
+            stem: a.stem,
+            question_type: a.question_type,
+            question_type_text: questionTypeLabelMap[a.question_type] || String(a.question_type),
+            user_answer: unpackExamStudentAnswer(a.student_answer),
+            correct: Boolean(a.is_correct),
+            score: a.score != null ? Number(a.score) : null,
+            correct_answer: String(a.answer_text || ''),
+            explanation: String(a.explanation || ''),
+          })),
+        },
+      })
+    }
+
+    if (phase === 'ended' && st === 1) {
+      return res.status(403).json({ message: '考试已结束，请等待成绩公布' })
+    }
+
+    const endMs = new Date(exam.end_time).getTime()
+    const startMs = new Date(submission.start_time).getTime()
+    const durMs = Math.max(1, Number(exam.duration) || 60) * 60 * 1000
+    const deadlineMs = Math.min(endMs, startMs + durMs)
+    const deadlineIso = new Date(deadlineMs).toISOString()
+
+    const qR = await client.query(
+      `
+      SELECT eq.question_id, eq.score, eq.sort_order, q.question_type, q.stem
+      FROM exam_questions eq
+      JOIN questions q ON q.id = eq.question_id AND q.deleted_at IS NULL
+      WHERE eq.exam_id = $1
+      ORDER BY eq.sort_order ASC, eq.question_id ASC
+      `,
+      [examId],
+    )
+    const qids = qR.rows.map((r) => r.question_id)
+    if (!qids.length) {
+      return res.status(400).json({ message: '该考试暂无题目' })
+    }
+    const optR = await client.query(
+      `
+      SELECT question_id, option_key, option_text, sort_order
+      FROM question_options
+      WHERE question_id = ANY($1::bigint[])
+      ORDER BY question_id ASC, sort_order ASC, option_key ASC
+      `,
+      [qids],
+    )
+    const optsByQ = new Map()
+    for (const o of optR.rows) {
+      const k = Number(o.question_id)
+      if (!optsByQ.has(k)) optsByQ.set(k, [])
+      optsByQ.get(k).push({
+        option_key: o.option_key,
+        option_text: o.option_text,
+        sort_order: o.sort_order,
+      })
+    }
+
+    const draftR = await client.query(
+      `SELECT question_id, student_answer FROM answers WHERE submission_id = $1`,
+      [submission.id],
+    )
+    const draft = {}
+    for (const d of draftR.rows) {
+      draft[String(d.question_id)] = unpackExamStudentAnswer(d.student_answer)
+    }
+
+    const questions = qR.rows.map((row) => ({
+      question_id: row.question_id,
+      score: Number(row.score || 0),
+      sort_order: row.sort_order,
+      question_type: row.question_type,
+      question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
+      stem: row.stem,
+      options: optsByQ.get(Number(row.question_id)) || [],
+    }))
+
+    return res.json({
+      data: {
+        mode: 'take',
+        phase,
+        exam: {
+          id: exam.id,
+          title: exam.title,
+          duration: exam.duration,
+          end_time: exam.end_time,
+        },
+        submission: {
+          id: submission.id,
+          status: st,
+          start_time: submission.start_time,
+        },
+        deadline_iso: deadlineIso,
+        questions,
+        draft_answers: draft,
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载考试失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 保存作答草稿（考试中） */
+app.put('/api/student/exams/:examId/answers', studentAuthRequired, async (req, res) => {
+  const examId = Number(req.params.examId)
+  const studentId = req.studentAuth.studentId
+  if (!Number.isInteger(examId) || examId <= 0) {
+    return res.status(400).json({ message: '考试ID不合法' })
+  }
+  const items = Array.isArray(req.body?.answers) ? req.body.answers : []
+  const client = await pool.connect()
+  try {
+    const examR = await client.query(
+      `SELECT id, start_time, end_time, duration FROM exams e
+       WHERE e.id = $1 AND EXISTS (
+         SELECT 1 FROM exam_classes ec
+         JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $2
+         WHERE ec.exam_id = e.id
+       ) LIMIT 1`,
+      [examId, studentId],
+    )
+    const exam = examR.rows[0]
+    if (!exam) return res.status(403).json({ message: '无权参加该考试' })
+
+    const phase = examPhaseFromRow(exam)
+    if (phase !== 'ongoing') return res.status(403).json({ message: '当前不可保存作答' })
+
+    const subR = await client.query(
+      `SELECT id, status, start_time FROM exam_submissions WHERE exam_id = $1 AND student_id = $2 LIMIT 1`,
+      [examId, studentId],
+    )
+    const sub = subR.rows[0]
+    if (!sub || Number(sub.status) !== 1) return res.status(400).json({ message: '未在答题中' })
+
+    const endMs = new Date(exam.end_time).getTime()
+    const startMs = new Date(sub.start_time).getTime()
+    const durMs = Math.max(1, Number(exam.duration) || 60) * 60 * 1000
+    if (Date.now() > Math.min(endMs, startMs + durMs)) {
+      return res.status(403).json({ message: '考试时间已结束' })
+    }
+
+    const validIds = new Set()
+    const idRows = await client.query(`SELECT question_id FROM exam_questions WHERE exam_id = $1`, [examId])
+    for (const r of idRows.rows) validIds.add(Number(r.question_id))
+
+    await client.query('BEGIN')
+    for (const it of items) {
+      const qid = Number(it?.question_id ?? it?.questionId)
+      if (!Number.isInteger(qid) || qid <= 0 || !validIds.has(qid)) continue
+      const ua = it?.user_answer ?? it?.userAnswer ?? ''
+      await client.query(
+        `
+        INSERT INTO answers (submission_id, question_id, student_answer, score, is_correct, time_spent)
+        VALUES ($1, $2, $3::jsonb, NULL, NULL, NULL)
+        ON CONFLICT (submission_id, question_id) DO UPDATE SET
+          student_answer = EXCLUDED.student_answer
+        `,
+        [sub.id, qid, packExamStudentAnswer(ua)],
+      )
+    }
+    await client.query('COMMIT')
+    return res.json({ data: { ok: true } })
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (_) {}
+    return res.status(500).json({ message: '保存失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 交卷（客观题自动判分） */
+app.post('/api/student/exams/:examId/submit', studentAuthRequired, async (req, res) => {
+  const examId = Number(req.params.examId)
+  const studentId = req.studentAuth.studentId
+  if (!Number.isInteger(examId) || examId <= 0) {
+    return res.status(400).json({ message: '考试ID不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    const examR = await client.query(
+      `SELECT e.id, e.start_time, e.end_time, e.duration FROM exams e
+       WHERE e.id = $1 AND EXISTS (
+         SELECT 1 FROM exam_classes ec
+         JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $2
+         WHERE ec.exam_id = e.id
+       ) LIMIT 1`,
+      [examId, studentId],
+    )
+    const exam = examR.rows[0]
+    if (!exam) return res.status(403).json({ message: '无权参加该考试' })
+    const phase = examPhaseFromRow(exam)
+    if (phase === 'upcoming') return res.status(403).json({ message: '考试尚未开始' })
+
+    const subR = await client.query(
+      `SELECT id, status, start_time FROM exam_submissions WHERE exam_id = $1 AND student_id = $2 LIMIT 1`,
+      [examId, studentId],
+    )
+    const sub = subR.rows[0]
+    if (!sub) return res.status(400).json({ message: '未开始答题' })
+    if (Number(sub.status) !== 1) return res.status(400).json({ message: '已交卷' })
+
+    const endMs = new Date(exam.end_time).getTime()
+    const startMs = new Date(sub.start_time).getTime()
+    const durMs = Math.max(1, Number(exam.duration) || 60) * 60 * 1000
+    if (Date.now() > Math.min(endMs, startMs + durMs)) {
+      return res.status(403).json({ message: '考试时间已结束' })
+    }
+
+    const qRows = await client.query(
+      `
+      SELECT eq.question_id, eq.score, q.question_type, q.answer_text, q.stem, q.explanation
+      FROM exam_questions eq
+      JOIN questions q ON q.id = eq.question_id AND q.deleted_at IS NULL
+      WHERE eq.exam_id = $1
+      ORDER BY eq.sort_order ASC, eq.question_id ASC
+      `,
+      [examId],
+    )
+    if (!qRows.rows.length) return res.status(400).json({ message: '该考试暂无题目' })
+
+    const draftR = await client.query(`SELECT question_id, student_answer FROM answers WHERE submission_id = $1`, [sub.id])
+    const draftMap = new Map()
+    for (const d of draftR.rows) draftMap.set(Number(d.question_id), unpackExamStudentAnswer(d.student_answer))
+
+    const finalItems = Array.isArray(req.body?.answers) ? req.body.answers : []
+    for (const it of finalItems) {
+      const qid = Number(it?.question_id ?? it?.questionId)
+      if (!Number.isInteger(qid) || qid <= 0) continue
+      draftMap.set(qid, it?.user_answer ?? it?.userAnswer ?? '')
+    }
+
+    await client.query('BEGIN')
+    let total = 0
+    const results = []
+    for (const row of qRows.rows) {
+      const qid = Number(row.question_id)
+      const ua = draftMap.get(qid) ?? ''
+      const ok = isStudentAnswerCorrect(Number(row.question_type), row.answer_text, ua)
+      const sc = ok ? Number(row.score || 0) : 0
+      total += sc
+      await client.query(
+        `
+        INSERT INTO answers (submission_id, question_id, student_answer, score, is_correct, time_spent)
+        VALUES ($1, $2, $3::jsonb, $4, $5, NULL)
+        ON CONFLICT (submission_id, question_id) DO UPDATE SET
+          student_answer = EXCLUDED.student_answer,
+          score = EXCLUDED.score,
+          is_correct = EXCLUDED.is_correct
+        `,
+        [sub.id, qid, packExamStudentAnswer(ua), sc, ok],
+      )
+      await incrementStudentQuestionStats(client, studentId, qid, ok)
+      results.push({
+        question_id: qid,
+        correct: ok,
+        user_answer: String(ua),
+        correct_answer: String(row.answer_text || ''),
+        explanation: String(row.explanation || ''),
+        stem: String(row.stem || ''),
+        question_type: Number(row.question_type),
+        score: sc,
+      })
+    }
+
+    await client.query(
+      `UPDATE exam_submissions SET status = 3, submit_time = NOW(), total_score = $1 WHERE id = $2`,
+      [total, sub.id],
+    )
+    await client.query('COMMIT')
+    return res.json({
+      data: {
+        total_score: total,
+        results: results.map((r) => ({
+          ...r,
+          stem: r.stem,
+          question_type_text: questionTypeLabelMap[r.question_type] || String(r.question_type),
+        })),
+      },
+    })
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (_) {}
     return res.status(500).json({ message: '交卷失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()

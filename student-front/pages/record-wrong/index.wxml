@@ -1,12 +1,10 @@
 <view class="page-wrap record-root quiz-root">
-  <!-- 与刷题一致：左科目 + 右知识单元 -->
   <block wx:if="{{step === 'catalog'}}">
-    <view class="page-hero record-catalog-hero">
+    <view class="page-hero record-catalog-hero page-hero--catalog-root">
       <view class="page-hero-accent"></view>
       <view class="page-hero-body">
-        <text class="page-hero-eyebrow">错题本</text>
-        <text class="page-hero-title">选择科目与单元</text>
-        <text class="page-hero-lead muted">左侧选科目 · 右侧选知识单元</text>
+        <text class="page-hero-title">错题本</text>
+        <text class="page-hero-lead muted">选择科目与单元</text>
       </view>
     </view>
     <view class="catalog-wrap">
@@ -41,8 +39,9 @@
   </block>
 
   <block wx:else>
-    <view class="nav-row">
-      <text class="nav-back" bindtap="backFromList">‹</text>
+    <view class="nav-row nav-back-row" bindtap="backFromList">
+      <text class="nav-back">‹</text>
+      <text class="nav-back-hint">返回上一级</text>
     </view>
     <view class="page-hero page-hero--compact">
       <view class="page-hero-accent"></view>

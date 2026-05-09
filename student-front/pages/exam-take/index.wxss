@@ -1,0 +1,240 @@
+.exam-take-page {
+  padding-top: 8rpx;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.exam-topbar {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.exam-topbar-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--ios-label);
+  line-height: 1.35;
+}
+
+.exam-topbar-timer {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--ios-secondary);
+}
+
+.exam-topbar-timer--warn {
+  color: #ff3b30;
+}
+
+.exam-nav {
+  margin-bottom: 12rpx;
+}
+
+.exam-nav-stat {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--ios-secondary);
+}
+
+.progress-track {
+  height: 6rpx;
+  background: rgba(60, 60, 67, 0.12);
+  border-radius: 6rpx;
+  margin-bottom: 16rpx;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--ios-tint);
+  border-radius: 6rpx;
+  transition: width 0.2s ease;
+}
+
+.play-card {
+  padding: 32rpx 28rpx 28rpx;
+}
+
+.type-pill {
+  display: inline-block;
+  font-size: 22rpx;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-bottom: 16rpx;
+}
+
+.stem-text {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  white-space: pre-line;
+}
+
+.opt-pill {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 20rpx;
+  padding: 28rpx 24rpx;
+  border-radius: 16rpx;
+  background: rgba(60, 60, 67, 0.06);
+  border: 2rpx solid transparent;
+  box-sizing: border-box;
+}
+
+.opt-pill:active {
+  opacity: 0.9;
+}
+
+.opt-pill-on {
+  background: rgba(0, 122, 255, 0.1);
+  border-color: var(--ios-tint);
+}
+
+.opt-pill-k {
+  width: 44rpx;
+  flex-shrink: 0;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--ios-tint);
+}
+
+.opt-pill-t {
+  flex: 1;
+  padding-left: 12rpx;
+  font-size: 30rpx;
+  line-height: 1.45;
+}
+
+.judge-row {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 28rpx;
+}
+
+.judge-pill {
+  flex: 1;
+  text-align: center;
+  padding: 28rpx 0;
+  border-radius: 16rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  background: rgba(60, 60, 67, 0.06);
+  border: 2rpx solid transparent;
+}
+
+.judge-pill-on {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: var(--ios-tint);
+  color: var(--ios-tint);
+}
+
+.answer-area {
+  margin-top: 24rpx;
+  width: 100%;
+  min-height: 200rpx;
+  padding: 24rpx;
+  box-sizing: border-box;
+  border-radius: 16rpx;
+  background: rgba(60, 60, 67, 0.06);
+  font-size: 30rpx;
+  line-height: 1.45;
+}
+
+.exam-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 24rpx;
+  align-items: stretch;
+}
+
+.exam-btn {
+  flex: 1;
+  min-width: 160rpx;
+}
+
+.exam-btn--ghost {
+  flex: 1;
+}
+
+.exam-submit {
+  flex: 2 1 280rpx;
+  min-height: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exam-review-scroll {
+  max-height: 62vh;
+  margin-top: 8rpx;
+}
+
+.exam-review-card {
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.r-stem {
+  font-size: 30rpx;
+  line-height: 1.45;
+  font-weight: 500;
+  white-space: pre-line;
+}
+
+.r-flag {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.r-meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+.r-exp {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  line-height: 1.45;
+  color: var(--ios-label);
+}
+
+.fb-ok {
+  color: var(--ios-green);
+}
+
+.fb-bad {
+  color: var(--ios-red);
+}
+
+.exam-back {
+  margin-top: 28rpx;
+}
+
+.exam-err {
+  text-align: center;
+  padding: 48rpx 24rpx;
+  font-size: 28rpx;
+}
+
+.mt {
+  margin-top: 36rpx;
+}
+
+.ph {
+  color: rgba(60, 60, 67, 0.42);
+}
