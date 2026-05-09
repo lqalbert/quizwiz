@@ -305,9 +305,17 @@ const validateResourceClassScope = async ({ req, classIds, client }) => {
   return classIds.every((classId) => ownedClassSet.has(classId))
 }
 
+/** 学生 JWT：优先 Authorization，其次 query（小程序 wx.downloadFile 在部分网关下会丢 Header，可用 access_token 兜底） */
+const extractStudentBearerToken = (req) => {
+  const header = String(req.headers.authorization || '')
+  if (header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim()
+  const q = req.query && typeof req.query === 'object' ? req.query : {}
+  const fromQuery = String(q.access_token || q.student_token || '').trim()
+  return fromQuery
+}
+
 const studentAuthRequired = (req, res, next) => {
-  const header = req.headers.authorization || ''
-  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const token = extractStudentBearerToken(req)
   if (!token) {
     return res.status(401).json({ message: '未登录或登录已过期' })
   }

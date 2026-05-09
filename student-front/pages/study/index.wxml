@@ -4,7 +4,7 @@
     <view class="page-hero-body">
       <text class="page-hero-eyebrow">学习</text>
       <text class="page-hero-title">班级资料</text>
-      <text class="page-hero-lead muted">按科目浏览教师上传的资料，可预览或下载</text>
+      <text class="page-hero-lead muted">按科目浏览资料；点击卡片即可预览（图片 / 视频 / 文档 / 常见音频）</text>
     </view>
   </view>
 
@@ -105,6 +105,16 @@
     <view class="video-dialog" catchtap="noop">
       <video class="video-player" src="{{videoPreviewUrl}}" controls></video>
       <view class="video-close" bindtap="closeVideoPreview">关闭</view>
+    </view>
+  </view>
+
+  <view wx:if="{{audioPreviewVisible}}" class="audio-sheet" catchtouchmove="noop">
+    <view class="audio-sheet-inner" catchtap="noop">
+      <text class="audio-sheet-title">{{audioPreviewName}}</text>
+      <view class="audio-sheet-row">
+        <view class="audio-sheet-btn" bindtap="toggleAudioPreview">{{audioPlaying ? '暂停' : '播放'}}</view>
+        <view class="audio-sheet-btn audio-sheet-btn-muted" bindtap="closeAudioPreview">关闭</view>
+      </view>
     </view>
   </view>
 </view>

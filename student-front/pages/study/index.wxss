@@ -141,3 +141,52 @@
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
 }
+
+.audio-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  padding: 0 24rpx calc(24rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.audio-sheet-inner {
+  background: #fff;
+  border-radius: 20rpx 20rpx 16rpx 16rpx;
+  box-shadow: 0 -8rpx 40rpx rgba(0, 0, 0, 0.12);
+  padding: 28rpx 32rpx 24rpx;
+}
+
+.audio-sheet-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--ios-label);
+  margin-bottom: 24rpx;
+  word-break: break-all;
+}
+
+.audio-sheet-row {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+}
+
+.audio-sheet-btn {
+  flex: 1;
+  text-align: center;
+  padding: 22rpx 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  background: #007aff;
+  border-radius: 14rpx;
+}
+
+.audio-sheet-btn-muted {
+  background: #e5e5ea;
+  color: var(--ios-label);
+}
