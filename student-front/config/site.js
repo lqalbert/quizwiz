@@ -12,4 +12,6 @@
 module.exports = {
   defaultApiBase: "https://www.quizwiz.cn",
   expectedMiniProgramAppId: "wxda81343eb7dbf460",
+  /** 订阅消息模板 ID（微信公众平台申请后填入）；留空则「订阅复习提醒」仅提示配置 */
+  reviewReminderTemplateIds: [],
 };

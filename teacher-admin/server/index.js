@@ -696,6 +696,36 @@ const ensureStudentPracticeSchema = async () => {
     ON student_practice_events (created_at DESC, source)
     `,
   )
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS student_wrong_review (
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      next_review_date DATE NOT NULL,
+      ladder INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (student_id, question_id)
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_wrong_review_student_next
+    ON student_wrong_review (student_id, next_review_date)
+    `,
+  )
+  await pool.query(
+    `
+    INSERT INTO student_wrong_review (student_id, question_id, next_review_date, ladder, updated_at)
+    SELECT s.student_id, s.question_id, (timezone('Asia/Shanghai', now()))::date, 0, NOW()
+    FROM student_question_stats s
+    WHERE s.wrong_count > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM student_wrong_review r
+        WHERE r.student_id = s.student_id AND r.question_id = s.question_id
+      )
+    `,
+  )
 }
 
 const ensureStudentWechatSchema = async () => {
@@ -818,6 +848,55 @@ const examPhaseFromRow = (row) => {
   return 'ended'
 }
 
+/** 刷题错题间隔复习：答错次日再练；答对仍错题则按 ladder 推进 1/3/7/14/30 天（上海日历） */
+const bumpWrongReviewAfterPractice = async (client, studentId, questionId, isCorrect) => {
+  const shExpr = `(timezone('Asia/Shanghai', now()))::date`
+  if (!isCorrect) {
+    await client.query(
+      `
+      INSERT INTO student_wrong_review (student_id, question_id, next_review_date, ladder, updated_at)
+      VALUES ($1, $2, ${shExpr} + INTERVAL '1 day', 0, NOW())
+      ON CONFLICT (student_id, question_id) DO UPDATE SET
+        next_review_date = ${shExpr} + INTERVAL '1 day',
+        ladder = 0,
+        updated_at = NOW()
+      `,
+      [studentId, questionId],
+    )
+    return
+  }
+  const wcR = await client.query(
+    `SELECT wrong_count FROM student_question_stats WHERE student_id = $1 AND question_id = $2 LIMIT 1`,
+    [studentId, questionId],
+  )
+  const wc = Number(wcR.rows[0]?.wrong_count || 0)
+  if (wc <= 0) {
+    await client.query(`DELETE FROM student_wrong_review WHERE student_id = $1 AND question_id = $2`, [
+      studentId,
+      questionId,
+    ])
+    return
+  }
+  const rr = await client.query(
+    `SELECT ladder FROM student_wrong_review WHERE student_id = $1 AND question_id = $2 LIMIT 1`,
+    [studentId, questionId],
+  )
+  const L = rr.rows[0] ? Number(rr.rows[0].ladder || 0) : 0
+  const addDays = L <= 0 ? 1 : L === 1 ? 3 : L === 2 ? 7 : L === 3 ? 14 : 30
+  const newLadder = L + 1
+  await client.query(
+    `
+    INSERT INTO student_wrong_review (student_id, question_id, next_review_date, ladder, updated_at)
+    VALUES ($1, $2, ${shExpr} + ($3::int * INTERVAL '1 day'), $4, NOW())
+    ON CONFLICT (student_id, question_id) DO UPDATE SET
+      ladder = EXCLUDED.ladder,
+      next_review_date = EXCLUDED.next_review_date,
+      updated_at = NOW()
+    `,
+    [studentId, questionId, addDays, newLadder],
+  )
+}
+
 const incrementStudentQuestionStats = async (client, studentId, questionId, isCorrect, source = 'practice_check') => {
   const correctInc = isCorrect ? 1 : 0
   const wrongInc = isCorrect ? 0 : 1
@@ -841,6 +920,9 @@ const incrementStudentQuestionStats = async (client, studentId, questionId, isCo
     `,
     [studentId, questionId, isCorrect, src],
   )
+  if (src === 'practice_check' || src === 'practice_exam') {
+    await bumpWrongReviewAfterPractice(client, studentId, questionId, isCorrect)
+  }
 }
 
 const getQuestionSnapshot = async (executor, questionId) => {
@@ -3845,6 +3927,10 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, studentCla
     return res.status(400).json({ message: '请提供 question_id 或 question_ids' })
   }
   try {
+    await pool.query(`DELETE FROM student_wrong_review WHERE student_id = $1 AND question_id = ANY($2::bigint[])`, [
+      req.studentAuth.studentId,
+      questionIds,
+    ])
     const r = await pool.query(
       `
       UPDATE student_question_stats
@@ -3856,6 +3942,51 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, studentCla
     return res.json({ data: { ok: true, updated: Number(r.rowCount || 0) } })
   } catch (error) {
     return res.status(500).json({ message: '移出错题本失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 今日待复习错题列表（与首页「今日」错题数同一口径） */
+app.get('/api/student/stats/review-due-today', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  try {
+    const dR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
+    const shDate = dR.rows[0]?.d
+    const listR = await pool.query(
+      `
+      SELECT s.question_id, s.wrong_count, s.attempts, s.correct_count, s.updated_at,
+        q.stem, q.question_type,
+        r.next_review_date,
+        COALESCE(r.ladder, 0)::int AS ladder
+      FROM student_question_stats s
+      INNER JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+      LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+      WHERE s.student_id = $1 AND s.wrong_count > 0
+        AND (r.next_review_date IS NULL OR r.next_review_date <= $2::date)
+      ORDER BY r.next_review_date NULLS FIRST, s.updated_at DESC
+      LIMIT 200
+      `,
+      [studentId, shDate],
+    )
+    const rows = listR.rows || []
+    return res.json({
+      data: {
+        count: rows.length,
+        questions: rows.map((row) => ({
+          question_id: row.question_id,
+          stem: row.stem,
+          question_type: row.question_type,
+          question_type_text: questionTypeLabelMap[row.question_type] || String(row.question_type),
+          wrong_count: row.wrong_count,
+          attempts: row.attempts,
+          correct_count: row.correct_count,
+          next_review_date: row.next_review_date,
+          ladder: row.ladder,
+          updated_at: row.updated_at,
+        })),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载待复习失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 
@@ -3956,6 +4087,23 @@ const loadStudentClassPeerIds = async (executor, studentId) => {
 }
 
 const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+
+/** 今日待复习错题数：wrong_count>0 且（无排期或 next_review_date ≤ 上海当日），按题去重计数 */
+const loadReviewDueWrongCountsByStudentIds = async (executor, peerIdsForQuery) => {
+  if (!peerIdsForQuery || peerIdsForQuery.length === 0) return { rows: [] }
+  return executor.query(
+    `
+    SELECT s.student_id, COUNT(*)::int AS cnt
+    FROM student_question_stats s
+    LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+    WHERE s.student_id = ANY($1::bigint[])
+      AND s.wrong_count > 0
+      AND (r.next_review_date IS NULL OR r.next_review_date <= (timezone('Asia/Shanghai', now()))::date)
+    GROUP BY s.student_id
+    `,
+    [peerIdsForQuery],
+  )
+}
 
 const mergePeerPracticeRows = (peerIds, rows) => {
   const byId = new Map()
@@ -4154,11 +4302,11 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
       allMergedRows = allStatsR.rows
     }
 
-    const today = calcPracticeRankPayload(
-      studentId,
-      mergePeerPracticeRows(peerIdsForQuery, todayEvR.rows),
-      inClassPeerCount,
-    )
+    const todayMergedBase = mergePeerPracticeRows(peerIdsForQuery, todayEvR.rows)
+    const todayDueR = await loadReviewDueWrongCountsByStudentIds(pool, peerIdsForQuery)
+    const todayDueMap = new Map(todayDueR.rows.map((row) => [Number(row.student_id), Number(row.cnt || 0)]))
+    const todayMerged = todayMergedBase.map((m) => ({ ...m, wrong_count: todayDueMap.get(m.student_id) || 0 }))
+    const today = calcPracticeRankPayload(studentId, todayMerged, inClassPeerCount)
     const week = calcPracticeRankPayload(
       studentId,
       mergePeerPracticeRows(peerIdsForQuery, weekEvR.rows),
@@ -4189,7 +4337,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
         },
         practice_periods,
         timezone_note:
-          '刷题 Tab 按 Asia/Shanghai。今日：答题数/错题数为当天每题最多计 1 次；本周/月/全部：先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
+          '刷题 Tab 按 Asia/Shanghai。今日：答题数为当天每题最多计 1 次；错题数为「待复习」口径（错题本中 wrong_count>0 且已到 next_review_date 或无排期），与「今日待复习」列表一致；本周/月/全部错题数仍为先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
       },
     })
   } catch (error) {
@@ -4232,7 +4380,12 @@ app.get('/api/student/stats/practice-class-rank', studentAuthRequired, studentCl
         aggRows = fallR.rows
       }
     }
-    const merged = mergePeerPracticeRows(classPeerIds, aggRows)
+    let merged = mergePeerPracticeRows(classPeerIds, aggRows)
+    if (period === 'today') {
+      const dueR = await loadReviewDueWrongCountsByStudentIds(pool, classPeerIds)
+      const dm = new Map(dueR.rows.map((row) => [Number(row.student_id), Number(row.cnt || 0)]))
+      merged = merged.map((r) => ({ ...r, wrong_count: dm.get(r.student_id) || 0 }))
+    }
     const rankProduct = (r) => {
       const t = r.total_attempts
       if (t <= 0) return -1

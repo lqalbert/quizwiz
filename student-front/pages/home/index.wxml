@@ -111,10 +111,11 @@
             <text class="home-practice-metric-lab">答题数</text>
             <text class="home-practice-metric-h muted">今日每题计 1；周/月/全部按日合计</text>
           </view>
-          <view class="home-practice-metric home-practice-metric--warn" bindtap="goRecordWrong">
+          <view class="home-practice-metric home-practice-metric--warn" bindtap="goWrongOrReviewToday">
             <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
             <text class="home-practice-metric-lab">错题数</text>
-            <text class="home-practice-metric-h muted">今日每题错题计 1；周/月/全部按日合计</text>
+            <text class="home-practice-metric-h muted" wx:if="{{practiceTab === 'today'}}">今日待复习（到点即练）</text>
+            <text class="home-practice-metric-h muted" wx:else>今日每题错题计 1；周/月/全部按日合计</text>
           </view>
           <view class="home-practice-metric home-practice-metric--static">
             <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>
@@ -127,7 +128,7 @@
             <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>
           </view>
         </view>
-        <view class="home-dash-foot muted" bindtap="goQuiz">点答题数或此处进刷题 · 错题数进错题本 · 点班级排名看全班榜</view>
+        <view class="home-dash-foot muted" bindtap="goQuiz">点答题数或此处进刷题 · 今日 Tab 下错题数进「待复习」列表 · 其它 Tab 进错题本 · 点班级排名看全班榜</view>
       </block>
     </view>
   </block>

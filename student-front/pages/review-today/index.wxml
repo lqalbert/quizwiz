@@ -1,0 +1,30 @@
+<view class="page-wrap review-today-root">
+  <view class="review-today-hero">
+    <text class="h2">今日待复习</text>
+    <text class="muted" style="display:block;margin-top:12rpx;">与首页「今日」错题数同一口径：到复习日或尚未排期的错题。</text>
+  </view>
+
+  <view wx:if="{{loading}}" class="muted">加载中…</view>
+  <view wx:elif="{{err}}" class="ios-card" style="padding:32rpx;">
+    <text class="muted">{{err}}</text>
+    <view class="ui-btn-secondary" style="margin-top:24rpx;text-align:center;" bindtap="loadList">重试</view>
+  </view>
+  <block wx:else>
+    <view class="review-today-pill">共 {{count}} 题</view>
+    <view class="review-today-actions">
+      <view class="btn-primary" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
+      <view class="review-today-btn-row" wx:if="{{count > 0}}">
+        <view class="ui-btn-secondary" style="flex:1;text-align:center;" bindtap="requestReviewReminder">订阅复习提醒</view>
+      </view>
+    </view>
+    <view wx:if="{{count === 0}}" class="ios-card review-empty">暂无待复习错题，继续保持。</view>
+    <view wx:else class="ios-card" style="padding:8rpx 28rpx 28rpx;">
+      <block wx:for="{{questions}}" wx:key="question_id">
+        <view class="review-item" bindtap="startOne" data-id="{{item.question_id}}">
+          <text class="review-item-stem">{{item.stem_display}}</text>
+          <text class="review-item-meta">{{item.question_type_text}} · 下次 {{item.next_label}}</text>
+        </view>
+      </block>
+    </view>
+  </block>
+</view>

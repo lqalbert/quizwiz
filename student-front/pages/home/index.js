@@ -211,12 +211,17 @@ Page({
       const d = unwrapStudentPayload(res);
       const totals = d.totals || null;
       const practice_periods = d.practice_periods != null ? d.practice_periods : null;
-      this.setData({
-        totals,
-        practice_periods,
-        statsLoading: false,
-      });
-      this.applyPracticeTab();
+      this.setData(
+        {
+          totals,
+          practice_periods,
+          statsLoading: false,
+        },
+        () => {
+          this.applyPracticeTab();
+          this.tryRemindReviewDueIfNeeded();
+        },
+      );
     } catch (e) {
       this.setData({
         statsLoading: false,
@@ -246,5 +251,36 @@ Page({
       return;
     }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
+  },
+
+  /** 「今日」Tab：错题数 = 待复习口径，进入待复习列表；其它 Tab 仍进完整错题本 */
+  goWrongOrReviewToday() {
+    if (!wx.getStorageSync("student_token")) {
+      wx.reLaunch({ url: "/pages/login/index" });
+      return;
+    }
+    if (this.data.practiceTab === "today") {
+      wx.navigateTo({ url: "/pages/review-today/index" });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/record-wrong/index" });
+  },
+
+  tryRemindReviewDueIfNeeded() {
+    if (this.data.practiceTab !== "today") return;
+    const n = Number(this.data.practicePanel.wrong_count || 0);
+    if (n <= 0) return;
+    const key = `review_due_tip_${this.data.dateText}`;
+    if (wx.getStorageSync(key)) return;
+    wx.setStorageSync(key, 1);
+    wx.showModal({
+      title: "今日待复习",
+      content: `有 ${n} 道错题已到复习日，是否进入待复习列表？`,
+      confirmText: "去复习",
+      cancelText: "稍后",
+      success: (res) => {
+        if (res.confirm) wx.navigateTo({ url: "/pages/review-today/index" });
+      },
+    });
   },
 });

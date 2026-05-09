@@ -6,6 +6,7 @@
     "pages/study/index",
     "pages/mine/index",
     "pages/record-wrong/index",
+    "pages/review-today/index",
     "pages/record-done/index",
     "pages/exam-list/index",
     "pages/exam-take/index",
