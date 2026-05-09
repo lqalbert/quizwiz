@@ -5,6 +5,8 @@
     <text class="exam-topbar-title">{{examTitle}}</text>
     <text class="exam-topbar-timer {{timeWarn ? 'exam-topbar-timer--warn' : ''}}">{{timerLabel}}</text>
   </view>
+  <view wx:if="{{examNetHint}}" class="exam-banner exam-banner--warn">{{examNetHint}}</view>
+  <view wx:if="{{examLeaveCount > 0}}" class="exam-banner exam-banner--muted">已记录离开小程序 {{examLeaveCount}} 次，请诚信作答</view>
   <view class="progress-track">
     <view class="progress-fill" style="width: {{progressPct}}%;"></view>
   </view>
@@ -55,32 +57,87 @@
       </block>
     </view>
 
-    <view class="exam-actions">
-      <view class="ui-btn-secondary exam-btn" bindtap="onPrev" wx:if="{{currentIndex > 0}}">上一题</view>
-      <view class="ui-btn-secondary exam-btn exam-btn--ghost" bindtap="onNext" wx:if="{{currentIndex < questions.length - 1}}">下一题</view>
-      <view class="btn-primary exam-submit {{submitting ? 'disabled' : ''}}" bindtap="onSubmitPaper">交卷</view>
+    <view class="exam-footer">
+      <view class="ios-card exam-nav-card">
+        <view class="exam-nav-row">
+          <view
+            class="exam-nav-pill {{currentIndex <= 0 ? 'exam-nav-pill--disabled' : ''}}"
+            bindtap="onPrev"
+          >上一题</view>
+          <view
+            class="exam-nav-pill {{currentIndex >= questions.length - 1 ? 'exam-nav-pill--disabled' : ''}}"
+            bindtap="onNext"
+          >下一题</view>
+        </view>
+      </view>
+      <view class="exam-submit-slot">
+        <view
+          class="exam-submit-pill {{submitting ? 'exam-submit-pill--disabled' : ''}}"
+          bindtap="onSubmitPaper"
+        >确认交卷</view>
+      </view>
     </view>
   </block>
 </view>
 
 <view class="page-wrap exam-take-page" wx:elif="{{mode === 'submitted'}}">
-  <view class="page-hero page-hero--compact">
+  <view class="page-hero page-hero--compact exam-review-hero">
     <view class="page-hero-accent"></view>
     <view class="page-hero-body">
-      <text class="page-hero-title">答卷已提交</text>
+      <text class="page-hero-title">考试复盘</text>
       <text class="page-hero-meta muted" wx:if="{{totalScore != null}}">得分：{{totalScore}} 分</text>
     </view>
   </view>
-  <scroll-view scroll-y class="exam-review-scroll">
-    <view wx:for="{{review}}" wx:key="question_id" class="ios-card exam-review-card">
-      <text class="r-stem">{{item.stem}}</text>
-      <text class="r-flag {{item.correct ? 'fb-ok' : 'fb-bad'}}">{{item.correct ? '正确' : '错误'}}</text>
-      <text class="r-meta muted">你的答案：{{item.user_answer || '（空）'}}</text>
-      <text class="r-meta muted">参考答案：{{item.correct_answer}}</text>
-      <text class="r-exp" wx:if="{{item.explanation}}">解析：{{item.explanation}}</text>
+  <view class="exam-topbar" wx:if="{{review.length}}">
+    <text class="exam-topbar-title">{{examTitle}}</text>
+    <text class="exam-topbar-timer muted">{{reviewIndex + 1}} / {{review.length}}</text>
+  </view>
+  <view class="progress-track" wx:if="{{review.length}}">
+    <view class="progress-fill exam-review-progress" style="width: {{reviewProgressPct}}%;"></view>
+  </view>
+  <block wx:if="{{reviewCard}}">
+    <view class="ios-card play-card">
+      <text class="type-pill muted">{{reviewCard.question_type_text}}</text>
+      <text class="stem-text">{{reviewCard.stem}}</text>
+      <block wx:if="{{reviewCard.optionRows.length}}">
+        <view wx:for="{{reviewCard.optionRows}}" wx:key="option_key" class="{{item.rowClass}}">
+          <text class="opt-pill-k">{{item.option_key}}</text>
+          <text class="opt-pill-t">{{item.option_text}}</text>
+        </view>
+      </block>
+      <block wx:if="{{reviewCard.question_type == 4 || reviewCard.question_type == 5}}">
+        <view class="answer-area answer-area--readonly">{{reviewCard.user_answer || '（未作答）'}}</view>
+      </block>
+      <view class="review-answer-block">
+        <text wx:if="{{reviewCard.question_type != 4 && reviewCard.question_type != 5}}" class="r-meta muted">你的答案：{{reviewCard.user_answer || '（空）'}}</text>
+        <text class="r-meta muted">参考答案：{{reviewCard.correct_answer || '—'}}</text>
+        <text class="r-flag {{reviewCard.correct ? 'fb-ok' : 'fb-bad'}}">{{reviewCard.correct ? '判题：正确' : '判题：错误'}}</text>
+        <text wx:if="{{reviewCard.score != null}}" class="r-meta muted">本题得分：{{reviewCard.score}} 分</text>
+        <text wx:if="{{reviewCard.explanation}}" class="r-exp">解析：{{reviewCard.explanation}}</text>
+      </view>
     </view>
-  </scroll-view>
-  <view class="btn-primary mt exam-back" bindtap="goBack">返回考试列表</view>
+    <view class="exam-footer exam-footer--review">
+      <view class="ios-card exam-nav-card">
+        <view class="exam-nav-row">
+          <view
+            class="exam-nav-pill {{reviewIndex <= 0 ? 'exam-nav-pill--disabled' : ''}}"
+            bindtap="onReviewPrev"
+          >上一题</view>
+          <view
+            class="exam-nav-pill {{reviewIndex >= review.length - 1 ? 'exam-nav-pill--disabled' : ''}}"
+            bindtap="onReviewNext"
+          >下一题</view>
+        </view>
+      </view>
+      <view class="exam-submit-slot">
+        <view class="exam-submit-pill exam-submit-pill--secondary" bindtap="goBack">返回考试列表</view>
+      </view>
+    </view>
+  </block>
+  <block wx:else>
+    <view class="exam-err muted">暂无逐题复盘数据</view>
+    <view class="btn-primary mt exam-back" bindtap="goBack">返回考试列表</view>
+  </block>
 </view>
 
 <view class="page-wrap exam-take-page" wx:else>

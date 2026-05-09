@@ -2,7 +2,7 @@
   padding-top: 8rpx;
 }
 
-/* 首页最顶：待完成考试（进行中且未交卷） */
+/* 「今天练几题」与下方数据统计之间：待完成考试（进行中且未交卷） */
 .home-exam-banner {
   padding: 0;
   margin-bottom: 20rpx;
@@ -76,6 +76,98 @@
   font-weight: 600;
   text-align: center;
   border-top: 1rpx solid var(--ios-separator);
+}
+
+.home-exam-empty {
+  padding: 32rpx 28rpx;
+  text-align: center;
+  font-size: 26rpx;
+  line-height: 1.45;
+  margin-bottom: 20rpx;
+}
+
+.home-exam-stat-grid {
+  margin-bottom: 20rpx;
+}
+
+.home-stat-tile--exam {
+  border: 2rpx solid rgba(175, 82, 222, 0.22);
+}
+
+.home-exam-chart {
+  margin-bottom: 20rpx;
+}
+
+.home-exam-chart-title {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.home-bar-fill--exam {
+  background: linear-gradient(90deg, #c77dff 0%, #7c5cff 55%, #5856d6 100%);
+}
+
+.home-exam-scope {
+  display: block;
+  margin-top: 20rpx;
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+
+.home-exam-recent {
+  padding: 24rpx 28rpx 28rpx;
+  margin-bottom: 12rpx;
+}
+
+.home-exam-recent-title {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 600;
+  margin-bottom: 4rpx;
+}
+
+.home-exam-recent-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22rpx 0;
+  gap: 16rpx;
+}
+
+.home-exam-recent-row:active {
+  opacity: 0.85;
+}
+
+.home-exam-recent-row + .home-exam-recent-row {
+  border-top: 1rpx solid var(--ios-separator);
+}
+
+.home-exam-recent-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--ios-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-exam-recent-score {
+  flex-shrink: 0;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--ios-tint);
+}
+
+.home-exam-all {
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 600;
+  padding: 12rpx 0 8rpx;
 }
 
 .home-hero {

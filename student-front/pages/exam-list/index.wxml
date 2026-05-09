@@ -23,6 +23,7 @@
         <text class="exam-card-status muted">{{item.submission_label}}</text>
       </view>
       <text class="exam-card-time muted">{{item.timeRange}}</text>
+      <text wx:if="{{item.submission_label === '已交卷'}}" class="exam-card-hint muted">点击查看答卷、正确答案与解析</text>
     </view>
   </view>
 </view>

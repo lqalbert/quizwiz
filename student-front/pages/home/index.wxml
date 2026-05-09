@@ -1,4 +1,13 @@
 <view class="page-wrap home-page">
+  <view class="page-hero home-hero">
+    <view class="page-hero-accent"></view>
+    <view class="page-hero-body">
+      <text class="page-hero-date">{{dateText}}</text>
+      <text class="page-hero-title">今天练几题？</text>
+      <text class="page-hero-lead muted">小步坚持，积少成多</text>
+    </view>
+  </view>
+
   <block wx:if="{{loggedIn && examTasks.length}}">
     <view class="home-exam-banner ios-card">
       <view class="home-exam-banner-head">
@@ -21,14 +30,61 @@
       <view class="home-exam-footer link-tint" bindtap="goExamList">全部考试</view>
     </view>
   </block>
-  <view class="page-hero home-hero">
-    <view class="page-hero-accent"></view>
-    <view class="page-hero-body">
-      <text class="page-hero-date">{{dateText}}</text>
-      <text class="page-hero-title">今天练几题？</text>
-      <text class="page-hero-lead muted">小步坚持，积少成多</text>
+
+  <block wx:if="{{loggedIn && examOverview}}">
+    <text class="section-label">我的考试</text>
+    <view wx:if="{{examOverview.total === 0}}" class="ios-card home-exam-empty muted">
+      <text>近 120 天内暂无分配给你的班级考试</text>
     </view>
-  </view>
+    <block wx:else>
+      <view class="home-stat-grid home-exam-stat-grid">
+        <view class="home-stat-tile home-stat-tile--exam">
+          <text class="home-stat-value">{{examOverview.total}}</text>
+          <text class="home-stat-label muted">参与场次</text>
+        </view>
+        <view class="home-stat-tile home-stat-tile--exam">
+          <text class="home-stat-value">{{examOverview.submitted}}</text>
+          <text class="home-stat-label muted">已交卷</text>
+        </view>
+        <view class="home-stat-tile home-stat-tile--exam">
+          <text class="home-stat-value">{{examOverview.todo_count}}</text>
+          <text class="home-stat-label muted">待参加</text>
+        </view>
+        <view class="home-stat-tile home-stat-tile--exam">
+          <text class="home-stat-value">{{examOverview.avg_score_display}}</text>
+          <text class="home-stat-label muted">场均得分</text>
+        </view>
+      </view>
+      <view class="ios-card home-chart-card home-exam-chart">
+        <text class="home-exam-chart-title muted">状态分布（场）</text>
+        <view wx:if="{{!examOverview.bar_rows.length}}" class="home-empty muted">暂无数据</view>
+        <block wx:else>
+          <view wx:for="{{examOverview.bar_rows}}" wx:key="label" class="home-bar-row">
+            <text class="home-bar-label">{{item.label}}</text>
+            <view class="home-bar-track">
+              <view class="home-bar-fill home-bar-fill--exam" style="width: {{item.pct}}%;"></view>
+            </view>
+            <text class="home-bar-val">{{item.attempts}}</text>
+          </view>
+        </block>
+        <text class="home-exam-scope muted">统计范围：最近 120 天内可见考试</text>
+      </view>
+      <view wx:if="{{examOverview.recent.length}}" class="ios-card home-exam-recent">
+        <text class="home-exam-recent-title muted">最近交卷</text>
+        <view
+          wx:for="{{examOverview.recent}}"
+          wx:key="id"
+          class="home-exam-recent-row"
+          bindtap="goExamTake"
+          data-id="{{item.id}}"
+        >
+          <text class="home-exam-recent-name">{{item.title}}</text>
+          <text class="home-exam-recent-score">{{item.score_text}}</text>
+        </view>
+      </view>
+      <view class="home-exam-all link-tint" bindtap="goExamList">查看全部考试</view>
+    </block>
+  </block>
 
   <block wx:if="{{!loggedIn}}">
     <view class="ios-card home-guest-stats">

@@ -678,6 +678,13 @@ const ensureStudentWechatSchema = async () => {
   )
 }
 
+/** 考试防作弊：切离小程序 / 页面等事件 JSON 数组，供教师端审计 */
+const ensureExamProctorSchema = async () => {
+  await pool.query(
+    `ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS proctor_events jsonb NOT NULL DEFAULT '[]'::jsonb`,
+  )
+}
+
 const wechatMiniCode2Session = async (jsCode) => {
   const appid = WECHAT_MINI_APPID
   const secret = WECHAT_MINI_SECRET
@@ -3276,14 +3283,45 @@ app.get('/api/student/exams/:examId/session', studentAuthRequired, async (req, r
     if (st === 2 || st === 3) {
       const ansR = await client.query(
         `
-        SELECT a.question_id, a.student_answer, a.score, a.is_correct, q.stem, q.question_type, q.answer_text, q.explanation
+        SELECT
+          a.question_id,
+          a.student_answer,
+          a.score,
+          a.is_correct,
+          q.stem,
+          q.question_type,
+          q.answer_text,
+          q.explanation
         FROM answers a
         JOIN questions q ON q.id = a.question_id AND q.deleted_at IS NULL
+        LEFT JOIN exam_questions eq ON eq.exam_id = $2 AND eq.question_id = a.question_id
         WHERE a.submission_id = $1
-        ORDER BY a.question_id ASC
+        ORDER BY eq.sort_order ASC NULLS LAST, a.question_id ASC
         `,
-        [submission.id],
+        [submission.id, examId],
       )
+      const qids = ansR.rows.map((r) => Number(r.question_id)).filter((id) => Number.isInteger(id) && id > 0)
+      const optsByQ = new Map()
+      if (qids.length) {
+        const optR = await client.query(
+          `
+          SELECT question_id, option_key, option_text, sort_order
+          FROM question_options
+          WHERE question_id = ANY($1::bigint[])
+          ORDER BY question_id ASC, sort_order ASC, option_key ASC
+          `,
+          [qids],
+        )
+        for (const o of optR.rows) {
+          const k = Number(o.question_id)
+          if (!optsByQ.has(k)) optsByQ.set(k, [])
+          optsByQ.get(k).push({
+            option_key: o.option_key,
+            option_text: o.option_text,
+            sort_order: o.sort_order,
+          })
+        }
+      }
       return res.json({
         data: {
           mode: 'submitted',
@@ -3310,6 +3348,7 @@ app.get('/api/student/exams/:examId/session', studentAuthRequired, async (req, r
             score: a.score != null ? Number(a.score) : null,
             correct_answer: String(a.answer_text || ''),
             explanation: String(a.explanation || ''),
+            options: optsByQ.get(Number(a.question_id)) || [],
           })),
         },
       })
@@ -3470,6 +3509,75 @@ app.put('/api/student/exams/:examId/answers', studentAuthRequired, async (req, r
       await client.query('ROLLBACK')
     } catch (_) {}
     return res.status(500).json({ message: '保存失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 考试中防作弊事件上报（切离小程序、离开考试页等），仅 status=进行中 可写 */
+app.post('/api/student/exams/:examId/proctor-events', studentAuthRequired, async (req, res) => {
+  const examId = Number(req.params.examId)
+  const studentId = req.studentAuth.studentId
+  if (!Number.isInteger(examId) || examId <= 0) {
+    return res.status(400).json({ message: '考试ID不合法' })
+  }
+  const event = String(req.body?.event || '').trim()
+  const source = String(req.body?.source || 'unknown').trim().slice(0, 24)
+  const allowed = new Set(['leave', 'enter', 'page_hide', 'page_show'])
+  if (!allowed.has(event)) {
+    return res.status(400).json({ message: '事件类型无效' })
+  }
+  const client = await pool.connect()
+  try {
+    const examR = await client.query(
+      `SELECT id, start_time, end_time, duration FROM exams e
+       WHERE e.id = $1 AND EXISTS (
+         SELECT 1 FROM exam_classes ec
+         JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $2
+         WHERE ec.exam_id = e.id
+       ) LIMIT 1`,
+      [examId, studentId],
+    )
+    const exam = examR.rows[0]
+    if (!exam) return res.status(403).json({ message: '无权参加该考试' })
+    const phase = examPhaseFromRow(exam)
+    if (phase !== 'ongoing') {
+      return res.status(403).json({ message: '当前不在考试开放答题阶段' })
+    }
+    const subR = await client.query(
+      `SELECT id, status, proctor_events FROM exam_submissions WHERE exam_id = $1 AND student_id = $2 LIMIT 1`,
+      [examId, studentId],
+    )
+    const sub = subR.rows[0]
+    if (!sub || Number(sub.status) !== 1) {
+      return res.status(400).json({ message: '未在答题中' })
+    }
+    const endMs = new Date(exam.end_time).getTime()
+    const startMs = new Date(sub.start_time).getTime()
+    const durMs = Math.max(1, Number(exam.duration) || 60) * 60 * 1000
+    if (Date.now() > Math.min(endMs, startMs + durMs)) {
+      return res.status(403).json({ message: '考试时间已结束' })
+    }
+    let arr = sub.proctor_events
+    if (typeof arr === 'string') {
+      try {
+        arr = JSON.parse(arr)
+      } catch (_) {
+        arr = []
+      }
+    }
+    if (!Array.isArray(arr)) arr = []
+    arr.push({
+      event,
+      source,
+      at: new Date().toISOString(),
+      client_ts: req.body?.clientTs != null ? Number(req.body.clientTs) : null,
+    })
+    if (arr.length > 400) arr = arr.slice(-400)
+    await client.query(`UPDATE exam_submissions SET proctor_events = $1::jsonb WHERE id = $2`, [JSON.stringify(arr), sub.id])
+    return res.json({ data: { ok: true, stored: arr.length } })
+  } catch (error) {
+    return res.status(500).json({ message: '记录失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
   }
@@ -9051,6 +9159,7 @@ const runBootMigrations = async () => {
   await ensureResourceSchema()
   await ensureStudentPracticeSchema()
   await ensureStudentWechatSchema()
+  await ensureExamProctorSchema()
 }
 
 const bootPromise = runBootMigrations()

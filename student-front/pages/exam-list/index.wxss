@@ -78,3 +78,10 @@
   font-size: 24rpx;
   line-height: 1.4;
 }
+
+.exam-card-hint {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
