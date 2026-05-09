@@ -3715,6 +3715,28 @@ function QuestionBankPage() {
   )
 }
 
+/** 服务端 timestamptz/ISO 字符串 → 本机墙钟展示（勿对 ISO 字符串直接 slice，否则会按 UTC 少 8 小时等） */
+function formatExamIsoToLocal(iso: string | undefined | null, withSeconds = false): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).replace('T', ' ').slice(0, withSeconds ? 19 : 16)
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  const base = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  return withSeconds ? `${base}:${pad2(d.getSeconds())}` : base
+}
+
+function formatExamTimeRangeLocal(startIso: string, endIso: string): string {
+  return `${formatExamIsoToLocal(startIso)} ~ ${formatExamIsoToLocal(endIso)}`
+}
+
+function formatExamMonthDaySlash(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).slice(5, 10).replace('-', '/')
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`
+}
+
 function ExamPage() {
   /** datetime-local 需要「本地墙钟」的 YYYY-MM-DDTHH:mm，不能用 toISOString().slice(否则与 UTC 混用会偏 8 小时等） */
   const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -4033,7 +4055,7 @@ function ExamPage() {
     },
     { title: '科目', dataIndex: 'subject_name' },
     { title: '关联班级', render: (_: unknown, row: ExamRow) => row.class_names.join('、') || '-' },
-    { title: '时间', render: (_: unknown, row: ExamRow) => `${row.start_time.slice(0, 16).replace('T', ' ')} ~ ${row.end_time.slice(0, 16).replace('T', ' ')}` },
+    { title: '时间', render: (_: unknown, row: ExamRow) => formatExamTimeRangeLocal(row.start_time, row.end_time) },
     { title: '提交人数/应考人数', render: (_: unknown, row: ExamRow) => `${row.submitted_count}/${row.expected_count}` },
   ]
   const visibleQuestionIds = questionOptions.map((item) => item.id)
@@ -4776,8 +4798,8 @@ function ExamDetailPage() {
       姓名: item.student_name,
       学号: item.student_no,
       提交状态: item.submission_status_text,
-      开始作答时间: item.submission_start_time ? item.submission_start_time.slice(0, 16).replace('T', ' ') : '',
-      提交时间: item.submit_time ? item.submit_time.slice(0, 16).replace('T', ' ') : '',
+      开始作答时间: item.submission_start_time ? formatExamIsoToLocal(item.submission_start_time) : '',
+      提交时间: item.submit_time ? formatExamIsoToLocal(item.submit_time) : '',
       得分: typeof item.total_score === 'number' ? item.total_score : '',
     }))
     const sheet = XLSX.utils.json_to_sheet(rows)
@@ -4824,7 +4846,7 @@ function ExamDetailPage() {
                 </Col>
               </Row>
               <Typography.Paragraph style={{ marginTop: 12, marginBottom: 6 }}>
-                时间：{detail.start_time.slice(0, 16).replace('T', ' ')} ~ {detail.end_time.slice(0, 16).replace('T', ' ')}
+                时间：{formatExamTimeRangeLocal(detail.start_time, detail.end_time)}
               </Typography.Paragraph>
               <Typography.Text type="secondary">考试说明：{detail.description || '无'}</Typography.Text>
             </Card>
@@ -4934,12 +4956,12 @@ function ExamDetailPage() {
                   {
                     title: '开始作答时间',
                     dataIndex: 'submission_start_time',
-                    render: (value?: string) => (value ? value.slice(0, 16).replace('T', ' ') : '-'),
+                    render: (value?: string) => (value ? formatExamIsoToLocal(value) : '-'),
                   },
                   {
                     title: '提交时间',
                     dataIndex: 'submit_time',
-                    render: (value?: string) => (value ? value.slice(0, 16).replace('T', ' ') : '-'),
+                    render: (value?: string) => (value ? formatExamIsoToLocal(value) : '-'),
                   },
                   {
                     title: '得分',
@@ -5513,8 +5535,8 @@ function AnalyticsPage() {
         考试ID: item.exam_id,
         考试名称: item.exam_title,
         科目: item.subject_name,
-        开始时间: item.start_time ? item.start_time.slice(0, 19).replace('T', ' ') : '',
-        结束时间: item.end_time ? item.end_time.slice(0, 19).replace('T', ' ') : '',
+        开始时间: item.start_time ? formatExamIsoToLocal(item.start_time, true) : '',
+        结束时间: item.end_time ? formatExamIsoToLocal(item.end_time, true) : '',
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -5588,8 +5610,8 @@ function AnalyticsPage() {
         考试ID: item.exam_id,
         考试名称: item.exam_title,
         科目: item.subject_name,
-        开始时间: item.start_time ? item.start_time.slice(0, 19).replace('T', ' ') : '',
-        结束时间: item.end_time ? item.end_time.slice(0, 19).replace('T', ' ') : '',
+        开始时间: item.start_time ? formatExamIsoToLocal(item.start_time, true) : '',
+        结束时间: item.end_time ? formatExamIsoToLocal(item.end_time, true) : '',
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -5793,7 +5815,7 @@ function AnalyticsPage() {
                   <LineChart
                     data={trendRows.map((item) => ({
                       ...item,
-                      x_label: `${item.exam_title}-${item.start_time ? item.start_time.slice(5, 10).replace('-', '/') : ''}`,
+                      x_label: `${item.exam_title}-${item.start_time ? formatExamMonthDaySlash(item.start_time) : ''}`,
                     }))}
                   >
                     <XAxis dataKey="x_label" />
@@ -5874,7 +5896,12 @@ function AnalyticsPage() {
           columns={[
             { title: '考试', dataIndex: 'exam_title', width: 180 },
             { title: '科目', dataIndex: 'subject_name', width: 100 },
-            { title: '开始时间', dataIndex: 'start_time', render: (v: string) => (v ? v.slice(0, 16).replace('T', ' ') : '-'), width: 150 },
+            {
+              title: '开始时间',
+              dataIndex: 'start_time',
+              render: (v: string) => (v ? formatExamIsoToLocal(v) : '-'),
+              width: 150,
+            },
             { title: '应考', dataIndex: 'expected_count', width: 70 },
             { title: '实考', dataIndex: 'submitted_count', width: 70 },
             { title: '缺考率', dataIndex: 'absence_rate', render: (v: number) => `${Number(v || 0)}%`, width: 90 },
@@ -6203,7 +6230,7 @@ function AnalyticsPage() {
                   <LineChart
                     data={trendRows.map((item) => ({
                       ...item,
-                      x_label: `${item.exam_title}-${item.start_time ? item.start_time.slice(5, 10).replace('-', '/') : ''}`,
+                      x_label: `${item.exam_title}-${item.start_time ? formatExamMonthDaySlash(item.start_time) : ''}`,
                     }))}
                   >
                     <XAxis dataKey="x_label" />

@@ -1,6 +1,10 @@
 const { request } = require("../../utils/request.js");
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const examLocalCache = require("../../utils/examLocalCache.js");
+
+/** 离开小程序（AppHide）达到此次数则自动交卷 */
+const FORCE_SUBMIT_AFTER_APP_LEAVES = 3;
 
 Page({
   data: {
@@ -30,6 +34,7 @@ Page({
   },
 
   onLoad(options) {
+    if (redirectIfNeedJoinClass()) return;
     const id = Number(options.id || 0);
     if (!Number.isInteger(id) || id <= 0) {
       this.setData({ loadErr: "考试参数无效" });
@@ -184,6 +189,7 @@ Page({
       const n = Number(this.data.examLeaveCount || 0) + 1;
       this.setData({ examLeaveCount: n });
       this.reportProctorEvent("leave", "app");
+      if (n >= FORCE_SUBMIT_AFTER_APP_LEAVES) this.scheduleForceSubmitForLeave();
     };
     this._appShowHandler = () => {
       if (this.data.mode !== "take") return;
@@ -279,6 +285,7 @@ Page({
       const deadlineMs = new Date(d.deadline_iso).getTime();
       wx.setNavigationBarTitle({ title: d.exam.title || "考试" });
       this._examDraftDirty = Boolean(local && local.dirty);
+      this._forceSubmitTriggered = false;
       const hadLocalOverlay = Boolean(local && local.answers && Object.keys(local.answers).length > 0);
       this.setData(
         {
@@ -400,11 +407,13 @@ Page({
   },
 
   onPickSingle(e) {
+    if (this.data.submitting) return;
     const k = String(e.currentTarget.dataset.k || "");
     this.setData({ selectedAnswer: k }, () => this.queueDraftSave());
   },
 
   onToggleMulti(e) {
+    if (this.data.submitting) return;
     const k = String(e.currentTarget.dataset.k || "").toUpperCase();
     const arr = (this.data.multiSelected || []).slice();
     const i = arr.indexOf(k);
@@ -414,15 +423,18 @@ Page({
   },
 
   onPickJudge(e) {
+    if (this.data.submitting) return;
     const v = String(e.currentTarget.dataset.v || "");
     this.setData({ selectedAnswer: v }, () => this.queueDraftSave());
   },
 
   onTextAnswer(e) {
+    if (this.data.submitting) return;
     this.setData({ textAnswer: e.detail.value }, () => this.queueDraftSave());
   },
 
   async onPrev() {
+    if (this.data.submitting) return;
     await this.flushDraftNow();
     const idx = this.data.currentIndex - 1;
     if (idx < 0) return;
@@ -430,6 +442,7 @@ Page({
   },
 
   async onNext() {
+    if (this.data.submitting) return;
     await this.flushDraftNow();
     const idx = this.data.currentIndex + 1;
     if (idx >= this.data.questions.length) return;
@@ -489,6 +502,83 @@ Page({
     return n;
   },
 
+  scheduleForceSubmitForLeave() {
+    if (this._forceSubmitTriggered || this.data.mode !== "take" || this.data.submitting) return;
+    this._forceSubmitTriggered = true;
+    setTimeout(() => {
+      this.forceSubmitForLeave().catch(() => {});
+    }, 200);
+  },
+
+  async forceSubmitForLeave() {
+    if (this.data.mode !== "take") return;
+    if (this.data.submitting) {
+      this._forceSubmitTriggered = false;
+      return;
+    }
+    this.setData({ submitting: true });
+    wx.showLoading({ title: "多次离开，正在自动交卷", mask: true });
+    try {
+      await this.flushDraftNow();
+      const examId = this.data.examId;
+      const merged = this.buildMergedAnswers();
+      const body = {
+        answers: this.data.questions.map((q) => ({
+          question_id: q.question_id,
+          user_answer: merged[String(q.question_id)] ?? "",
+        })),
+      };
+      const res = await request({
+        method: "POST",
+        path: `/api/student/exams/${examId}/submit`,
+        data: body,
+      });
+      const d = (res && res.data) || {};
+      await this.afterSubmitSuccess(examId, d);
+      wx.showToast({ title: "已因多次离开考试自动交卷", icon: "none", duration: 3200 });
+    } catch (e) {
+      wx.hideLoading();
+      this.setData({ submitting: false });
+      this._forceSubmitTriggered = false;
+      wx.showToast({ title: e.message || "自动交卷失败，请联网后重试", icon: "none", duration: 3200 });
+    }
+  },
+
+  async afterSubmitSuccess(examId, d) {
+    wx.hideLoading();
+    examLocalCache.clear(examId);
+    this.stopTakeGuards();
+    this.setData({ submitting: false, currentQuestion: null });
+    if (this._examTimer) clearInterval(this._examTimer);
+    try {
+      const res2 = await request({ path: `/api/student/exams/${examId}/session`, method: "GET" });
+      const d2 = (res2 && res2.data) || {};
+      if (d2.mode === "submitted") {
+        this.applySubmittedFromPayload(d2);
+      } else {
+        this.applySubmittedFromPayload({
+          mode: "submitted",
+          exam: { title: this.data.examTitle },
+          submission: { total_score: d.total_score },
+          review: (d.results || []).map((row) => ({
+            ...row,
+            options: [],
+          })),
+        });
+      }
+    } catch (_) {
+      this.applySubmittedFromPayload({
+        mode: "submitted",
+        exam: { title: this.data.examTitle },
+        submission: { total_score: d.total_score },
+        review: (d.results || []).map((row) => ({
+          ...row,
+          options: [],
+        })),
+      });
+    }
+  },
+
   onSubmitPaper() {
     if (this.data.submitting) return;
     const n = this.countUnanswered();
@@ -530,39 +620,8 @@ Page({
         path: `/api/student/exams/${examId}/submit`,
         data: body,
       });
-      wx.hideLoading();
       const d = (res && res.data) || {};
-      examLocalCache.clear(examId);
-      this.stopTakeGuards();
-      this.setData({ submitting: false, currentQuestion: null });
-      if (this._examTimer) clearInterval(this._examTimer);
-      try {
-        const res2 = await request({ path: `/api/student/exams/${examId}/session`, method: "GET" });
-        const d2 = (res2 && res2.data) || {};
-        if (d2.mode === "submitted") {
-          this.applySubmittedFromPayload(d2);
-        } else {
-          this.applySubmittedFromPayload({
-            mode: "submitted",
-            exam: { title: this.data.examTitle },
-            submission: { total_score: d.total_score },
-            review: (d.results || []).map((row) => ({
-              ...row,
-              options: [],
-            })),
-          });
-        }
-      } catch (_) {
-        this.applySubmittedFromPayload({
-          mode: "submitted",
-          exam: { title: this.data.examTitle },
-          submission: { total_score: d.total_score },
-          review: (d.results || []).map((row) => ({
-            ...row,
-            options: [],
-          })),
-        });
-      }
+      await this.afterSubmitSuccess(examId, d);
     } catch (e) {
       wx.hideLoading();
       this.setData({ submitting: false });

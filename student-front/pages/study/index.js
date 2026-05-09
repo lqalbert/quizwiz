@@ -1,3 +1,5 @@
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+
 Page({
   data: {
     items: [
@@ -12,6 +14,7 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 });
     }
+    if (redirectIfNeedJoinClass()) return;
   },
 
   openItem() {},

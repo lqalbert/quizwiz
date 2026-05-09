@@ -1,4 +1,5 @@
 const { request } = require("../../utils/request.js");
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 
 function pad(n) {
   return n < 10 ? `0${n}` : `${n}`;
@@ -24,6 +25,7 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 });
     }
+    if (redirectIfNeedJoinClass()) return;
     this.loadExams();
   },
 

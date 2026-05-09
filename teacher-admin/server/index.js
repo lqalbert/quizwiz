@@ -326,6 +326,26 @@ const studentAuthRequired = (req, res, next) => {
   }
 }
 
+/** 已登录学生须至少加入一个班级，否则不可使用业务接口（资料 / 入班 / 班级列表除外） */
+const studentClassMembershipRequired = async (req, res, next) => {
+  const studentId = req.studentAuth.studentId
+  try {
+    const r = await pool.query(`SELECT 1 FROM class_members WHERE student_id = $1 LIMIT 1`, [studentId])
+    if (!r.rows[0]) {
+      return res.status(403).json({
+        message: '请先加入至少一个班级后再使用',
+        code: 'NEED_JOIN_CLASS',
+      })
+    }
+    return next()
+  } catch (error) {
+    return res.status(500).json({
+      message: '校验班级失败',
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 const writeOperationLog = async ({
   client,
   operatorId,
@@ -652,17 +672,29 @@ const ensureStudentPracticeSchema = async () => {
     ON student_practice_day (student_id, practice_date DESC)
     `,
   )
-}
-
-const bumpStudentPracticeDay = async (client, studentId, deltaAttempts = 1) => {
-  await client.query(
+  await pool.query(
     `
-    INSERT INTO student_practice_day (student_id, practice_date, attempts)
-    VALUES ($1, (timezone('Asia/Shanghai', now()))::date, $2)
-    ON CONFLICT (student_id, practice_date) DO UPDATE SET
-      attempts = student_practice_day.attempts + EXCLUDED.attempts
+    CREATE TABLE IF NOT EXISTS student_practice_events (
+      id BIGSERIAL PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      is_correct BOOLEAN NOT NULL,
+      source VARCHAR(24) NOT NULL DEFAULT 'practice_check',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
     `,
-    [studentId, deltaAttempts],
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_practice_events_student_time
+    ON student_practice_events (student_id, created_at DESC)
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_practice_events_time_source
+    ON student_practice_events (created_at DESC, source)
+    `,
   )
 }
 
@@ -786,9 +818,10 @@ const examPhaseFromRow = (row) => {
   return 'ended'
 }
 
-const incrementStudentQuestionStats = async (client, studentId, questionId, isCorrect) => {
+const incrementStudentQuestionStats = async (client, studentId, questionId, isCorrect, source = 'practice_check') => {
   const correctInc = isCorrect ? 1 : 0
   const wrongInc = isCorrect ? 0 : 1
+  const src = String(source || 'practice_check').trim() || 'practice_check'
   await client.query(
     `
     INSERT INTO student_question_stats (student_id, question_id, attempts, correct_count, wrong_count, updated_at)
@@ -801,7 +834,13 @@ const incrementStudentQuestionStats = async (client, studentId, questionId, isCo
     `,
     [studentId, questionId, correctInc, wrongInc],
   )
-  await bumpStudentPracticeDay(client, studentId, 1)
+  await client.query(
+    `
+    INSERT INTO student_practice_events (student_id, question_id, is_correct, source)
+    VALUES ($1, $2, $3, $4)
+    `,
+    [studentId, questionId, isCorrect, src],
+  )
 }
 
 const getQuestionSnapshot = async (executor, questionId) => {
@@ -2503,7 +2542,7 @@ app.get('/api/student/my-classes', studentAuthRequired, async (req, res) => {
   }
 })
 
-app.get('/api/student/resources', studentAuthRequired, async (req, res) => {
+app.get('/api/student/resources', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const classId = Number(req.query.class_id)
   if (!Number.isInteger(classId) || classId <= 0) {
     return res.status(400).json({ message: '请传入 class_id 查询参数' })
@@ -2563,7 +2602,7 @@ app.get('/api/student/resources', studentAuthRequired, async (req, res) => {
   }
 })
 
-app.get('/api/student/resources/:id/download', studentAuthRequired, async (req, res) => {
+app.get('/api/student/resources/:id/download', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const resourceId = Number(req.params.id)
   const classId = Number(req.query.class_id)
   if (!Number.isInteger(resourceId) || resourceId <= 0) return res.status(400).json({ message: '资料ID不合法' })
@@ -2630,7 +2669,7 @@ app.get('/api/student/resources/:id/download', studentAuthRequired, async (req, 
   }
 })
 
-app.get('/api/student/subjects', studentAuthRequired, async (_req, res) => {
+app.get('/api/student/subjects', studentAuthRequired, studentClassMembershipRequired, async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, name, sort_order FROM subjects ORDER BY sort_order ASC, id ASC`,
@@ -2642,7 +2681,7 @@ app.get('/api/student/subjects', studentAuthRequired, async (_req, res) => {
 })
 
 /** 某科目下的知识单元（不含占位「未分类」） */
-app.get('/api/student/catalog/knowledge-units', studentAuthRequired, async (req, res) => {
+app.get('/api/student/catalog/knowledge-units', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const subjectId = Number(req.query.subject_id)
   if (!Number.isInteger(subjectId) || subjectId <= 0) {
     return res.status(400).json({ message: 'subject_id 不合法' })
@@ -2664,7 +2703,7 @@ app.get('/api/student/catalog/knowledge-units', studentAuthRequired, async (req,
 })
 
 /** 某知识单元下的知识点（question_tags）及题量 */
-app.get('/api/student/catalog/unit-detail', studentAuthRequired, async (req, res) => {
+app.get('/api/student/catalog/unit-detail', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const unitId = Number(req.query.unit_id)
   if (!Number.isInteger(unitId) || unitId <= 0) {
     return res.status(400).json({ message: 'unit_id 不合法' })
@@ -2733,7 +2772,7 @@ app.get('/api/student/catalog/unit-detail', studentAuthRequired, async (req, res
   }
 })
 
-app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
+app.get('/api/student/practice/tags', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const subjectId = Number(req.query.subject_id)
   if (!Number.isInteger(subjectId) || subjectId <= 0) {
     return res.status(400).json({ message: 'subject_id 不合法' })
@@ -2766,7 +2805,7 @@ app.get('/api/student/practice/tags', studentAuthRequired, async (req, res) => {
 })
 
 /** 统计某科目下题目数量；可选 unit_id（知识单元）、tag_name（知识点，可与 unit_id 联用） */
-app.get('/api/student/practice/count', studentAuthRequired, async (req, res) => {
+app.get('/api/student/practice/count', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const subjectId = Number(req.query.subject_id)
   const unitId = Number(req.query.unit_id)
   const tagNameRaw = req.query.tag_name
@@ -2826,7 +2865,7 @@ app.get('/api/student/practice/count', studentAuthRequired, async (req, res) => 
   }
 })
 
-app.post('/api/student/practice/build', studentAuthRequired, async (req, res) => {
+app.post('/api/student/practice/build', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const tagNames = Array.isArray(req.body?.tag_names) ? req.body.tag_names.map((x) => String(x || '').trim()).filter(Boolean) : []
   const practiceModule = String(req.body?.practice_module || '').trim()
   const sectionTag = String(req.body?.section_tag || '').trim()
@@ -3037,7 +3076,7 @@ app.post('/api/student/practice/build', studentAuthRequired, async (req, res) =>
   }
 })
 
-app.get('/api/student/questions/:id', studentAuthRequired, async (req, res) => {
+app.get('/api/student/questions/:id', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const questionId = Number(req.params.id)
   if (!Number.isInteger(questionId) || questionId <= 0) {
     return res.status(400).json({ message: '题目ID不合法' })
@@ -3096,7 +3135,7 @@ app.get('/api/student/questions/:id', studentAuthRequired, async (req, res) => {
   }
 })
 
-app.post('/api/student/questions/:id/check', studentAuthRequired, async (req, res) => {
+app.post('/api/student/questions/:id/check', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const questionId = Number(req.params.id)
   if (!Number.isInteger(questionId) || questionId <= 0) {
     return res.status(400).json({ message: '题目ID不合法' })
@@ -3126,7 +3165,7 @@ app.post('/api/student/questions/:id/check', studentAuthRequired, async (req, re
   }
 })
 
-app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, res) => {
+app.post('/api/student/practice/exam-submit', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const answers = Array.isArray(req.body?.answers) ? req.body.answers : []
   if (answers.length === 0) {
     return res.status(400).json({ message: 'answers 不能为空' })
@@ -3148,7 +3187,7 @@ app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, r
         continue
       }
       const ok = isStudentAnswerCorrect(Number(qrow.question_type), qrow.answer_text, ua)
-      await incrementStudentQuestionStats(client, req.studentAuth.studentId, qid, ok)
+      await incrementStudentQuestionStats(client, req.studentAuth.studentId, qid, ok, 'practice_exam')
       results.push({
         question_id: qid,
         correct: ok,
@@ -3168,7 +3207,7 @@ app.post('/api/student/practice/exam-submit', studentAuthRequired, async (req, r
 })
 
 /** 学生可见的班级考试列表 */
-app.get('/api/student/exams', studentAuthRequired, async (req, res) => {
+app.get('/api/student/exams', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
     const { rows } = await pool.query(
@@ -3226,7 +3265,7 @@ app.get('/api/student/exams', studentAuthRequired, async (req, res) => {
 })
 
 /** 考试会话：题目（无答案）、草稿、截止时间；必要时自动创建 submission */
-app.get('/api/student/exams/:examId/session', studentAuthRequired, async (req, res) => {
+app.get('/api/student/exams/:examId/session', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const examId = Number(req.params.examId)
   const studentId = req.studentAuth.studentId
   if (!Number.isInteger(examId) || examId <= 0) {
@@ -3445,7 +3484,7 @@ app.get('/api/student/exams/:examId/session', studentAuthRequired, async (req, r
 })
 
 /** 保存作答草稿（考试中） */
-app.put('/api/student/exams/:examId/answers', studentAuthRequired, async (req, res) => {
+app.put('/api/student/exams/:examId/answers', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const examId = Number(req.params.examId)
   const studentId = req.studentAuth.studentId
   if (!Number.isInteger(examId) || examId <= 0) {
@@ -3515,7 +3554,7 @@ app.put('/api/student/exams/:examId/answers', studentAuthRequired, async (req, r
 })
 
 /** 考试中防作弊事件上报（切离小程序、离开考试页等），仅 status=进行中 可写 */
-app.post('/api/student/exams/:examId/proctor-events', studentAuthRequired, async (req, res) => {
+app.post('/api/student/exams/:examId/proctor-events', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const examId = Number(req.params.examId)
   const studentId = req.studentAuth.studentId
   if (!Number.isInteger(examId) || examId <= 0) {
@@ -3584,7 +3623,7 @@ app.post('/api/student/exams/:examId/proctor-events', studentAuthRequired, async
 })
 
 /** 交卷（客观题自动判分） */
-app.post('/api/student/exams/:examId/submit', studentAuthRequired, async (req, res) => {
+app.post('/api/student/exams/:examId/submit', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const examId = Number(req.params.examId)
   const studentId = req.studentAuth.studentId
   if (!Number.isInteger(examId) || examId <= 0) {
@@ -3664,7 +3703,7 @@ app.post('/api/student/exams/:examId/submit', studentAuthRequired, async (req, r
         `,
         [sub.id, qid, packExamStudentAnswer(ua), sc, ok],
       )
-      await incrementStudentQuestionStats(client, studentId, qid, ok)
+      await incrementStudentQuestionStats(client, studentId, qid, ok, 'class_exam')
       results.push({
         question_id: qid,
         correct: ok,
@@ -3702,7 +3741,7 @@ app.post('/api/student/exams/:examId/submit', studentAuthRequired, async (req, r
   }
 })
 
-app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
+app.get('/api/student/stats/wrong-book', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
@@ -3786,7 +3825,7 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
 })
 
 /** 将题目移出错题本：wrong_count 置 0（仍保留 attempts 等已做记录） */
-app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req, res) => {
+app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const body = req.body || {}
   const rawIds = Array.isArray(body.question_ids) ? body.question_ids : []
   const questionIds = []
@@ -3820,7 +3859,7 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req
   }
 })
 
-app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, res) => {
+app.get('/api/student/stats/done-questions', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
@@ -3903,45 +3942,79 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
   }
 })
 
-const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`)
-
-const isoPrevDay = (isoDate) => {
-  const [y, m, d] = String(isoDate || '').split('-').map(Number)
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return isoDate
-  const dt = new Date(y, m - 1, d - 1)
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`
+const loadStudentClassPeerIds = async (executor, studentId) => {
+  const r = await executor.query(
+    `
+    SELECT DISTINCT cm2.student_id AS sid
+    FROM class_members cm1
+    INNER JOIN class_members cm2 ON cm2.class_id = cm1.class_id
+    WHERE cm1.student_id = $1
+    `,
+    [studentId],
+  )
+  return r.rows.map((x) => Number(x.sid)).filter((n) => Number.isInteger(n) && n > 0)
 }
 
-const computePracticeStreakDays = (activeIsoDates, todayIso) => {
-  const set = new Set((activeIsoDates || []).map((x) => String(x)))
-  if (set.size === 0) return 0
-  let anchor = String(todayIso || '')
-  if (!set.has(anchor)) anchor = isoPrevDay(anchor)
-  if (!set.has(anchor)) return 0
-  let streak = 0
-  let cur = anchor
-  while (set.has(cur)) {
-    streak += 1
-    cur = isoPrevDay(cur)
+const mergePeerPracticeRows = (peerIds, rows) => {
+  const byId = new Map()
+  for (const row of rows || []) {
+    byId.set(Number(row.student_id), row)
   }
-  return streak
+  return peerIds.map((id) => ({
+    student_id: id,
+    practice_questions: Number(byId.get(id)?.practice_questions || 0),
+    wrong_count: Number(byId.get(id)?.wrong_count || 0),
+    total_attempts: Number(byId.get(id)?.total_attempts || 0),
+  }))
 }
 
-const chartWithPct = (rows) => {
-  const nums = (rows || []).map((r) => Number(r.attempts || 0))
-  const max = Math.max(1, ...nums)
-  return (rows || []).map((r) => {
-    const attempts = Number(r.attempts || 0)
-    return {
-      label: String(r.label || ''),
-      attempts,
-      pct: Math.round((100 * attempts) / max),
-    }
+/** 班级内排名：正确率优先，其次练题数（去重题目数），再比错题作答次数少者靠前 */
+const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
+  const mine = merged.find((x) => x.student_id === studentId) || {
+    student_id: studentId,
+    practice_questions: 0,
+    wrong_count: 0,
+    total_attempts: 0,
+  }
+  const total = mine.total_attempts
+  const wrong = mine.wrong_count
+  const correct = Math.max(0, total - wrong)
+  const accuracy_pct = total > 0 ? Math.round((100 * correct) / total) : 0
+  const practice_questions = mine.practice_questions
+
+  const accOf = (r) => {
+    const t = r.total_attempts
+    if (t <= 0) return -1
+    return Math.round((100 * (t - r.wrong_count)) / t)
+  }
+  const active = merged.filter((r) => r.total_attempts > 0)
+  active.sort((a, b) => {
+    const da = accOf(b) - accOf(a)
+    if (da !== 0) return da
+    if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
+    return a.wrong_count - b.wrong_count
   })
+  const idx = active.findIndex((r) => r.student_id === studentId)
+  const inClass = Number(inClassPeerCount || 0) > 0
+  const class_rank = inClass && idx >= 0 ? idx + 1 : null
+  const rank_in_denominator = inClass ? active.length : 0
+  const class_peers = inClass ? Number(inClassPeerCount) : 0
+  return {
+    practice_questions,
+    wrong_count: wrong,
+    accuracy_pct,
+    class_rank,
+    rank_in_denominator,
+    class_peers,
+    in_class: inClass,
+    had_practice: total > 0,
+  }
 }
 
-/** 首页：刷题/考试相关汇总（按上海时区日聚合，自接入本接口后累计） */
-app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res) => {
+const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+
+/** 首页：刷题/考试相关汇总 */
+app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
     const totalsR = await pool.query(
@@ -3964,105 +4037,97 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
     const denom = correct + wrong
     const accuracy_pct = denom > 0 ? Math.round((100 * correct) / denom) : 0
 
-    const todayR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
-    const todayIso = String(todayR.rows[0]?.d || '')
+    const classPeerIds = await loadStudentClassPeerIds(pool, studentId)
+    const inClassPeerCount = classPeerIds.length
+    const peerIdsForQuery = inClassPeerCount > 0 ? classPeerIds : [studentId]
 
-    const todayAttemptsR = await pool.query(
-      `SELECT COALESCE(attempts, 0)::int AS a FROM student_practice_day WHERE student_id = $1 AND practice_date = $2::date LIMIT 1`,
-      [studentId, todayIso],
+    const eventsSql = (datePredicateSql) => `
+      SELECT e.student_id,
+        COUNT(DISTINCT e.question_id)::int AS practice_questions,
+        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
+        COUNT(*)::int AS total_attempts
+      FROM student_practice_events e
+      WHERE e.source IN ${PRACTICE_EVENT_SOURCES}
+        AND e.student_id = ANY($1::bigint[])
+        AND ${datePredicateSql}
+      GROUP BY e.student_id
+    `
+
+    const todayEvR = await pool.query(
+      eventsSql(`(e.created_at AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date`),
+      [peerIdsForQuery],
     )
-    const today_attempts = Number(todayAttemptsR.rows[0]?.a || 0)
+    const weekEvR = await pool.query(
+      eventsSql(
+        `date_trunc('week', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('week', (now() AT TIME ZONE 'Asia/Shanghai'))`,
+      ),
+      [peerIdsForQuery],
+    )
+    const monthEvR = await pool.query(
+      eventsSql(
+        `date_trunc('month', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('month', (now() AT TIME ZONE 'Asia/Shanghai'))`,
+      ),
+      [peerIdsForQuery],
+    )
 
-    const activeDaysR = await pool.query(
+    const allEvR = await pool.query(
       `
-      SELECT practice_date::text AS d
-      FROM student_practice_day
-      WHERE student_id = $1 AND attempts > 0
-      ORDER BY practice_date DESC
-      LIMIT 400
+      SELECT e.student_id,
+        COUNT(DISTINCT e.question_id)::int AS practice_questions,
+        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_count,
+        COUNT(*)::int AS total_attempts
+      FROM student_practice_events e
+      WHERE e.source IN ${PRACTICE_EVENT_SOURCES}
+        AND e.student_id = ANY($1::bigint[])
+      GROUP BY e.student_id
       `,
+      [peerIdsForQuery],
+    )
+
+    const evSelfR = await pool.query(
+      `SELECT 1 FROM student_practice_events WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
       [studentId],
     )
-    const streak_days = computePracticeStreakDays(
-      activeDaysR.rows.map((r) => r.d),
-      todayIso,
-    )
-
-    const daySeriesR = await pool.query(
-      `
-      WITH days AS (
-        SELECT generate_series(
-          (timezone('Asia/Shanghai', now()))::date - INTERVAL '13 days',
-          (timezone('Asia/Shanghai', now()))::date,
-          INTERVAL '1 day'
-        )::date AS d
+    const hasPracticeEvents = Boolean(evSelfR.rows[0])
+    let allMergedRows = allEvR.rows
+    if (!hasPracticeEvents) {
+      const allStatsR = await pool.query(
+        `
+        SELECT student_id,
+          COUNT(*)::int AS practice_questions,
+          COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
+          COALESCE(SUM(correct_count + wrong_count), 0)::int AS total_attempts
+        FROM student_question_stats
+        WHERE student_id = ANY($1::bigint[])
+        GROUP BY student_id
+        `,
+        [peerIdsForQuery],
       )
-      SELECT
-        days.d::text AS d,
-        COALESCE(p.attempts, 0)::int AS attempts
-      FROM days
-      LEFT JOIN student_practice_day p
-        ON p.student_id = $1 AND p.practice_date = days.d
-      ORDER BY days.d ASC
-      `,
-      [studentId],
+      allMergedRows = allStatsR.rows
+    }
+
+    const today = calcPracticeRankPayload(
+      studentId,
+      mergePeerPracticeRows(peerIdsForQuery, todayEvR.rows),
+      inClassPeerCount,
     )
-    const chart_day = chartWithPct(
-      daySeriesR.rows.map((r) => {
-        const [yy, mm, dd] = String(r.d).split('-')
-        return { label: `${Number(mm)}/${Number(dd)}`, attempts: r.attempts }
-      }),
+    const week = calcPracticeRankPayload(
+      studentId,
+      mergePeerPracticeRows(peerIdsForQuery, weekEvR.rows),
+      inClassPeerCount,
+    )
+    const month = calcPracticeRankPayload(
+      studentId,
+      mergePeerPracticeRows(peerIdsForQuery, monthEvR.rows),
+      inClassPeerCount,
+    )
+    const all = calcPracticeRankPayload(
+      studentId,
+      mergePeerPracticeRows(peerIdsForQuery, allMergedRows),
+      inClassPeerCount,
     )
 
-    const weekSeriesR = await pool.query(
-      `
-      SELECT
-        (date_trunc('week', practice_date::timestamp))::date::text AS week_start,
-        SUM(attempts)::int AS attempts
-      FROM student_practice_day
-      WHERE student_id = $1
-        AND practice_date >= (timezone('Asia/Shanghai', now()))::date - INTERVAL '55 days'
-      GROUP BY date_trunc('week', practice_date::timestamp)
-      ORDER BY week_start ASC
-      `,
-      [studentId],
-    )
-    const chart_week = chartWithPct(
-      weekSeriesR.rows.map((r) => {
-        const [y, m, d] = String(r.week_start).split('-').map(Number)
-        return { label: `${m}/${d}周`, attempts: r.attempts }
-      }),
-    )
-
-    const monthSeriesR = await pool.query(
-      `
-      SELECT
-        to_char(date_trunc('month', practice_date::timestamp), 'YYYY-MM') AS ym,
-        SUM(attempts)::int AS attempts
-      FROM student_practice_day
-      WHERE student_id = $1
-        AND practice_date >= (timezone('Asia/Shanghai', now()))::date - INTERVAL '400 days'
-      GROUP BY date_trunc('month', practice_date::timestamp)
-      ORDER BY ym ASC
-      `,
-      [studentId],
-    )
-    const chart_month = chartWithPct(
-      monthSeriesR.rows.map((r) => {
-        const parts = String(r.ym || '').split('-')
-        const mo = parts[1] ? Number(parts[1]) : 0
-        return { label: mo ? `${mo}月` : String(r.ym), attempts: r.attempts }
-      }),
-    )
-
-    const table_week = weekSeriesR.rows.slice(-8).map((r) => ({
-      period: `${String(r.week_start).replace(/-/g, '/')}`,
-      attempts: Number(r.attempts || 0),
-    }))
-    const table_month = monthSeriesR.rows.slice(-6).map((r) => ({
-      period: String(r.ym),
-      attempts: Number(r.attempts || 0),
-    }))
+    const practice_periods = { today, week, month, all }
 
     return res.json({
       data: {
@@ -4074,14 +4139,9 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
           wrong_questions: Number(t.wrong_questions || 0),
           accuracy_pct,
         },
-        today_attempts,
-        streak_days,
-        chart_day,
-        chart_week,
-        chart_month,
-        table_week,
-        table_month,
-        timezone_note: '日/周/月统计按 Asia/Shanghai 自然日聚合；历史数据自本功能上线后开始累计。',
+        practice_periods,
+        timezone_note:
+          '刷题 Tab 按 Asia/Shanghai；今日/周/月仅统计日常判题与练习模式（事件表，不含班级正式考试）。若尚无事件记录，「全部」会回退为题库累计汇总以便看到历史练习；有事件后以事件为准。',
       },
     })
   } catch (error) {
@@ -4860,6 +4920,12 @@ app.put('/api/exams/:id', authRequired, async (req, res) => {
     if (questionCheck.rowCount !== uniqueQuestionIds.length) {
       await client.query('ROLLBACK')
       return res.status(400).json({ message: '所选题目中存在无效题目或跨科目题目' })
+    }
+
+    const dupTitle = await client.query(`SELECT id FROM exams WHERE trim(title) = $1 AND id <> $2 LIMIT 1`, [title, examId])
+    if (dupTitle.rowCount > 0) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '考试名称已存在，请更换名称' })
     }
 
     await client.query(
@@ -6304,6 +6370,12 @@ app.post('/api/exams', authRequired, async (req, res) => {
     if (questionCheck.rowCount !== uniqueQuestionIds.length) {
       await client.query('ROLLBACK')
       return res.status(400).json({ message: '所选题目中存在无效题目或跨科目题目' })
+    }
+
+    const dupTitle = await client.query(`SELECT id FROM exams WHERE trim(title) = $1 LIMIT 1`, [title])
+    if (dupTitle.rowCount > 0) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '考试名称已存在，请更换名称' })
     }
 
     const examResult = await client.query(

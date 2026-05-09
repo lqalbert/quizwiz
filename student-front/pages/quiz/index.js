@@ -1,4 +1,5 @@
 const { request } = require("../../utils/request.js");
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
@@ -62,6 +63,7 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
     }
+    if (redirectIfNeedJoinClass()) return;
     const token = wx.getStorageSync("student_token");
     if (!token) {
       wx.reLaunch({ url: "/pages/login/index" });

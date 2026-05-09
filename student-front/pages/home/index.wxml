@@ -4,240 +4,131 @@
     <view class="page-hero-body">
       <text class="page-hero-date">{{dateText}}</text>
       <text class="page-hero-title">今天练几题？</text>
-      <text class="page-hero-lead muted">小步坚持，积少成多</text>
+      <text class="page-hero-lead muted">考试看待办与得分，刷题看今日与巩固</text>
     </view>
   </view>
 
-  <block wx:if="{{loggedIn && examTasks.length}}">
-    <view class="home-exam-banner ios-card">
-      <view class="home-exam-banner-head">
-        <text class="home-exam-banner-title">考试任务</text>
-        <text class="home-exam-banner-sub muted">进行中 · 请及时作答并交卷</text>
-      </view>
-      <view
-        wx:for="{{examTasks}}"
-        wx:key="id"
-        class="home-exam-row"
-        bindtap="goExamTake"
-        data-id="{{item.id}}"
-      >
-        <view class="home-exam-row-main">
-          <text class="home-exam-row-title">{{item.title}}</text>
-          <text class="home-exam-row-meta muted">{{item.subject_name}} · {{item.submission_label}}</text>
-        </view>
-        <text class="home-exam-row-go">去考试</text>
-      </view>
-      <view class="home-exam-footer link-tint" bindtap="goExamList">全部考试</view>
-    </view>
-  </block>
-
-  <block wx:if="{{loggedIn && examOverview}}">
-    <text class="section-label">我的考试</text>
-    <view wx:if="{{examOverview.total === 0}}" class="ios-card home-exam-empty muted">
-      <text>近 120 天内暂无分配给你的班级考试</text>
-    </view>
-    <block wx:else>
-      <view class="home-stat-grid home-exam-stat-grid">
-        <view class="home-stat-tile home-stat-tile--exam">
-          <text class="home-stat-value">{{examOverview.total}}</text>
-          <text class="home-stat-label muted">参与场次</text>
-        </view>
-        <view class="home-stat-tile home-stat-tile--exam">
-          <text class="home-stat-value">{{examOverview.submitted}}</text>
-          <text class="home-stat-label muted">已交卷</text>
-        </view>
-        <view class="home-stat-tile home-stat-tile--exam">
-          <text class="home-stat-value">{{examOverview.todo_count}}</text>
-          <text class="home-stat-label muted">待参加</text>
-        </view>
-        <view class="home-stat-tile home-stat-tile--exam">
-          <text class="home-stat-value">{{examOverview.avg_score_display}}</text>
-          <text class="home-stat-label muted">场均得分</text>
-        </view>
-      </view>
-      <view class="ios-card home-chart-card home-exam-chart">
-        <text class="home-exam-chart-title muted">状态分布（场）</text>
-        <view wx:if="{{!examOverview.bar_rows.length}}" class="home-empty muted">暂无数据</view>
-        <block wx:else>
-          <view wx:for="{{examOverview.bar_rows}}" wx:key="label" class="home-bar-row">
-            <text class="home-bar-label">{{item.label}}</text>
-            <view class="home-bar-track">
-              <view class="home-bar-fill home-bar-fill--exam" style="width: {{item.pct}}%;"></view>
-            </view>
-            <text class="home-bar-val">{{item.attempts}}</text>
-          </view>
-        </block>
-        <text class="home-exam-scope muted">统计范围：最近 120 天内可见考试</text>
-      </view>
-      <view wx:if="{{examOverview.recent.length}}" class="ios-card home-exam-recent">
-        <text class="home-exam-recent-title muted">最近交卷</text>
-        <view
-          wx:for="{{examOverview.recent}}"
-          wx:key="id"
-          class="home-exam-recent-row"
-          bindtap="goExamTake"
-          data-id="{{item.id}}"
-        >
-          <text class="home-exam-recent-name">{{item.title}}</text>
-          <text class="home-exam-recent-score">{{item.score_text}}</text>
-        </view>
-      </view>
-      <view class="home-exam-all link-tint" bindtap="goExamList">查看全部考试</view>
-    </block>
-  </block>
-
   <block wx:if="{{!loggedIn}}">
     <view class="ios-card home-guest-stats">
-      <text class="home-guest-title muted">登录后查看做题统计</text>
-      <text class="home-guest-desc muted">支持按日 / 周 / 月查看练习次数、正确率与连续打卡</text>
+      <text class="home-guest-title muted">登录后查看数据</text>
+      <text class="home-guest-desc muted">考试进度、刷题统计与错题本一站式查看</text>
       <view class="btn-primary home-guest-btn" bindtap="goLogin">去登录</view>
     </view>
   </block>
 
   <block wx:else>
-    <view wx:if="{{statsLoading}}" class="home-loading muted">加载数据中…</view>
+    <!-- 考试 -->
+    <view class="home-dash-card home-dash-card--exam ios-card">
+      <view class="home-dash-head">
+        <text class="home-dash-title">考试</text>
+        <text class="home-dash-link link-tint" bindtap="goExamList">全部</text>
+      </view>
+      <text class="home-dash-sub muted">班级考试 · 近 120 天 · 点区块进列表</text>
+
+      <block wx:if="{{examListLoading}}">
+        <view class="home-dash-empty muted">考试信息加载中…</view>
+      </block>
+
+      <block wx:elif="{{examListError}}">
+        <view class="home-dash-empty muted">{{examListError}}</view>
+        <view class="home-dash-retry link-tint" bindtap="loadStudentExams">点击重试</view>
+      </block>
+
+      <block wx:else>
+        <block wx:if="{{examTasks.length}}">
+          <view class="home-dash-pill">
+            <text class="home-dash-pill-t">待完成</text>
+            <text class="home-dash-pill-n">{{examTasks.length}}</text>
+            <text class="home-dash-pill-h muted">场进行中</text>
+          </view>
+          <block wx:for="{{examTasks}}" wx:key="id">
+            <view wx:if="{{index < 2}}" class="home-dash-task" bindtap="goExamTake" data-id="{{item.id}}">
+              <view class="home-dash-task-main">
+                <text class="home-dash-task-title">{{item.title}}</text>
+                <text class="home-dash-task-meta muted">{{item.subject_name}} · {{item.submission_label}}</text>
+              </view>
+              <text class="home-dash-task-go">进入</text>
+            </view>
+          </block>
+          <view wx:if="{{examTasks.length > 2}}" class="home-dash-more link-tint" bindtap="goExamList">还有 {{examTasks.length - 2}} 场待考…</view>
+        </block>
+
+        <block wx:if="{{examOverview}}">
+          <view wx:if="{{examOverview.total === 0}}" class="home-dash-empty muted">暂无分配给你的班级考试</view>
+          <block wx:else>
+            <view class="home-dash-spotlight home-dash-spotlight--exam" bindtap="goExamList">
+              <view class="home-dash-spot-cell">
+                <text class="home-dash-spot-eyebrow home-dash-spot-eyebrow--exam">优先处理</text>
+                <text class="home-dash-spot-val">{{examOverview.todo_count}}</text>
+                <text class="home-dash-spot-lab">待参加</text>
+                <text class="home-dash-spot-hint muted">含进行中与未开始</text>
+              </view>
+              <view class="home-dash-spot-divider"></view>
+              <view class="home-dash-spot-cell">
+                <text class="home-dash-spot-eyebrow home-dash-spot-eyebrow--exam">已完成</text>
+                <text class="home-dash-spot-val">{{examOverview.submitted}}</text>
+                <text class="home-dash-spot-lab">已交卷</text>
+              </view>
+            </view>
+            <view class="home-dash-score-row" bindtap="goExamList">
+              <text class="home-dash-score-label">场均得分（已出分）</text>
+              <text class="home-dash-score-val">{{examOverview.avg_score_display}}</text>
+            </view>
+          </block>
+        </block>
+      </block>
+    </view>
+
+    <!-- 刷题 -->
+    <view wx:if="{{statsLoading}}" class="home-loading muted">刷题数据加载中…</view>
     <view wx:elif="{{statsError}}" class="ios-card home-err">
       <text class="muted">{{statsError}}</text>
       <view class="home-retry link-tint" bindtap="loadHomeSummary">点击重试</view>
     </view>
-
-    <block wx:else>
-      <view class="home-stat-grid" wx:if="{{totals}}">
-        <view class="home-stat-tile home-stat-tile--link" bindtap="goRecordDone">
-          <view class="home-ico-wrap">
-            <view class="home-ico home-ico--stat">
-              <view class="home-g-sheet">
-                <view class="home-g-sheet-line"></view>
-                <view class="home-g-sheet-line"></view>
-                <view class="home-g-sheet-line home-g-sheet-line--short"></view>
-                <view class="home-g-sheet-fold"></view>
-              </view>
-            </view>
-          </view>
-          <text class="home-stat-value">{{totals.questions_touched}}</text>
-          <text class="home-stat-label muted">已练题目</text>
-        </view>
-        <view class="home-stat-tile">
-          <view class="home-ico-wrap">
-            <view class="home-ico home-ico--stat">
-              <view class="home-g-dots">
-                <view class="home-g-dot"></view>
-                <view class="home-g-dot"></view>
-                <view class="home-g-dot"></view>
-                <view class="home-g-dot"></view>
-                <view class="home-g-dot"></view>
-                <view class="home-g-dot"></view>
-              </view>
-            </view>
-          </view>
-          <text class="home-stat-value">{{totals.attempts}}</text>
-          <text class="home-stat-label muted">做题次数</text>
-        </view>
-        <view class="home-stat-tile">
-          <view class="home-ico-wrap">
-            <view class="home-ico home-ico--stat">
-              <view class="home-g-mark">
-                <view class="home-g-ring"></view>
-                <view class="home-g-symbol">
-                  <view class="home-g-chk-icon"></view>
-                </view>
-              </view>
-            </view>
-          </view>
-          <text class="home-stat-value">{{totals.accuracy_pct}}%</text>
-          <text class="home-stat-label muted">正确率</text>
-        </view>
-        <view class="home-stat-tile home-stat-tile--link" bindtap="goRecordWrong">
-          <view class="home-ico-wrap">
-            <view class="home-ico home-ico--stat">
-              <view class="home-g-mark">
-                <view class="home-g-ring"></view>
-                <view class="home-g-symbol home-g-symbol--x">
-                  <view class="home-g-x home-g-x--a"></view>
-                  <view class="home-g-x home-g-x--b"></view>
-                </view>
-              </view>
-            </view>
-          </view>
-          <text class="home-stat-value">{{totals.wrong_questions}}</text>
-          <text class="home-stat-label muted">错题数</text>
-        </view>
+    <view wx:else class="home-dash-card home-dash-card--quiz ios-card">
+      <view class="home-dash-head">
+        <text class="home-dash-title">刷题</text>
+        <text class="home-dash-link link-tint" bindtap="goQuiz">去刷题</text>
       </view>
+      <text class="home-dash-sub muted">不含班级正式考试；今日/周/月按判题记录统计（新刷题才有数）；「全部」含历史汇总。排名：正确率→练题数→错题次数</text>
 
-      <view class="ios-card home-summary-row" wx:if="{{totals}}">
-        <view class="home-sum-item">
-          <text class="home-sum-num">{{today_attempts}}</text>
-          <text class="home-sum-cap muted">今日题次</text>
-        </view>
-        <view class="home-sum-div"></view>
-        <view class="home-sum-item">
-          <text class="home-sum-num">{{streak_days}}</text>
-          <text class="home-sum-cap muted">连续打卡(天)</text>
-        </view>
-      </view>
-
-      <block wx:if="{{totals}}">
-        <text class="section-label">练习趋势</text>
-        <view class="home-period-tabs">
+      <view wx:if="{{!practice_periods}}" class="home-dash-empty muted">暂无刷题统计</view>
+      <block wx:else>
+        <view class="home-practice-tabs">
           <view
-            class="home-period-tab {{period === 'day' ? 'home-period-tab-on' : ''}}"
-            bindtap="setPeriod"
-            data-p="day"
-          >日</view>
-          <view
-            class="home-period-tab {{period === 'week' ? 'home-period-tab-on' : ''}}"
-            bindtap="setPeriod"
-            data-p="week"
-          >周</view>
-          <view
-            class="home-period-tab {{period === 'month' ? 'home-period-tab-on' : ''}}"
-            bindtap="setPeriod"
-            data-p="month"
-          >月</view>
-        </view>
-
-        <view class="ios-card home-chart-card">
-          <view wx:if="{{!chartRows.length}}" class="home-empty muted">暂无周期内数据，去刷题页做几题后出现趋势</view>
-          <block wx:else>
-            <view wx:for="{{chartRows}}" wx:key="label" class="home-bar-row">
-              <text class="home-bar-label">{{item.label}}</text>
-              <view class="home-bar-track">
-                <view class="home-bar-fill" style="width: {{item.pct}}%;"></view>
-              </view>
-              <text class="home-bar-val">{{item.attempts}}</text>
-            </view>
-          </block>
-        </view>
-
-        <text class="section-label">数据明细</text>
-        <view class="ios-card home-table-card">
-        <view class="home-table-caption muted">最近自然周（题次）</view>
-        <view class="home-table">
-          <view class="home-table-head">
-            <text class="home-th">周期</text>
-            <text class="home-th home-th-num">题次</text>
+            wx:for="{{practiceTabList}}"
+            wx:key="key"
+            class="home-practice-tab {{practiceTab === item.key ? 'home-practice-tab--on' : ''}}"
+            data-key="{{item.key}}"
+            bindtap="onPracticeTab"
+          >
+            {{item.label}}
           </view>
-          <view wx:for="{{table_week}}" wx:key="period" class="home-table-row">
-            <text class="home-td">{{item.period}}</text>
-            <text class="home-td home-td-num">{{item.attempts}}</text>
-          </view>
-          <view wx:if="{{!table_week.length}}" class="home-table-empty muted">暂无</view>
         </view>
-        <view class="home-table-caption muted home-table-gap">最近自然月（题次）</view>
-        <view class="home-table">
-          <view class="home-table-head">
-            <text class="home-th">月份</text>
-            <text class="home-th home-th-num">题次</text>
+        <view class="home-practice-grid">
+          <view class="home-practice-metric" bindtap="goRecordDone">
+            <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
+            <text class="home-practice-metric-lab">练题数</text>
+            <text class="home-practice-metric-h muted">去重题目数</text>
           </view>
-          <view wx:for="{{table_month}}" wx:key="period" class="home-table-row">
-            <text class="home-td">{{item.period}}</text>
-            <text class="home-td home-td-num">{{item.attempts}}</text>
+          <view class="home-practice-metric home-practice-metric--warn" bindtap="goRecordWrong">
+            <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
+            <text class="home-practice-metric-lab">错题数</text>
+            <text class="home-practice-metric-h muted">作答错误次数</text>
           </view>
-          <view wx:if="{{!table_month.length}}" class="home-table-empty muted">暂无</view>
+          <view class="home-practice-metric" bindtap="goRecordDone">
+            <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>
+            <text class="home-practice-metric-lab">正确率</text>
+            <text class="home-practice-metric-h muted">本周期内</text>
+          </view>
+          <view class="home-practice-metric home-practice-metric--rank">
+            <text class="home-practice-metric-val home-practice-metric-val--rank">{{practicePanel.rank_main}}</text>
+            <text class="home-practice-metric-lab">班级排名</text>
+            <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>
+          </view>
         </view>
-        <text wx:if="{{timezone_note}}" class="home-footnote muted">{{timezone_note}}</text>
-        </view>
+        <view class="home-dash-foot muted" bindtap="goQuiz">点指标或此处进入刷题 · 做题记录与错题本可点对应项</view>
       </block>
-    </block>
+    </view>
   </block>
 </view>

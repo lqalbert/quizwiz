@@ -15,7 +15,7 @@
         <view class="profile-text">
           <text class="name">{{displayName}}</text>
           <text class="subline muted" wx:if="{{studentNo}}">学号 {{studentNo}}</text>
-          <text class="subline muted" wx:if="{{needJoinClass}}">尚未加入班级 · 请在「加入班级」中填写邀请码</text>
+          <text class="subline muted" wx:if="{{needJoinClass}}">须加入班级后方可使用刷题、考试与做题记录</text>
         </view>
       </view>
     </view>

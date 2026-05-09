@@ -11,7 +11,7 @@
   <block wx:elif="{{step === 'login'}}">
     <view class="hero-block">
       <text class="hero-title">登录</text>
-      <text class="hero-lead muted">使用微信登录；首次需用班级邀请码加入班级</text>
+      <text class="hero-lead muted">使用微信登录；登录后须加入班级方可使用刷题与考试</text>
     </view>
 
     <text class="section-label">资料（可选）</text>
@@ -29,7 +29,7 @@
   <block wx:else>
     <view class="hero-block">
       <text class="hero-title">加入班级</text>
-      <text class="hero-lead muted">向老师索取邀请码，填写后提交</text>
+      <text class="hero-lead muted">向老师索取邀请码；须成功入班后才能使用其余功能</text>
     </view>
 
     <text class="section-label">邀请码</text>
@@ -40,6 +40,5 @@
     </view>
 
     <view class="btn-primary join-btn" bindtap="onJoinClass">加入班级</view>
-    <text class="link-row muted-link" bindtap="onSkipJoin">稍后再说（仍可浏览，部分功能需入班）</text>
   </block>
 </view>

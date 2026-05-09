@@ -1,4 +1,5 @@
 const { request } = require("../../utils/request.js");
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
@@ -35,6 +36,7 @@ Page({
 
   onLoad(options) {
     if (!ensureToken()) return;
+    if (redirectIfNeedJoinClass()) return;
     const restore = options && String(options.restore || "") === "1";
     if (restore) {
       let r = null;
@@ -72,6 +74,7 @@ Page({
 
   onShow() {
     if (!ensureToken()) return;
+    if (redirectIfNeedJoinClass()) return;
     const subjects = this.data.subjects || [];
     if (this.data.step === "catalog" && subjects.length === 0) {
       this.bootstrap();

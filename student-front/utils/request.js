@@ -22,9 +22,17 @@ function request({ path, method = "GET", data, auth = true }) {
           resolve(res.data);
           return;
         }
-        const msg = (res.data && (res.data.message || res.data.detail)) || `请求失败(${res.statusCode})`;
+        const body = res.data && typeof res.data === "object" ? res.data : {};
+        if (res.statusCode === 403 && body.code === "NEED_JOIN_CLASS") {
+          try {
+            wx.setStorageSync("need_join_class", "1");
+            wx.reLaunch({ url: "/pages/login/index" });
+          } catch (_) {}
+        }
+        const msg = (body.message || body.detail) || `请求失败(${res.statusCode})`;
         const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
         err.statusCode = res.statusCode;
+        err.apiCode = body.code;
         reject(err);
       },
       fail(err) {

@@ -6,7 +6,7 @@
     <text class="exam-topbar-timer {{timeWarn ? 'exam-topbar-timer--warn' : ''}}">{{timerLabel}}</text>
   </view>
   <view wx:if="{{examNetHint}}" class="exam-banner exam-banner--warn">{{examNetHint}}</view>
-  <view wx:if="{{examLeaveCount > 0}}" class="exam-banner exam-banner--muted">已记录离开小程序 {{examLeaveCount}} 次，请诚信作答</view>
+  <view wx:if="{{examLeaveCount > 0}}" class="exam-banner exam-banner--muted">已记录离开小程序 {{examLeaveCount}} 次；离开 3 次将自动交卷，请诚信作答</view>
   <view class="progress-track">
     <view class="progress-fill" style="width: {{progressPct}}%;"></view>
   </view>
@@ -61,11 +61,11 @@
       <view class="ios-card exam-nav-card">
         <view class="exam-nav-row">
           <view
-            class="exam-nav-pill {{currentIndex <= 0 ? 'exam-nav-pill--disabled' : ''}}"
+            class="exam-nav-pill {{currentIndex <= 0 || submitting ? 'exam-nav-pill--disabled' : ''}}"
             bindtap="onPrev"
           >上一题</view>
           <view
-            class="exam-nav-pill {{currentIndex >= questions.length - 1 ? 'exam-nav-pill--disabled' : ''}}"
+            class="exam-nav-pill {{currentIndex >= questions.length - 1 || submitting ? 'exam-nav-pill--disabled' : ''}}"
             bindtap="onNext"
           >下一题</view>
         </view>

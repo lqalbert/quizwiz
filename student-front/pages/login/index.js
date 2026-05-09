@@ -150,7 +150,4 @@ Page({
     }
   },
 
-  onSkipJoin() {
-    wx.switchTab({ url: "/pages/home/index" });
-  },
 });

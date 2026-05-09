@@ -1,4 +1,13 @@
 const { request } = require("../../utils/request.js");
+const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+
+/** 兼容接口体为 { data: {...} } 或直接为业务对象两种形态 */
+function unwrapStudentPayload(root) {
+  if (!root || typeof root !== "object") return {};
+  const inner = root.data;
+  if (inner != null && typeof inner === "object" && !Array.isArray(inner)) return inner;
+  return root;
+}
 
 Page({
   data: {
@@ -6,20 +15,20 @@ Page({
     loggedIn: false,
     statsLoading: false,
     statsError: "",
-    period: "day",
     totals: null,
-    today_attempts: 0,
-    streak_days: 0,
-    chart_day: [],
-    chart_week: [],
-    chart_month: [],
-    table_week: [],
-    table_month: [],
-    chartRows: [],
-    timezone_note: "",
+    practiceTabList: [
+      { key: "today", label: "今日" },
+      { key: "week", label: "本周" },
+      { key: "month", label: "本月" },
+      { key: "all", label: "全部" },
+    ],
+    practiceTab: "today",
+    practice_periods: null,
+    practicePanel: {},
     examTasks: [],
-    /** 由 /api/student/exams 聚合：参与考试可视化 */
     examOverview: null,
+    examListError: "",
+    examListLoading: false,
   },
 
   onLoad() {
@@ -33,6 +42,7 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 });
     }
+    if (redirectIfNeedJoinClass()) return;
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
@@ -42,18 +52,13 @@ Page({
       this.setData({
         examTasks: [],
         examOverview: null,
+        examListError: "",
+        examListLoading: false,
         statsLoading: false,
         statsError: "",
         totals: null,
-        today_attempts: 0,
-        streak_days: 0,
-        chart_day: [],
-        chart_week: [],
-        chart_month: [],
-        table_week: [],
-        table_month: [],
-        chartRows: [],
-        timezone_note: "",
+        practice_periods: null,
+        practicePanel: {},
       });
     }
   },
@@ -69,8 +74,6 @@ Page({
         ended_unsub: 0,
         todo_count: 0,
         avg_score_display: "—",
-        bar_rows: [],
-        recent: [],
       };
     }
     let submitted = 0;
@@ -79,7 +82,6 @@ Page({
     let ended_unsub = 0;
     let sumScore = 0;
     let scored = 0;
-    const submittedForRecent = [];
     for (const e of list) {
       const st = e.submission_status == null || e.submission_status === "" ? 0 : Number(e.submission_status);
       const isSub = st === 2 || st === 3;
@@ -93,7 +95,6 @@ Page({
             scored += 1;
           }
         }
-        submittedForRecent.push(e);
       } else if (ph === "upcoming") upcoming += 1;
       else if (ph === "ongoing") ongoing_open += 1;
       else if (ph === "ended") ended_unsub += 1;
@@ -102,28 +103,6 @@ Page({
     const todo_count = ongoing_open + upcoming;
     const avg_score_display =
       scored > 0 ? `${String(Math.round((sumScore / scored) * 10) / 10)} 分` : "—";
-    const segments = [
-      { label: "已交卷", val: submitted },
-      { label: "待参加(进行中)", val: ongoing_open },
-      { label: "未开始", val: upcoming },
-      { label: "已结束未交", val: ended_unsub },
-    ];
-    const maxVal = Math.max(1, ...segments.map((s) => s.val));
-    const bar_rows = segments.map((s) => ({
-      label: s.label,
-      attempts: s.val,
-      pct: Math.round((s.val / maxVal) * 100),
-    }));
-    submittedForRecent.sort((a, b) => {
-      const ta = new Date(a.submit_time || 0).getTime();
-      const tb = new Date(b.submit_time || 0).getTime();
-      return tb - ta;
-    });
-    const recent = submittedForRecent.slice(0, 5).map((x) => ({
-      id: x.id,
-      title: x.title || "考试",
-      score_text: x.total_score != null && x.total_score !== "" && !Number.isNaN(Number(x.total_score)) ? `${Number(x.total_score)} 分` : "—",
-    }));
     return {
       total: list.length,
       submitted,
@@ -132,16 +111,15 @@ Page({
       ended_unsub,
       todo_count,
       avg_score_display,
-      bar_rows,
-      recent,
     };
   },
 
   async loadStudentExams() {
     if (!wx.getStorageSync("student_token")) {
-      this.setData({ examTasks: [], examOverview: null });
+      this.setData({ examTasks: [], examOverview: null, examListError: "", examListLoading: false });
       return;
     }
+    this.setData({ examListError: "", examListLoading: true });
     try {
       const res = await request({ path: "/api/student/exams", method: "GET" });
       const rows = (res && res.data) || [];
@@ -151,9 +129,14 @@ Page({
         return st !== 2 && st !== 3;
       });
       const examOverview = this.buildExamOverview(rows);
-      this.setData({ examTasks, examOverview });
-    } catch (_) {
-      this.setData({ examTasks: [], examOverview: null });
+      this.setData({ examTasks, examOverview, examListLoading: false });
+    } catch (e) {
+      this.setData({
+        examTasks: [],
+        examOverview: null,
+        examListLoading: false,
+        examListError: e.message || "考试列表加载失败",
+      });
     }
   },
 
@@ -167,55 +150,75 @@ Page({
     wx.navigateTo({ url: "/pages/exam-list/index" });
   },
 
-  setPeriod(e) {
-    const p = String(e.currentTarget.dataset.p || "day");
-    if (p === this.data.period) return;
-    this.setData({ period: p }, () => this.applyChartRows());
+  goQuiz() {
+    wx.switchTab({ url: "/pages/quiz/index" });
   },
 
-  applyChartRows() {
-    const p = this.data.period;
-    let rows = [];
-    if (p === "week") rows = this.data.chart_week || [];
-    else if (p === "month") rows = this.data.chart_month || [];
-    else rows = this.data.chart_day || [];
-    this.setData({ chartRows: rows });
+  buildPracticePanelFromPeriod(p) {
+    if (!p) {
+      return {
+        practice_questions: 0,
+        wrong_count: 0,
+        accuracy_pct: 0,
+        rank_main: "—",
+        rank_sub: "",
+      };
+    }
+    const inClass = Boolean(p.in_class);
+    let rank_main = "—";
+    let rank_sub = "";
+    if (!inClass) {
+      rank_sub = "加入班级后参与排名";
+    } else if (!p.had_practice) {
+      rank_sub = `同班 ${p.class_peers} 人 · 本周期未练`;
+    } else if (p.class_rank != null && p.rank_in_denominator > 0) {
+      rank_main = `第 ${p.class_rank}`;
+      rank_sub = `共 ${p.rank_in_denominator} 人有作答`;
+    } else {
+      rank_sub = "暂无排名";
+    }
+    return {
+      practice_questions: Number(p.practice_questions || 0),
+      wrong_count: Number(p.wrong_count || 0),
+      accuracy_pct: Number(p.accuracy_pct || 0),
+      rank_main,
+      rank_sub,
+    };
+  },
+
+  applyPracticeTab() {
+    const key = this.data.practiceTab || "today";
+    const p = this.data.practice_periods && this.data.practice_periods[key];
+    this.setData({ practicePanel: this.buildPracticePanelFromPeriod(p) });
+  },
+
+  onPracticeTab(e) {
+    const key = e.currentTarget.dataset.key;
+    if (!key) return;
+    this.setData({ practiceTab: key });
+    this.applyPracticeTab();
   },
 
   async loadHomeSummary() {
     this.setData({ statsLoading: true, statsError: "" });
     try {
       const res = await request({ path: "/api/student/stats/home-summary", method: "GET" });
-      const d = (res && res.data) || {};
-      const totals = d.totals || {
-        questions_touched: 0,
-        attempts: 0,
-        correct: 0,
-        wrong: 0,
-        wrong_questions: 0,
-        accuracy_pct: 0,
-      };
-      this.setData(
-        {
-          totals,
-          today_attempts: Number(d.today_attempts || 0),
-          streak_days: Number(d.streak_days || 0),
-          chart_day: d.chart_day || [],
-          chart_week: d.chart_week || [],
-          chart_month: d.chart_month || [],
-          table_week: d.table_week || [],
-          table_month: d.table_month || [],
-          timezone_note: String(d.timezone_note || ""),
-          statsLoading: false,
-        },
-        () => this.applyChartRows(),
-      );
+      const d = unwrapStudentPayload(res);
+      const totals = d.totals || null;
+      const practice_periods = d.practice_periods != null ? d.practice_periods : null;
+      this.setData({
+        totals,
+        practice_periods,
+        statsLoading: false,
+      });
+      this.applyPracticeTab();
     } catch (e) {
       this.setData({
         statsLoading: false,
         statsError: e.message || "加载失败",
         totals: null,
-        chartRows: [],
+        practice_periods: null,
+        practicePanel: {},
       });
     }
   },

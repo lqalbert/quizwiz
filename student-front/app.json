@@ -24,19 +24,27 @@
     "list": [
       {
         "pagePath": "pages/home/index",
-        "text": "首页"
+        "text": "首页",
+        "iconPath": "assets/tabbar/home.png",
+        "selectedIconPath": "assets/tabbar/home-active.png"
       },
       {
         "pagePath": "pages/quiz/index",
-        "text": "刷题"
+        "text": "刷题",
+        "iconPath": "assets/tabbar/quiz.png",
+        "selectedIconPath": "assets/tabbar/quiz-active.png"
       },
       {
         "pagePath": "pages/study/index",
-        "text": "学习"
+        "text": "学习",
+        "iconPath": "assets/tabbar/study.png",
+        "selectedIconPath": "assets/tabbar/study-active.png"
       },
       {
         "pagePath": "pages/mine/index",
-        "text": "我的"
+        "text": "我的",
+        "iconPath": "assets/tabbar/mine.png",
+        "selectedIconPath": "assets/tabbar/mine-active.png"
       }
     ]
   },
