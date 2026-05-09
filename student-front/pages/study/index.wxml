@@ -12,26 +12,31 @@
     <text class="muted">加载中…</text>
   </view>
 
-  <view wx:elif="{{classes.length > 0}}" class="class-bar ios-card">
-    <text class="class-bar-label muted">当前班级</text>
-    <picker wx:if="{{classes.length > 1}}" mode="selector" range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClassPick">
-      <view class="class-picker-trigger">
-        <text class="class-picker-text">{{currentClassLabel}}</text>
-        <text class="class-picker-chev">›</text>
-      </view>
-    </picker>
-    <text wx:else class="class-picker-text single">{{currentClassLabel}}</text>
-  </view>
-
   <view wx:elif="{{classes.length === 0}}" class="ios-card pad-card">
     <text class="muted">请先加入班级后查看资料</text>
   </view>
 
-  <view wx:elif="{{classes.length > 0 && resourcesEmpty}}" class="ios-card pad-card">
-    <text class="muted">暂无可见资料</text>
-  </view>
-
   <block wx:else>
+    <view class="class-bar ios-card">
+      <text class="class-bar-label muted">当前班级</text>
+      <picker wx:if="{{classes.length > 1}}" mode="selector" range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClassPick">
+        <view class="class-picker-trigger">
+          <text class="class-picker-text">{{currentClassLabel}}</text>
+          <text class="class-picker-chev">›</text>
+        </view>
+      </picker>
+      <text wx:else class="class-picker-text single">{{currentClassLabel}}</text>
+    </view>
+
+    <view wx:if="{{resourcesLoading}}" class="ios-card pad-card">
+      <text class="muted">正在加载资料…</text>
+    </view>
+
+    <view wx:elif="{{resourcesEmpty}}" class="ios-card pad-card">
+      <text class="muted">暂无可见资料（教师可能尚未上传，或资料未对本班开放）</text>
+    </view>
+
+    <block wx:else>
     <block wx:for="{{sections}}" wx:key="subject_key">
       <text class="section-label">{{item.subject_name}}</text>
       <view class="wf-wrap">
@@ -92,6 +97,7 @@
           </block>
         </view>
       </view>
+    </block>
     </block>
   </block>
 

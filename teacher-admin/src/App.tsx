@@ -1585,7 +1585,7 @@ function ClassPage() {
                   { title: '学生姓名', dataIndex: 'student_name' },
                   { title: '学号', dataIndex: 'student_no' },
                   { title: '来源', dataIndex: 'source' },
-                  ...(canManageClass
+                  ...(selectedClassCanManage
                     ? [
                         {
                           title: '操作',
@@ -1660,7 +1660,7 @@ function ClassPage() {
                   { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
                   { title: '学生', dataIndex: 'student_name' },
                   { title: '学号', dataIndex: 'student_no' },
-                  ...(canManageClass
+                  ...(selectedClassCanManage
                     ? [
                         {
                           title: '操作',

@@ -19,6 +19,16 @@ function subjectGroupKey(row) {
   return { key: `na_${nm || "none"}`, name: nm || "未设置科目" };
 }
 
+/** 与 exam-list 等页一致：兼容 { data: [] } 或极少数直连数组 */
+function takeArrayFromStudentApi(res) {
+  if (res == null) return [];
+  if (Array.isArray(res)) return res;
+  const d = res.data;
+  if (Array.isArray(d)) return d;
+  if (d != null && typeof d === "object" && Array.isArray(d.rows)) return d.rows;
+  return [];
+}
+
 function buildSections(list) {
   const map = new Map();
   for (const row of list) {
@@ -41,7 +51,11 @@ function buildSections(list) {
       const enriched = {
         ...it,
         file_url_abs: absFileUrl(it.file_url),
-        can_dl: Boolean(it.can_system_download),
+        can_dl:
+          it.can_system_download === true ||
+          it.can_system_download === 1 ||
+          it.can_system_download === "1" ||
+          it.can_system_download === "true",
       };
       if (i % 2 === 0) left.push(enriched);
       else right.push(enriched);
@@ -59,7 +73,8 @@ Page({
     classId: null,
     currentClassLabel: "",
     sections: [],
-    resourcesEmpty: false,
+    resourcesEmpty: true,
+    resourcesLoading: false,
     videoPreviewUrl: "",
     videoPreviewVisible: false,
   },
@@ -69,6 +84,10 @@ Page({
       this.getTabBar().setData({ selected: 2 });
     }
     if (redirectIfNeedJoinClass()) return;
+    if (!wx.getStorageSync("student_token")) {
+      wx.reLaunch({ url: "/pages/login/index" });
+      return;
+    }
     void this.bootstrap();
   },
 
@@ -87,7 +106,7 @@ Page({
     wx.showLoading({ title: "加载中", mask: true });
     try {
       const res = await request({ path: "/api/student/my-classes", method: "GET" });
-      const raw = (res.data && Array.isArray(res.data)) ? res.data : [];
+      const raw = takeArrayFromStudentApi(res);
       const classes = raw.map((c) => ({
         id: Number(c.id),
         name: String(c.name || ""),
@@ -101,6 +120,7 @@ Page({
           currentClassLabel: "",
           sections: [],
           resourcesEmpty: true,
+          resourcesLoading: false,
           loadError: "",
         });
         wx.hideLoading();
@@ -116,6 +136,7 @@ Page({
         classIndex: idx,
         classId: picked.id,
         currentClassLabel: picked.label,
+        resourcesLoading: true,
       });
       await this.loadResources();
     } catch (e) {
@@ -125,6 +146,7 @@ Page({
         loadError: msg,
         sections: [],
         resourcesEmpty: true,
+        resourcesLoading: false,
       });
       wx.showToast({ title: msg, icon: "none" });
     } finally {
@@ -143,6 +165,7 @@ Page({
       classIndex: idx,
       classId: c.id,
       currentClassLabel: c.label,
+      resourcesLoading: true,
     });
     void this.loadResources();
   },
@@ -150,9 +173,10 @@ Page({
   async loadResources() {
     const classId = this.data.classId;
     if (!classId) {
-      this.setData({ sections: [], resourcesEmpty: true });
+      this.setData({ sections: [], resourcesEmpty: true, resourcesLoading: false });
       return;
     }
+    this.setData({ resourcesLoading: true });
     try {
       wx.showNavigationBarLoading();
     } catch (_) {}
@@ -161,20 +185,23 @@ Page({
         path: `/api/student/resources?class_id=${encodeURIComponent(String(classId))}`,
         method: "GET",
       });
-      const list = (res.data && Array.isArray(res.data)) ? res.data : [];
+      const list = takeArrayFromStudentApi(res);
       const sections = buildSections(list);
       this.setData({
         sections,
         resourcesEmpty: list.length === 0,
+        resourcesLoading: false,
         loadError: "",
       });
     } catch (e) {
+      const msg = (e && e.message) || "资料加载失败";
       this.setData({
-        loadError: (e && e.message) || "资料加载失败",
+        loadError: msg,
         sections: [],
         resourcesEmpty: true,
+        resourcesLoading: false,
       });
-      wx.showToast({ title: this.data.loadError, icon: "none" });
+      wx.showToast({ title: msg, icon: "none" });
     } finally {
       try {
         wx.hideNavigationBarLoading();
