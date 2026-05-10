@@ -2879,7 +2879,9 @@ function buildStudentPublicUploadUrl(req, fileUrl, expectedPrefix) {
       .split(',')[0]
       .trim()
     if (!host) return null
-    return `${proto}://${host}/uploads/${encodeURIComponent(safeFileName)}`
+    // 磁盘名多为字母数字；整段 encode 少数网关/静态服务与小程序下载栈组合会异常，仅对非安全字符编码
+    const pathSeg = /^[a-zA-Z0-9._~-]+$/.test(safeFileName) ? safeFileName : encodeURIComponent(safeFileName)
+    return `${proto}://${host}/uploads/${pathSeg}`
   } catch {
     return null
   }

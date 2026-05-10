@@ -129,6 +129,22 @@ function canUseDirectStudyDownload(fileUrlAbs) {
 }
 
 /** downloadFile 在 4xx/5xx 时仍可能走 success，且临时文件里是 JSON 错误体（勿用 utf8 读二进制大文件） */
+function readTempFileHeadBytes(tempFilePath, byteLen) {
+  return new Promise((resolve) => {
+    wx.getFileSystemManager().readFile({
+      filePath: tempFilePath,
+      position: 0,
+      length: byteLen,
+      success(r) {
+        const raw = r.data;
+        if (raw instanceof ArrayBuffer && raw.byteLength) resolve(new Uint8Array(raw));
+        else resolve(null);
+      },
+      fail: () => resolve(null),
+    });
+  });
+}
+
 function sniffDownloadTempIsJsonError(tempFilePath) {
   return new Promise((resolve) => {
     wx.getFileSystemManager().readFile({
@@ -374,6 +390,39 @@ Page({
     else this._audioCtx.play();
   },
 
+  /** 下载完成后：体积、HTML/错误页、PDF 魔数，避免 openDocument 对无效文件无提示失败 */
+  async validateDownloadedFileAfterDownload(path, displayName, silent) {
+    const fs = wx.getFileSystemManager();
+    const size = await new Promise((resolve) => {
+      fs.getFileInfo({
+        filePath: path,
+        success: (s) => resolve(Number(s.size) || 0),
+        fail: () => resolve(-1),
+      });
+    });
+    if (size === 0) {
+      if (!silent) wx.showToast({ title: "下载为空", icon: "none" });
+      throw new Error("empty");
+    }
+    const head = await readTempFileHeadBytes(path, 24);
+    if (head && head.length && head[0] === 0x3c) {
+      if (!silent) wx.showToast({ title: "无法打开（无效响应）", icon: "none" });
+      throw new Error("html");
+    }
+    const ext = getFileExt(displayName, "").toLowerCase();
+    if (ext === "pdf") {
+      if (!head || head.length < 4) {
+        if (!silent) wx.showToast({ title: "PDF 文件不完整", icon: "none" });
+        throw new Error("badpdf");
+      }
+      const sig = String.fromCharCode(head[0], head[1], head[2], head[3]);
+      if (sig !== "%PDF") {
+        if (!silent) wx.showToast({ title: "不是有效PDF", icon: "none" });
+        throw new Error("badpdf");
+      }
+    }
+  },
+
   tempFileStartsWithJsonBrace(tempFilePath) {
     return new Promise((resolve) => {
       wx.getFileSystemManager().readFile({
@@ -451,6 +500,12 @@ Page({
               return;
             }
           }
+          try {
+            await this.validateDownloadedFileAfterDownload(path, displayName, silent);
+          } catch (e) {
+            reject(e);
+            return;
+          }
           resolve(path);
         },
         fail: (err) => {
@@ -519,16 +574,29 @@ Page({
   },
 
   openDocumentFromTemp(tempFilePath, displayName, failHint) {
-    const ext = getFileExt(displayName, "");
-    const fileType = mapOpenDocumentFileType(ext);
-    wx.openDocument({
-      filePath: tempFilePath,
-      ...(fileType ? { fileType } : {}),
-      showMenu: true,
-      fail: () => {
-        wx.showToast({ title: failHint, icon: "none" });
-      },
-    });
+    const ext = getFileExt(displayName, "").toLowerCase();
+    const mapped = mapOpenDocumentFileType(ext);
+    const tip = (msg) => {
+      const t = String(msg || failHint || "无法打开");
+      wx.showToast({ title: t.length > 44 ? `${t.slice(0, 42)}…` : t, icon: "none" });
+    };
+    const run = (withMappedType) => {
+      wx.openDocument({
+        filePath: tempFilePath,
+        ...(withMappedType && mapped ? { fileType: mapped } : {}),
+        showMenu: true,
+        success: () => {},
+        fail: (err) => {
+          const em = (err && err.errMsg) || "";
+          if (!withMappedType && mapped) {
+            setTimeout(() => run(true), 80);
+            return;
+          }
+          tip(em || failHint);
+        },
+      });
+    };
+    setTimeout(() => run(false), 100);
   },
 
   async openDocPreviewFromResource(id, displayName, turboUrl) {
