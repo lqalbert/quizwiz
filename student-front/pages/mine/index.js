@@ -8,9 +8,15 @@ function firstChar(s) {
 
 Page({
   data: {
+    /** 设为 true 可显示「其他」区块（通知、关于） */
+    mineShowOther: false,
     loggedIn: false,
-    displayName: "",
-    studentNo: "",
+    /** 老师端展示用：优先真实姓名 */
+    realDisplayName: "",
+    /** 顶部展示：微信昵称 */
+    wxNickname: "",
+    wxAvatarUrl: "",
+    showWxProfileHint: false,
     avatarLetter: "?",
     classes: [],
     leavePendingCount: 0,
@@ -32,8 +38,10 @@ Page({
     if (!token) {
       this.setData({
         loggedIn: false,
-        displayName: "",
-        studentNo: "",
+        realDisplayName: "",
+        wxNickname: "",
+        wxAvatarUrl: "",
+        showWxProfileHint: false,
         avatarLetter: "?",
         classes: [],
         leavePendingCount: 0,
@@ -61,13 +69,18 @@ Page({
         leave_pending: pendingLeave.some((p) => Number(p.class_id) === Number(c.id)),
       }));
       const need = Boolean(res.data && res.data.need_join_class);
-      const display = String(st.display_name || "").trim() || String(st.name || "同学").trim() || "同学";
+      const realDisp =
+        String(st.display_name || "").trim() || String(st.name || "同学").trim() || "同学";
+      const wxNick = String(st.wx_nickname || st.name || "").trim() || "微信用户";
+      const wxAva = String(st.wx_avatar_url || "").trim();
       wx.setStorageSync("need_join_class", need ? "1" : "0");
       this.setData({
         loggedIn: true,
-        displayName: display,
-        studentNo: String(st.student_no || "").trim(),
-        avatarLetter: firstChar(display),
+        realDisplayName: realDisp,
+        wxNickname: wxNick,
+        wxAvatarUrl: wxAva,
+        showWxProfileHint: !wxAva || wxNick === "微信用户",
+        avatarLetter: firstChar(wxNick),
         classes,
         leavePendingCount: pendingLeave.length,
         needJoinClass: need,
@@ -81,6 +94,10 @@ Page({
         } catch (_) {}
         this.setData({
           loggedIn: false,
+          realDisplayName: "",
+          wxNickname: "",
+          wxAvatarUrl: "",
+          showWxProfileHint: false,
           classes: [],
           leavePendingCount: 0,
           needJoinClass: false,
@@ -99,7 +116,50 @@ Page({
     if (!this.data.loggedIn) return;
     this.setData({
       nameEditVisible: true,
-      nameDraft: this.data.displayName,
+      nameDraft: this.data.realDisplayName,
+    });
+  },
+
+  onTapSyncWechatProfile() {
+    if (!this.data.loggedIn) return;
+    wx.getUserProfile({
+      desc: "用于在个人中心展示头像与昵称",
+      success: async (res) => {
+        const ui = res.userInfo || {};
+        const nick = String(ui.nickName || "").trim();
+        const av = String(ui.avatarUrl || "").trim();
+        if (!nick && !av) {
+          wx.showToast({ title: "未获取到微信资料", icon: "none" });
+          return;
+        }
+        wx.showLoading({ title: "同步中" });
+        try {
+          const body = {};
+          if (nick) body.name = nick;
+          if (av) body.avatarUrl = av;
+          const r = await request({ path: "/api/student/profile", method: "PATCH", data: body });
+          const st = (r.data && r.data.student) || {};
+          const realDisp =
+            String(st.display_name || "").trim() || String(st.name || "同学").trim() || "同学";
+          const wxNick = String(st.wx_nickname || st.name || "").trim() || "微信用户";
+          const wxAva = String(st.wx_avatar_url || "").trim();
+          wx.hideLoading();
+          this.setData({
+            realDisplayName: realDisp,
+            wxNickname: wxNick,
+            wxAvatarUrl: wxAva,
+            showWxProfileHint: !wxAva || wxNick === "微信用户",
+            avatarLetter: firstChar(wxNick),
+          });
+          wx.showToast({ title: "已同步", icon: "success" });
+        } catch (e) {
+          wx.hideLoading();
+          wx.showToast({ title: (e && e.message) || "同步失败", icon: "none" });
+        }
+      },
+      fail: () => {
+        wx.showToast({ title: "需要授权才能同步微信资料", icon: "none" });
+      },
     });
   },
 
@@ -126,10 +186,15 @@ Page({
       });
       const st = (res.data && res.data.student) || {};
       const newName = String(st.display_name || "").trim() || String(st.name || name).trim() || name;
+      const wxNick = String(st.wx_nickname || st.name || "").trim() || "微信用户";
+      const wxAva = String(st.wx_avatar_url || "").trim();
       wx.hideLoading();
       this.setData({
-        displayName: newName,
-        avatarLetter: firstChar(newName),
+        realDisplayName: newName,
+        wxNickname: wxNick,
+        wxAvatarUrl: wxAva,
+        showWxProfileHint: !wxAva || wxNick === "微信用户",
+        avatarLetter: firstChar(wxNick),
         nameEditVisible: false,
         nameDraft: "",
       });
@@ -201,6 +266,11 @@ Page({
         if (!cls) return;
         this.promptLeaveClassConfirm(cls);
       },
+      fail: (err) => {
+        const msg = err && err.errMsg ? String(err.errMsg) : "";
+        if (msg.includes("cancel")) return;
+        wx.showToast({ title: msg || "无法打开选择", icon: "none" });
+      },
     });
   },
 
@@ -249,8 +319,10 @@ Page({
         getApp().globalData.token = "";
         this.setData({
           loggedIn: false,
-          displayName: "",
-          studentNo: "",
+          realDisplayName: "",
+          wxNickname: "",
+          wxAvatarUrl: "",
+          showWxProfileHint: false,
           avatarLetter: "?",
           classes: [],
           leavePendingCount: 0,

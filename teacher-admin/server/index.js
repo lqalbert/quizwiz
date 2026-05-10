@@ -537,6 +537,25 @@ const ensureClassInviteSchema = async () => {
   )
 }
 
+/** 班级名称全局唯一（trim 后）；若库内已有重名则跳过建索引，仍由创建接口校验 */
+const ensureClassNameUniqueIndex = async () => {
+  await pool.query(`
+DO $migration$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM classes c1
+    INNER JOIN classes c2 ON c1.id < c2.id AND btrim(c1.name) = btrim(c2.name)
+  ) THEN
+    RAISE NOTICE 'quizwiz: duplicate class names exist; skipped idx_classes_name_btrim_unique';
+  ELSE
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_name_btrim_unique ON public.classes ((btrim(name)))';
+  END IF;
+END
+$migration$;
+  `)
+}
+
 const ensureClassLeaveRequestSchema = async () => {
   await pool.query(
     `
@@ -772,6 +791,7 @@ const ensureStudentWechatSchema = async () => {
   await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_openid VARCHAR(128)`)
   await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_unionid VARCHAR(128)`)
   await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS real_name VARCHAR(64)`)
+  await pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS wechat_avatar_url TEXT`)
   await pool.query(
     `
     CREATE UNIQUE INDEX IF NOT EXISTS idx_students_wechat_openid_unique
@@ -2068,7 +2088,6 @@ app.get('/api/classes', authRequired, async (req, res) => {
       SELECT
         c.id,
         c.name,
-        c.grade,
         c.invite_code,
         c.invite_enabled,
         c.invite_expires_at,
@@ -2104,6 +2123,10 @@ app.post('/api/classes', authRequired, async (req, res) => {
   if (!name) {
     return res.status(400).json({ message: '班级名称不能为空' })
   }
+  const dup = await pool.query(`SELECT id FROM classes WHERE btrim(name) = $1 LIMIT 1`, [name])
+  if (dup.rows[0]) {
+    return res.status(400).json({ message: '班级名称已存在，请使用其他名称' })
+  }
   const grade = String(req.body?.grade ?? '').trim()
   const inviteCode = Math.random().toString(36).slice(2, 8).toUpperCase()
   try {
@@ -2115,8 +2138,13 @@ app.post('/api/classes', authRequired, async (req, res) => {
       `,
       [name, grade, inviteCode, req.auth.userId],
     )
-    res.status(201).json({ data: result.rows[0] })
+    const row = result.rows[0] || {}
+    const { grade: _omitGrade, ...createdPublic } = row
+    res.status(201).json({ data: createdPublic })
   } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+      return res.status(400).json({ message: '班级名称已存在，请使用其他名称' })
+    }
     res.status(500).json({ message: '创建班级失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
@@ -2218,7 +2246,7 @@ app.get('/api/classes/:id/invite-config', authRequired, async (req, res) => {
         l.joined_at,
         s.id AS student_id,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
-        s.student_no
+        NULLIF(TRIM(s.wechat_avatar_url), '') AS student_avatar_url
       FROM class_invite_join_logs l
       LEFT JOIN students s ON s.id = l.student_id
       WHERE l.class_id = $1
@@ -2232,7 +2260,6 @@ app.get('/api/classes/:id/invite-config', authRequired, async (req, res) => {
       SELECT
         r.id,
         r.student_name,
-        r.student_no,
         r.status,
         r.source,
         r.requested_at
@@ -2250,7 +2277,7 @@ app.get('/api/classes/:id/invite-config', authRequired, async (req, res) => {
         lr.student_id,
         lr.requested_at,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
-        s.student_no
+        NULLIF(TRIM(s.wechat_avatar_url), '') AS student_avatar_url
       FROM class_leave_requests lr
       JOIN students s ON s.id = lr.student_id
       WHERE lr.class_id = $1 AND lr.status = 'pending'
@@ -2438,7 +2465,7 @@ app.post('/api/public/student/login', async (req, res) => {
   try {
     const result = await pool.query(
       `
-      SELECT s.id AS student_id, COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name, s.student_no, c.id AS class_id, c.name AS class_name, c.grade AS class_grade
+      SELECT s.id AS student_id, COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name, s.student_no, c.id AS class_id, c.name AS class_name
       FROM students s
       JOIN class_members cm ON cm.student_id = s.id
       JOIN classes c ON c.id = cm.class_id
@@ -2464,7 +2491,6 @@ app.post('/api/public/student/login', async (req, res) => {
         class: {
           id: Number(row.class_id),
           name: row.class_name,
-          grade: row.class_grade,
         },
       },
     })
@@ -2476,6 +2502,7 @@ app.post('/api/public/student/login', async (req, res) => {
 app.post('/api/public/student/wechat-login', async (req, res) => {
   const code = String(req.body?.code || '').trim()
   const nickname = String(req.body?.nickname || '').trim().slice(0, 32)
+  const avatarUrl = String(req.body?.avatarUrl || req.body?.avatar_url || '').trim().slice(0, 512)
   try {
     const { openid, unionid } = await wechatMiniCode2Session(code)
     const displayName = nickname || '微信用户'
@@ -2496,6 +2523,10 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
         vals.push(displayName)
         updates.push(`name = $${vals.length}`)
       }
+      if (avatarUrl) {
+        vals.push(avatarUrl)
+        updates.push(`wechat_avatar_url = $${vals.length}`)
+      }
       if (updates.length > 0) {
         vals.push(studentRow.id)
         await pool.query(`UPDATE students SET ${updates.join(', ')} WHERE id = $${vals.length}`, vals)
@@ -2507,11 +2538,11 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
       try {
         const ins = await pool.query(
           `
-          INSERT INTO students (name, student_no, wechat_openid, wechat_unionid)
-          VALUES ($1, $2, $3, $4)
+          INSERT INTO students (name, student_no, wechat_openid, wechat_unionid, wechat_avatar_url)
+          VALUES ($1, $2, $3, $4, $5)
           RETURNING id, name, student_no
           `,
-          [displayName, studentNo, openid, unionid || null],
+          [displayName, studentNo, openid, unionid || null, avatarUrl || null],
         )
         studentRow = ins.rows[0]
       } catch (e) {
@@ -2531,7 +2562,7 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
     const classCount = Number(classCountResult.rows[0]?.c || 0)
     const classesResult = await pool.query(
       `
-      SELECT c.id, c.name, c.grade
+      SELECT c.id, c.name
       FROM class_members cm
       JOIN classes c ON c.id = cm.class_id
       WHERE cm.student_id = $1
@@ -2547,7 +2578,6 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
         student: {
           id: studentId,
           name: studentRow.name,
-          student_no: studentRow.student_no,
         },
         classes: classesResult.rows,
       },
@@ -2565,7 +2595,7 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   try {
     const studentId = req.studentAuth.studentId
     const sres = await pool.query(
-      `SELECT id, name, real_name, student_no, wechat_openid FROM students WHERE id = $1 LIMIT 1`,
+      `SELECT id, name, real_name, student_no, wechat_openid, wechat_avatar_url FROM students WHERE id = $1 LIMIT 1`,
       [studentId],
     )
     const student = sres.rows[0]
@@ -2575,7 +2605,7 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
     const displayName = rn || nn || '同学'
     const classesResult = await pool.query(
       `
-      SELECT c.id, c.name, c.grade
+      SELECT c.id, c.name
       FROM class_members cm
       JOIN classes c ON c.id = cm.class_id
       WHERE cm.student_id = $1
@@ -2594,6 +2624,8 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
       `,
       [studentId],
     )
+    const wxNick = nn || '微信用户'
+    const wxAvatar = String(student.wechat_avatar_url || '').trim()
     return res.json({
       data: {
         student: {
@@ -2601,7 +2633,8 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
           name: student.name,
           real_name: student.real_name,
           display_name: displayName,
-          student_no: student.student_no,
+          wx_nickname: wxNick,
+          wx_avatar_url: wxAvatar,
           has_wechat: Boolean(String(student.wechat_openid || '').trim()),
         },
         classes,
@@ -2618,9 +2651,11 @@ app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
 app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
   const nameRaw = req.body?.name ?? req.body?.displayName
   const realRaw = req.body?.realName ?? req.body?.real_name
+  const avatarRaw = req.body?.avatarUrl ?? req.body?.avatar_url ?? req.body?.wxAvatarUrl
   const hasName = nameRaw !== undefined && nameRaw !== null
   const hasReal = realRaw !== undefined && realRaw !== null
-  if (!hasName && !hasReal) return res.status(400).json({ message: '请提供要修改的昵称或真实姓名' })
+  const hasAvatar = avatarRaw !== undefined && avatarRaw !== null
+  if (!hasName && !hasReal && !hasAvatar) return res.status(400).json({ message: '请提供要修改的昵称、真实姓名或头像地址' })
   const parts = []
   const vals = []
   if (hasName) {
@@ -2637,16 +2672,22 @@ app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
     vals.push(realName)
     parts.push(`real_name = $${vals.length}`)
   }
+  if (hasAvatar) {
+    const url = String(avatarRaw ?? '').trim().slice(0, 512)
+    vals.push(url || null)
+    parts.push(`wechat_avatar_url = $${vals.length}`)
+  }
   vals.push(req.studentAuth.studentId)
   try {
     const r = await pool.query(
-      `UPDATE students SET ${parts.join(', ')} WHERE id = $${vals.length} RETURNING id, name, real_name, student_no`,
+      `UPDATE students SET ${parts.join(', ')} WHERE id = $${vals.length} RETURNING id, name, real_name, student_no, wechat_avatar_url`,
       vals,
     )
     const row = r.rows[0]
     if (!row) return res.status(404).json({ message: '学生不存在' })
     const rn = String(row.real_name || '').trim()
     const nn = String(row.name || '').trim()
+    const wxAvatar = String(row.wechat_avatar_url || '').trim()
     return res.json({
       data: {
         student: {
@@ -2654,7 +2695,8 @@ app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
           name: row.name,
           real_name: row.real_name,
           display_name: rn || nn || '同学',
-          student_no: row.student_no,
+          wx_nickname: nn || '微信用户',
+          wx_avatar_url: wxAvatar,
         },
       },
     })
@@ -2850,7 +2892,7 @@ app.get('/api/student/my-classes', studentAuthRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
-      SELECT c.id, c.name, c.grade
+      SELECT c.id, c.name
       FROM class_members cm
       JOIN classes c ON c.id = cm.class_id
       WHERE cm.student_id = $1
@@ -4924,7 +4966,7 @@ app.get('/api/classes/:id/students', authRequired, async (req, res) => {
         s.name AS nickname,
         s.real_name,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS name,
-        s.student_no,
+        NULLIF(TRIM(s.wechat_avatar_url), '') AS avatar_url,
         cm.class_id
       FROM class_members cm
       JOIN students s ON s.id = cm.student_id
@@ -5230,7 +5272,7 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
         s.name AS nickname,
         s.real_name,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS name,
-        s.student_no
+        NULLIF(TRIM(s.wechat_avatar_url), '') AS avatar_url
       FROM students s
       WHERE s.id = $1
       LIMIT 1
@@ -5328,7 +5370,7 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
           name: student.name,
           nickname: student.nickname,
           real_name: student.real_name,
-          student_no: student.student_no,
+          avatar_url: student.avatar_url || '',
         },
         practice_summary: {
           questions_touched: Number(st.questions_touched || 0),
@@ -5534,7 +5576,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
 
     const classResult = await client.query(
       `
-      SELECT c.id, c.name, c.grade
+      SELECT c.id, c.name
       FROM exam_classes ec
       JOIN classes c ON c.id = ec.class_id
       WHERE ec.exam_id = $1
@@ -5586,7 +5628,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
       SELECT
         s.id AS student_id,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
-        s.student_no,
+        NULLIF(TRIM(s.wechat_avatar_url), '') AS student_avatar_url,
         es.id AS submission_id,
         es.status AS submission_status,
         es.start_time AS submission_start_time,
@@ -5607,7 +5649,6 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
       SELECT
         c.id AS class_id,
         c.name AS class_name,
-        c.grade AS class_grade,
         COALESCE(COUNT(DISTINCT cm.student_id), 0)::int AS expected_count,
         COALESCE(COUNT(DISTINCT CASE WHEN es.status IN (2, 3) THEN s.id END), 0)::int AS submitted_count,
         COALESCE(COUNT(DISTINCT CASE WHEN es.total_score IS NOT NULL THEN s.id END), 0)::int AS scored_count,
@@ -5620,7 +5661,7 @@ app.get('/api/exams/:id', authRequired, async (req, res) => {
       LEFT JOIN students s ON s.id = cm.student_id
       LEFT JOIN exam_submissions es ON es.exam_id = ec.exam_id AND es.student_id = s.id
       WHERE ec.exam_id = $1
-      GROUP BY c.id, c.name, c.grade
+      GROUP BY c.id
       ORDER BY c.id ASC
       `,
       [examId],
@@ -5840,7 +5881,7 @@ app.put('/api/exams/:id', authRequired, async (req, res) => {
 
 const dashboardClassStatsSql = (accessSql) => `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -5871,7 +5912,6 @@ const dashboardClassStatsSql = (accessSql) => `
       SELECT
         vc.id AS class_id,
         vc.name AS class_name,
-        vc.grade AS class_grade,
         cs.student_count,
         ce.exam_count,
         sc.submission_count,
@@ -6021,7 +6061,7 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
     const summaryResult = await pool.query(
       `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -6029,7 +6069,6 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
         SELECT DISTINCT
           vc.id AS class_id,
           vc.name AS class_name,
-          vc.grade AS class_grade,
           e.id AS exam_id,
           e.title AS exam_title,
           e.start_time,
@@ -6050,12 +6089,11 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
         SELECT
           vc.id AS class_id,
           vc.name AS class_name,
-          vc.grade AS class_grade,
           COALESCE(COUNT(DISTINCT cm.student_id), 0)::int AS student_count
         FROM visible_classes vc
         LEFT JOIN class_members cm ON cm.class_id = vc.id
         ${hasClassFilter ? `WHERE vc.id = ${classFilterPlaceholder}` : ''}
-        GROUP BY vc.id, vc.name, vc.grade
+        GROUP BY vc.id, vc.name
       ),
       class_score AS (
         SELECT
@@ -6075,7 +6113,6 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
       SELECT
         cb.class_id,
         cb.class_name,
-        cb.class_grade,
         cb.student_count,
         COALESCE(cs.exam_count, 0)::int AS exam_count,
         COALESCE(cs.scored_count, 0)::int AS scored_count,
@@ -6094,14 +6131,13 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
     const classOptions = summaryResult.rows.map((item) => ({
       class_id: Number(item.class_id),
       class_name: String(item.class_name || ''),
-      class_grade: String(item.class_grade || ''),
     }))
     const selectedClassId = hasClassFilter ? requestedClassId : Number(classOptions[0]?.class_id || 0)
     const trendParams = [...values, selectedClassId, trendLimit]
     const trendResult = await pool.query(
       `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -6109,7 +6145,6 @@ app.get('/api/analytics/class-performance', authRequired, async (req, res) => {
         SELECT DISTINCT
           vc.id AS class_id,
           vc.name AS class_name,
-          vc.grade AS class_grade,
           e.id AS exam_id,
           e.title AS exam_title,
           e.start_time,
@@ -6483,13 +6518,12 @@ app.get('/api/analytics/exam-class-ranking', authRequired, async (req, res) => {
         SELECT
           c.id AS class_id,
           c.name AS class_name,
-          c.grade AS class_grade,
           COALESCE(COUNT(DISTINCT cm.student_id), 0)::int AS expected_count
         FROM exam_classes ec
         JOIN classes c ON c.id = ec.class_id
         LEFT JOIN class_members cm ON cm.class_id = c.id
         WHERE ec.exam_id = $1
-        GROUP BY c.id, c.name, c.grade
+        GROUP BY c.id
       ),
       class_score AS (
         SELECT
@@ -6511,7 +6545,6 @@ app.get('/api/analytics/exam-class-ranking', authRequired, async (req, res) => {
       SELECT
         cb.class_id,
         cb.class_name,
-        cb.class_grade,
         cb.expected_count,
         cs.submitted_count,
         cs.scored_count,
@@ -6587,7 +6620,7 @@ app.get('/api/analytics/question-insights', authRequired, async (req, res) => {
     const { rows } = await pool.query(
       `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -6751,7 +6784,7 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
     const { rows } = await pool.query(
       `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -6759,7 +6792,6 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
         SELECT
           vc.id AS class_id,
           vc.name AS class_name,
-          vc.grade AS class_grade,
           s.id AS student_id,
           COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
           s.student_no
@@ -6793,7 +6825,6 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
         SELECT
           cs.class_id,
           cs.class_name,
-          cs.class_grade,
           cs.student_id,
           cs.student_name,
           cs.student_no,
@@ -6809,7 +6840,6 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
         SELECT
           sem.class_id,
           sem.class_name,
-          sem.class_grade,
           sem.student_id,
           sem.student_name,
           sem.student_no,
@@ -6818,12 +6848,11 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
           COALESCE(ROUND(AVG(sem.total_score) FILTER (WHERE sem.total_score IS NOT NULL), 2), 0)::numeric AS recent_avg_score,
           ARRAY_REMOVE(ARRAY_AGG(sem.total_score ORDER BY sem.start_time DESC, sem.exam_id DESC), NULL) AS score_series
         FROM student_exam_matrix sem
-        GROUP BY sem.class_id, sem.class_name, sem.class_grade, sem.student_id, sem.student_name, sem.student_no
+        GROUP BY sem.class_id, sem.class_name, sem.student_id, sem.student_name, sem.student_no
       )
       SELECT
         ss.class_id,
         ss.class_name,
-        ss.class_grade,
         ss.student_id,
         ss.student_name,
         ss.student_no,
@@ -6885,7 +6914,6 @@ app.get('/api/analytics/student-warnings', authRequired, async (req, res) => {
           {
             class_id: Number(item.class_id),
             class_name: String(item.class_name || ''),
-            class_grade: String(item.class_grade || ''),
           },
         ]),
       ).values(),
@@ -6993,7 +7021,7 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
     const { rows } = await pool.query(
       `
       WITH visible_classes AS (
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${accessSql}
       ),
@@ -7001,7 +7029,6 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
         SELECT
           vc.id AS class_id,
           vc.name AS class_name,
-          vc.grade AS class_grade,
           s.id AS student_id,
           COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS student_name,
           s.student_no
@@ -7034,7 +7061,6 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
         SELECT
           cs.class_id,
           cs.class_name,
-          cs.class_grade,
           cs.student_id,
           cle.start_time,
           es.total_score
@@ -7046,7 +7072,6 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
         SELECT
           sem.class_id,
           sem.class_name,
-          sem.class_grade,
           sem.student_id,
           COALESCE(COUNT(DISTINCT sem.start_time), 0)::int AS recent_exam_count,
           COALESCE(COUNT(*) FILTER (WHERE sem.total_score IS NULL), 0)::int AS missing_count,
@@ -7054,12 +7079,11 @@ app.get('/api/analytics/student-warnings/overview', authRequired, async (req, re
           ARRAY_REMOVE(ARRAY_AGG(sem.total_score ORDER BY sem.start_time DESC), NULL) AS score_series,
           MAX(sem.start_time) AS latest_exam_time
         FROM student_exam_matrix sem
-        GROUP BY sem.class_id, sem.class_name, sem.class_grade, sem.student_id
+        GROUP BY sem.class_id, sem.class_name, sem.student_id
       )
       SELECT
         ss.class_id,
         ss.class_name,
-        ss.class_grade,
         ss.student_id,
         ss.latest_exam_time,
         swc.status AS handle_status,
@@ -7750,7 +7774,7 @@ app.get('/api/resources/meta', authRequired, async (_req, res) => {
     const [classResult] = await Promise.all([
       pool.query(
         `
-        SELECT c.id, c.name, c.grade
+        SELECT c.id, c.name
         FROM classes c
         ${whereClause}
         ORDER BY c.created_at DESC, c.id DESC
@@ -7768,7 +7792,6 @@ app.get('/api/resources/meta', authRequired, async (_req, res) => {
         classes: classResult.rows.map((item) => ({
           id: item.id,
           name: item.name,
-          grade: item.grade,
         })),
       },
     })
@@ -7893,7 +7916,7 @@ app.get('/api/resources', authRequired, async (req, res) => {
     if (ids.length > 0) {
       const visibilityResult = await pool.query(
         `
-        SELECT v.resource_id, c.id AS class_id, c.name AS class_name, c.grade AS class_grade
+        SELECT v.resource_id, c.id AS class_id, c.name AS class_name
         FROM resource_class_visibility v
         JOIN classes c ON c.id = v.class_id
         WHERE v.resource_id = ANY($1::bigint[])
@@ -7907,7 +7930,6 @@ app.get('/api/resources', authRequired, async (req, res) => {
         visibilityMap.get(key).push({
           class_id: Number(row.class_id),
           class_name: String(row.class_name || ''),
-          class_grade: String(row.class_grade || ''),
         })
       })
     }
@@ -10149,6 +10171,7 @@ const runBootMigrations = async () => {
   await ensureKnowledgeUnitSchema()
   await ensureSystemConfigTable()
   await ensureClassInviteSchema()
+  await ensureClassNameUniqueIndex()
   await ensureClassLeaveRequestSchema()
   await ensureStudentWarningSchema()
   await ensureQuestionDuplicateMarkSchema()

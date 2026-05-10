@@ -9,12 +9,13 @@
   <block wx:else>
     <view class="ios-card profile-card">
       <view class="profile-row">
-        <view class="avatar-ring">
-          <view class="avatar">{{avatarLetter}}</view>
+        <view class="avatar-ring" bindtap="onTapSyncWechatProfile">
+          <image wx:if="{{wxAvatarUrl}}" class="avatar-img" src="{{wxAvatarUrl}}" mode="aspectFill" />
+          <view wx:else class="avatar">{{avatarLetter}}</view>
         </view>
         <view class="profile-text">
-          <text class="name">{{displayName}}</text>
-          <text class="subline muted" wx:if="{{studentNo}}">学号 {{studentNo}}</text>
+          <text class="name">{{wxNickname}}</text>
+          <text class="subline muted" wx:if="{{showWxProfileHint}}">轻点头像可授权同步微信头像与昵称</text>
           <text class="subline muted" wx:if="{{needJoinClass}}">须加入班级后方可使用刷题、考试与做题记录</text>
         </view>
       </view>
@@ -45,7 +46,7 @@
       <view class="ios-cell" bindtap="onTapEditName">
         <view class="ios-cell-main">
           <text class="ios-cell-sub">真实姓名</text>
-          <text class="ios-cell-title">{{displayName}}</text>
+          <text class="ios-cell-title">{{realDisplayName}}</text>
         </view>
         <text class="ios-cell-chevron">›</text>
       </view>
@@ -71,17 +72,19 @@
     </block>
   </view>
 
-  <text class="section-label">其他</text>
-  <view class="ios-card">
-    <view class="ios-cell" bindtap="onPlaceholder" data-title="通知">
-      <text class="ios-cell-title plain">通知</text>
-      <text class="ios-cell-chevron">›</text>
+  <block wx:if="{{mineShowOther}}">
+    <text class="section-label">其他</text>
+    <view class="ios-card">
+      <view class="ios-cell" bindtap="onPlaceholder" data-title="通知">
+        <text class="ios-cell-title plain">通知</text>
+        <text class="ios-cell-chevron">›</text>
+      </view>
+      <view class="ios-cell" bindtap="onPlaceholder" data-title="关于">
+        <text class="ios-cell-title plain">关于</text>
+        <text class="ios-cell-chevron">›</text>
+      </view>
     </view>
-    <view class="ios-cell" bindtap="onPlaceholder" data-title="关于">
-      <text class="ios-cell-title plain">关于</text>
-      <text class="ios-cell-chevron">›</text>
-    </view>
-  </view>
+  </block>
 
   <button wx:if="{{loggedIn}}" class="logout-btn" bindtap="logout">退出登录</button>
 

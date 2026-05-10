@@ -43,6 +43,14 @@
   justify-content: center;
 }
 
+.avatar-img {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  display: block;
+  background: #e8e8ed;
+}
+
 .profile-text {
   flex: 1;
   margin-left: 28rpx;

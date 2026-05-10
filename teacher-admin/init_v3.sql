@@ -99,6 +99,7 @@ CREATE TABLE classes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_classes_owner_id ON classes(owner_id);
+CREATE UNIQUE INDEX idx_classes_name_btrim_unique ON classes ((btrim(name)));
 
 -- 7) students
 CREATE TABLE students (

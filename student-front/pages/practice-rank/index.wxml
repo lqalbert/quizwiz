@@ -16,7 +16,6 @@
       <text class="rank-num">{{item.rank}}</text>
       <view class="rank-main">
         <text class="rank-name">{{item.name}}</text>
-        <text wx:if="{{item.student_no}}" class="rank-no muted">学号 {{item.student_no}}</text>
       </view>
       <view class="rank-stats">
         <text class="rank-stat">答题 {{item.practice_questions}}</text>

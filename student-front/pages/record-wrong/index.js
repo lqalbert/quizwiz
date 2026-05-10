@@ -7,10 +7,10 @@ const LIST_PAGE_SIZE = 25;
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
-    if (!token) {
-      wx.reLaunch({ url: "/pages/login/index" });
-      return false;
-    }
+  if (!token) {
+    wx.reLaunch({ url: "/pages/login/index" });
+    return false;
+  }
   return true;
 }
 
@@ -62,7 +62,9 @@ Page({
             await this.bootstrap();
             await this.loadKnowledgeUnits(sid);
             await this.loadWrongList(true);
-          } catch (_) {}
+          } catch (e) {
+            wx.showToast({ title: (e && e.message) || "恢复列表失败", icon: "none" });
+          }
         })();
         wx.setNavigationBarTitle({ title: "错题本" });
         return;

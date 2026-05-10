@@ -588,7 +588,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     Array<{
       class_id: number
       class_name: string
-      class_grade: string
       student_count: number
       exam_count: number
       submission_count: number
@@ -842,7 +841,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           dataSource={classStats}
           columns={[
             { title: '班级', dataIndex: 'class_name', width: 140 },
-            { title: '年级', dataIndex: 'class_grade', width: 100 },
             { title: '学生数', dataIndex: 'student_count', width: 90 },
             { title: '考试场次', dataIndex: 'exam_count', width: 100 },
             { title: '提交率', render: (_: unknown, row: { submission_rate: number }) => `${row.submission_rate}%`, width: 100 },
@@ -897,7 +895,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
 
 /** 班级学生学情抽屉 / GET …/insights 响应 */
 type ClassStudentInsightPayload = {
-  student?: { id: number; name: string; student_no: string }
+  student?: { id: number; name: string; nickname?: string; real_name?: string | null; avatar_url?: string }
   practice_summary: {
     questions_touched: number
     attempts: number
@@ -944,7 +942,6 @@ function ClassPage() {
       key: string
       id: number
       name: string
-      grade: string
       studentCount: number
       inviteCode: string
       inviteEnabled: boolean
@@ -955,7 +952,7 @@ function ClassPage() {
   >([])
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
   const [students, setStudents] = useState<
-    Array<{ id: number; name: string; nickname?: string; real_name?: string | null; student_no: string }>
+    Array<{ id: number; name: string; nickname?: string; real_name?: string | null; avatar_url?: string | null }>
   >([])
   const [teacherRows, setTeacherRows] = useState<
     Array<{ key: string; teacher_id: number; teacher_name: string; teacher_phone: string; subject_id: number; subject_name: string }>
@@ -970,13 +967,20 @@ function ClassPage() {
   const [inviteExpiresAt, setInviteExpiresAt] = useState('')
   const [joinAuditMode, setJoinAuditMode] = useState<'auto' | 'manual'>('auto')
   const [inviteJoinLogs, setInviteJoinLogs] = useState<
-    Array<{ id: number; join_channel: string; invite_code?: string; joined_at: string; student_name?: string; student_no?: string }>
+    Array<{
+      id: number
+      join_channel: string
+      invite_code?: string
+      joined_at: string
+      student_name?: string
+      student_avatar_url?: string | null
+    }>
   >([])
   const [joinRequests, setJoinRequests] = useState<
-    Array<{ id: number; student_name: string; student_no: string; source: string; requested_at: string }>
+    Array<{ id: number; student_name: string; source: string; requested_at: string }>
   >([])
   const [leaveRequests, setLeaveRequests] = useState<
-    Array<{ id: number; student_id: number; student_name: string; student_no: string; requested_at: string }>
+    Array<{ id: number; student_id: number; student_name: string; student_avatar_url?: string | null; requested_at: string }>
   >([])
   const [createForm] = Form.useForm()
   const [addStudentForm] = Form.useForm()
@@ -999,7 +1003,6 @@ function ClassPage() {
         key: String(item.id),
         id: Number(item.id),
         name: String(item.name ?? ''),
-        grade: String(item.grade ?? ''),
         studentCount: Number(item.student_count ?? 0),
         inviteCode: String(item.invite_code ?? ''),
         inviteEnabled: Boolean(item.invite_enabled ?? true),
@@ -1333,6 +1336,14 @@ function ClassPage() {
                   <Table
                     loading={studentsLoading}
                     columns={[
+                      {
+                        title: '头像',
+                        dataIndex: 'avatar_url',
+                        width: 72,
+                        render: (_: unknown, row: { avatar_url?: string | null }) => (
+                          <Avatar src={row.avatar_url || undefined} icon={<UserOutlined />} />
+                        ),
+                      },
                       { title: '姓名（真实）', dataIndex: 'name' },
                       {
                         title: '昵称',
@@ -1340,7 +1351,6 @@ function ClassPage() {
                         render: (v?: string, row?: { name?: string }) =>
                           v && row?.name && v !== row.name ? v : '—',
                       },
-                      { title: '学号', dataIndex: 'student_no' },
                       {
                         title: '操作',
                         key: 'action',
@@ -1565,8 +1575,16 @@ function ClassPage() {
               dataSource={inviteJoinLogs.map((item) => ({ ...item, key: String(item.id) }))}
               columns={[
                 { title: '时间', dataIndex: 'joined_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
-                { title: '学生', dataIndex: 'student_name', render: (v?: string) => v || '-' },
-                { title: '学号', dataIndex: 'student_no', render: (v?: string) => v || '-' },
+                {
+                  title: '学生',
+                  dataIndex: 'student_name',
+                  render: (_: unknown, row: { student_name?: string; student_avatar_url?: string | null }) => (
+                    <Space>
+                      <Avatar size="small" src={row.student_avatar_url || undefined} icon={<UserOutlined />} />
+                      <span>{row.student_name || '-'}</span>
+                    </Space>
+                  ),
+                },
                 { title: '加入来源', dataIndex: 'join_channel' },
                 { title: '邀请码', dataIndex: 'invite_code', render: (v?: string) => (v || '-').toUpperCase() },
               ]}
@@ -1579,7 +1597,6 @@ function ClassPage() {
                 columns={[
                   { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
                   { title: '学生姓名', dataIndex: 'student_name' },
-                  { title: '学号', dataIndex: 'student_no' },
                   { title: '来源', dataIndex: 'source' },
                   ...(selectedClassCanManage
                     ? [
@@ -1654,8 +1671,16 @@ function ClassPage() {
                 dataSource={leaveRequests.map((item) => ({ ...item, key: String(item.id) }))}
                 columns={[
                   { title: '申请时间', dataIndex: 'requested_at', render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
-                  { title: '学生', dataIndex: 'student_name' },
-                  { title: '学号', dataIndex: 'student_no' },
+                  {
+                    title: '学生',
+                    dataIndex: 'student_name',
+                    render: (_: unknown, row: { student_name?: string; student_avatar_url?: string | null }) => (
+                      <Space>
+                        <Avatar size="small" src={row.student_avatar_url || undefined} icon={<UserOutlined />} />
+                        <span>{row.student_name || '-'}</span>
+                      </Space>
+                    ),
+                  },
                   ...(selectedClassCanManage
                     ? [
                         {
@@ -1766,6 +1791,26 @@ function ClassPage() {
           </div>
         ) : studentInsightData ? (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {studentInsightData.student ? (
+              <Space align="center" style={{ marginBottom: 4 }}>
+                <Avatar
+                  size={48}
+                  src={studentInsightData.student.avatar_url || undefined}
+                  icon={<UserOutlined />}
+                />
+                <div>
+                  <Typography.Text strong style={{ fontSize: 16 }}>
+                    {studentInsightData.student.name}
+                  </Typography.Text>
+                  {studentInsightData.student.nickname &&
+                  studentInsightData.student.nickname !== studentInsightData.student.name ? (
+                    <div>
+                      <Typography.Text type="secondary">昵称：{studentInsightData.student.nickname}</Typography.Text>
+                    </div>
+                  ) : null}
+                </div>
+              </Space>
+            ) : null}
             <Card size="small" title="刷题概况（全库累计）">
               <Row gutter={[16, 12]}>
                 <Col xs={12} sm={8}>
@@ -5100,7 +5145,7 @@ function ExamDetailPage() {
     expected_count: number
     submitted_count: number
     reviewed_count: number
-    classes: Array<{ id: number; name: string; grade: string }>
+    classes: Array<{ id: number; name: string }>
     questions: Array<{
       question_id: number
       score: number
@@ -5112,7 +5157,6 @@ function ExamDetailPage() {
     class_stats: Array<{
       class_id: number
       class_name: string
-      class_grade: string
       expected_count: number
       submitted_count: number
       scored_count: number
@@ -5123,7 +5167,7 @@ function ExamDetailPage() {
     student_submissions: Array<{
       student_id: number
       student_name: string
-      student_no: string
+      student_avatar_url?: string | null
       submission_id?: number
       submission_status?: number
       submission_status_text: string
@@ -5197,9 +5241,7 @@ function ExamDetailPage() {
   const filteredSubmissionRows = (detail?.student_submissions || []).filter((item) => {
     const statusOk = resultStatusFilter ? item.submission_status_text === resultStatusFilter : true
     const keyword = resultKeyword.trim()
-    const keywordOk = keyword
-      ? item.student_name.includes(keyword) || item.student_no.includes(keyword)
-      : true
+    const keywordOk = keyword ? item.student_name.includes(keyword) : true
     return statusOk && keywordOk
   })
   const scoredRows = filteredSubmissionRows.filter((item) => typeof item.total_score === 'number')
@@ -5212,7 +5254,6 @@ function ExamDetailPage() {
     const rows = filteredSubmissionRows.map((item, index) => ({
       序号: index + 1,
       姓名: item.student_name,
-      学号: item.student_no,
       提交状态: item.submission_status_text,
       开始作答时间: item.submission_start_time ? formatBeijingDateTime(item.submission_start_time) : '',
       提交时间: item.submit_time ? formatBeijingDateTime(item.submit_time) : '',
@@ -5271,10 +5312,7 @@ function ExamDetailPage() {
               <Table
                 pagination={false}
                 dataSource={detail.classes.map((item) => ({ ...item, key: String(item.id) }))}
-                columns={[
-                  { title: '班级名称', dataIndex: 'name' },
-                  { title: '年级', dataIndex: 'grade' },
-                ]}
+                columns={[{ title: '班级名称', dataIndex: 'name' }]}
               />
             </Card>
 
@@ -5319,7 +5357,7 @@ function ExamDetailPage() {
                   <Input
                     value={resultKeyword}
                     onChange={(event) => setResultKeyword(event.target.value)}
-                    placeholder="按姓名/学号筛选"
+                    placeholder="按姓名筛选"
                     allowClear
                     style={{ width: 220 }}
                   />
@@ -5357,8 +5395,17 @@ function ExamDetailPage() {
                 pagination={{ pageSize: 10 }}
                 dataSource={filteredSubmissionRows.map((item) => ({ ...item, key: String(item.student_id) }))}
                 columns={[
-                  { title: '姓名', dataIndex: 'student_name', width: 120 },
-                  { title: '学号', dataIndex: 'student_no', width: 140 },
+                  {
+                    title: '学生',
+                    dataIndex: 'student_name',
+                    width: 200,
+                    render: (_: unknown, row: { student_name?: string; student_avatar_url?: string | null }) => (
+                      <Space>
+                        <Avatar size="small" src={row.student_avatar_url || undefined} icon={<UserOutlined />} />
+                        <span>{row.student_name || '-'}</span>
+                      </Space>
+                    ),
+                  },
                   {
                     title: '提交状态',
                     dataIndex: 'submission_status_text',
@@ -5419,7 +5466,6 @@ function AnalyticsPage() {
     Array<{
       class_id: number
       class_name: string
-      class_grade: string
       student_count: number
       exam_count: number
       scored_count: number
@@ -5478,10 +5524,8 @@ function AnalyticsPage() {
     Array<{
       class_id: number
       class_name: string
-      class_grade: string
       student_id: number
       student_name: string
-      student_no: string
       recent_exam_count: number
       missing_count: number
       recent_avg_score: number
@@ -5558,7 +5602,6 @@ function AnalyticsPage() {
       rank_no: number
       class_id: number
       class_name: string
-      class_grade: string
       expected_count: number
       submitted_count: number
       scored_count: number
@@ -5611,7 +5654,7 @@ function AnalyticsPage() {
       if (!response.ok) throw new Error(payload?.message || `加载成绩分析失败(${response.status})`)
       const data = payload?.data || {}
       const options = (Array.isArray(data.class_options) ? data.class_options : []).map((item: Record<string, unknown>) => ({
-        label: `${String(item.class_name || '')}（${String(item.class_grade || '-') }）`,
+        label: String(item.class_name || ''),
         value: Number(item.class_id),
       }))
       setClassOptions(options)
@@ -5922,9 +5965,8 @@ function AnalyticsPage() {
   const exportStudentWarnings = () => {
     try {
       const rows = studentWarningRows.map((item) => ({
-        班级: `${item.class_name}（${item.class_grade || '-'}）`,
+        班级: item.class_name,
         学生姓名: item.student_name,
-        学号: item.student_no,
         预警等级: item.warning_level === 'high' ? '高' : '中',
         处理状态: item.handle_status === 'resolved' ? '已完成' : item.handle_status === 'in_progress' ? '跟进中' : '待跟进',
         触发原因: Array.isArray(item.warning_reasons) ? item.warning_reasons.join('；') : '',
@@ -5999,7 +6041,7 @@ function AnalyticsPage() {
     try {
       const rows = examClassRankingRows.map((item) => ({
         排名: item.rank_no,
-        班级: `${item.class_name}（${item.class_grade || '-'}）`,
+        班级: item.class_name,
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -6056,7 +6098,7 @@ function AnalyticsPage() {
 
       const rankingRows = examClassRankingRows.map((item) => ({
         排名: item.rank_no,
-        班级: `${item.class_name}（${item.class_grade || '-'}）`,
+        班级: item.class_name,
         应考人数: item.expected_count,
         实考人数: item.submitted_count,
         出分人数: item.scored_count,
@@ -6208,7 +6250,6 @@ function AnalyticsPage() {
           pagination={{ pageSize: 8 }}
           columns={[
             { title: '班级', dataIndex: 'class_name', width: 140 },
-            { title: '年级', dataIndex: 'class_grade', width: 100 },
             { title: '学生数', dataIndex: 'student_count', width: 90 },
             { title: '考试场次', dataIndex: 'exam_count', width: 90 },
             { title: '已出分人次', dataIndex: 'scored_count', width: 110 },
@@ -6395,7 +6436,7 @@ function AnalyticsPage() {
           pagination={{ pageSize: 8 }}
           columns={[
             { title: '排名', dataIndex: 'rank_no', width: 70 },
-            { title: '班级', render: (_: unknown, row: { class_name: string; class_grade: string }) => `${row.class_name}（${row.class_grade || '-'}）`, width: 160 },
+            { title: '班级', dataIndex: 'class_name', width: 160 },
             { title: '应考', dataIndex: 'expected_count', width: 70 },
             { title: '实考', dataIndex: 'submitted_count', width: 70 },
             { title: '出分', dataIndex: 'scored_count', width: 70 },
@@ -6448,9 +6489,8 @@ function AnalyticsPage() {
           dataSource={studentWarningRows.map((item) => ({ ...item, key: `${item.class_id}-${item.student_id}` }))}
           pagination={{ pageSize: 8 }}
           columns={[
-            { title: '班级', render: (_: unknown, row: Record<string, unknown>) => `${String(row.class_name || '')}（${String(row.class_grade || '-')}）`, width: 180 },
+            { title: '班级', dataIndex: 'class_name', width: 180 },
             { title: '学生姓名', dataIndex: 'student_name', width: 110 },
-            { title: '学号', dataIndex: 'student_no', width: 130 },
             {
               title: '预警等级',
               dataIndex: 'warning_level',
@@ -6623,7 +6663,6 @@ function AnalyticsPage() {
           pagination={{ pageSize: 8 }}
           columns={[
             { title: '班级', dataIndex: 'class_name', width: 140 },
-            { title: '年级', dataIndex: 'class_grade', width: 100 },
             { title: '学生数', dataIndex: 'student_count', width: 90 },
             { title: '考试场次', dataIndex: 'exam_count', width: 90 },
             { title: '已出分人次', dataIndex: 'scored_count', width: 110 },
@@ -6915,7 +6954,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       subject_name?: string
       uploader_name: string
       created_at: string
-      visible_classes: Array<{ class_id: number; class_name: string; class_grade: string }>
+      visible_classes: Array<{ class_id: number; class_name: string }>
     }>
   >([])
   const [subjectOptions, setSubjectOptions] = useState<Array<{ value: number; label: string }>>([])
@@ -6949,7 +6988,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
       setClassOptions(
         (Array.isArray(payload?.data?.classes) ? payload.data.classes : []).map((item: Record<string, unknown>) => ({
           value: Number(item.id || 0),
-          label: `${String(item.name || '')}（${String(item.grade || '-')}）`,
+          label: String(item.name || ''),
         })),
       )
     } catch (error) {
@@ -6997,7 +7036,7 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
           subject_name: String(item.subject_name || ''),
           uploader_name: String(item.uploader_name || ''),
           created_at: String(item.created_at || ''),
-          visible_classes: Array.isArray(item.visible_classes) ? (item.visible_classes as Array<{ class_id: number; class_name: string; class_grade: string }>) : [],
+          visible_classes: Array.isArray(item.visible_classes) ? (item.visible_classes as Array<{ class_id: number; class_name: string }>) : [],
         })),
       )
     } catch (error) {
@@ -7391,8 +7430,8 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
             dataIndex: 'visible_classes',
             width: canManageResource ? 220 : 320,
             ellipsis: true,
-            render: (items: Array<{ class_name: string; class_grade: string }>) =>
-              Array.isArray(items) && items.length > 0 ? items.map((item) => `${item.class_name}（${item.class_grade || '-'}）`).join('、') : '全部可见',
+            render: (items: Array<{ class_name: string }>) =>
+              Array.isArray(items) && items.length > 0 ? items.map((item) => String(item.class_name || '')).join('、') : '全部可见',
           },
           { title: '上传人', dataIndex: 'uploader_name', width: 110, render: (v: string) => v || '-' },
           { title: '上传时间', dataIndex: 'created_at', width: 170, render: (v: string) => (v ? formatBeijingDateTime(v, true) : '-') },
@@ -8200,13 +8239,13 @@ function SystemSettingsPage() {
       return `近${String(detail.recentExamCount || '-')}次，均分阈值${String(detail.avgScoreThreshold || '-')}，未提交阈值${String(detail.missingThreshold || '-')}`
     }
     if (row.action === 'class.student.add' || row.action === 'class.student.remove') {
-      return `学生ID：${String(detail.studentId || '-')}，学号：${String(detail.studentNo || '-')}`
+      return `学生ID：${String(detail.studentId || '-')}`
     }
     if (row.action === 'class.teacher.add' || row.action === 'class.teacher.remove') {
       return `教师ID：${String(detail.teacherId || '-')}${detail.subjectId ? `，科目ID：${String(detail.subjectId)}` : ''}`
     }
     if (row.action === 'class.join_request.submit') {
-      return `申请ID：${String(detail.requestId || '-')}，学号：${String(detail.studentNo || '-')}`
+      return `申请ID：${String(detail.requestId || '-')}`
     }
     if (row.action === 'class.join_request.approve' || row.action === 'class.join_request.reject') {
       return `申请ID：${String(detail.requestId || '-')}${detail.studentId ? `，学生ID：${String(detail.studentId)}` : ''}`

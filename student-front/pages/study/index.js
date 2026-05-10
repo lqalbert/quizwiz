@@ -201,13 +201,11 @@ Page({
       const res = await request({ path: "/api/student/my-classes", method: "GET" });
       const raw = takeArrayFromStudentApi(res);
       const classes = raw.map((c) => {
-        const name = String(c.name || "");
-        const grade = String(c.grade || "").trim();
+        const name = String(c.name || "").trim();
         return {
           id: Number(c.id),
           name,
-          grade,
-          label: grade ? `${name}（${grade}）` : name,
+          label: name || "班级",
         };
       }).filter((c) => c.id > 0);
       if (classes.length === 0) {
