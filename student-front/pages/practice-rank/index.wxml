@@ -4,10 +4,10 @@
   <view wx:if="{{loading}}" class="rank-loading muted">加载中…</view>
   <view wx:elif="{{err}}" class="ios-card rank-err">
     <text class="muted">{{err}}</text>
-    <view class="link-tint rank-retry" bindtap="loadRank">重试</view>
+    <view class="link-tint rank-retry tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="loadRank">重试</view>
   </view>
   <view wx:elif="{{!rows.length}}" class="rank-empty muted">本周期暂无同学作答记录</view>
-  <scroll-view wx:else scroll-y class="rank-scroll" show-scrollbar="{{false}}">
+  <scroll-view wx:else scroll-y class="rank-scroll" enhanced="{{true}}" show-scrollbar="{{false}}">
     <view
       wx:for="{{rows}}"
       wx:key="student_id"

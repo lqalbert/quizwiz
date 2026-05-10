@@ -12,7 +12,7 @@
     <view class="ios-card home-guest-stats">
       <text class="home-guest-title muted">登录后查看数据</text>
       <text class="home-guest-desc muted">考试进度、刷题统计与错题本一站式查看</text>
-      <view class="btn-primary home-guest-btn" bindtap="goLogin">去登录</view>
+      <view class="btn-primary home-guest-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
     </view>
   </block>
 
@@ -20,7 +20,7 @@
     <view wx:if="{{homeGuideVisible}}" class="ios-card home-guide-card">
       <view class="home-guide-head">
         <text class="home-guide-title">快速了解</text>
-        <text class="home-guide-dismiss link-tint" bindtap="dismissHomeGuide">知道了</text>
+        <view class="home-guide-dismiss link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="dismissHomeGuide">知道了</view>
       </view>
       <text class="home-guide-line muted">「刷题」卡片可切换今日/本周等周期；今日「错题数」为待复习题量，点数字进入待复习。</text>
       <text class="home-guide-line muted">底部「刷题」Tab 进入科目与单元练习；错题本在「我的」或记录类入口。</text>
@@ -47,7 +47,7 @@
       </view>
       <view class="home-today-goal-row">
         <text class="muted home-today-goal-label">练题目标 {{todaySnapshot.practiced}}/{{todaySnapshot.goal}} 题</text>
-        <text class="link-tint home-today-goal-edit" bindtap="onAdjustPracticeGoal">调整</text>
+        <view class="link-tint home-today-goal-edit tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="onAdjustPracticeGoal">调整</view>
       </view>
       <view class="home-today-bar">
         <view class="home-today-bar-fill" style="width: {{todaySnapshot.goalPct}}%;"></view>
@@ -70,7 +70,7 @@
     <view class="home-dash-card home-dash-card--exam ios-card">
       <view class="home-dash-head">
         <text class="home-dash-title">考试</text>
-        <text class="home-dash-link link-tint" bindtap="goExamList">全部</text>
+        <view class="home-dash-link link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goExamList">全部</view>
       </view>
       <text class="home-dash-sub muted">班级考试 · 近 120 天 · 点区块进列表</text>
 
@@ -80,7 +80,7 @@
 
       <block wx:elif="{{examListError}}">
         <view class="home-dash-empty muted">{{examListError}}</view>
-        <view class="home-dash-retry link-tint" bindtap="loadStudentExams">点击重试</view>
+        <view class="home-dash-retry link-tint tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="loadStudentExams">点击重试</view>
       </block>
 
       <block wx:else>
@@ -91,7 +91,7 @@
             <text class="home-dash-pill-h muted">场进行中</text>
           </view>
           <block wx:for="{{examTasks}}" wx:key="id">
-            <view wx:if="{{index < 2}}" class="home-dash-task" bindtap="goExamTake" data-id="{{item.id}}">
+            <view wx:if="{{index < 2}}" class="home-dash-task" hover-class="home-dash-task-hover" hover-stay-time="70" bindtap="goExamTake" data-id="{{item.id}}">
               <view class="home-dash-task-main">
                 <text class="home-dash-task-title">{{item.title}}</text>
                 <text class="home-dash-task-meta muted">{{item.subject_name}} · {{item.submission_label}}</text>
@@ -99,13 +99,13 @@
               <text class="home-dash-task-go">进入</text>
             </view>
           </block>
-          <view wx:if="{{examTasks.length > 2}}" class="home-dash-more link-tint" bindtap="goExamList">还有 {{examTasks.length - 2}} 场待考…</view>
+          <view wx:if="{{examTasks.length > 2}}" class="home-dash-more link-tint tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goExamList">还有 {{examTasks.length - 2}} 场待考…</view>
         </block>
 
         <block wx:if="{{examOverview}}">
           <view wx:if="{{examOverview.total === 0}}" class="home-dash-empty muted">暂无分配给你的班级考试</view>
           <block wx:else>
-            <view class="home-dash-spotlight home-dash-spotlight--exam" bindtap="goExamList">
+            <view class="home-dash-spotlight home-dash-spotlight--exam" hover-class="home-dash-spotlight-hover" hover-stay-time="70" bindtap="goExamList">
               <view class="home-dash-spot-cell">
                 <text class="home-dash-spot-eyebrow home-dash-spot-eyebrow--exam">优先处理</text>
                 <text class="home-dash-spot-val">{{examOverview.todo_count}}</text>
@@ -119,7 +119,7 @@
                 <text class="home-dash-spot-lab">已交卷</text>
               </view>
             </view>
-            <view class="home-dash-score-row" bindtap="goExamList">
+            <view class="home-dash-score-row" hover-class="home-dash-score-row-hover" hover-stay-time="70" bindtap="goExamList">
               <text class="home-dash-score-label">场均得分（已出分）</text>
               <text class="home-dash-score-val">{{examOverview.avg_score_display}}</text>
             </view>
@@ -132,12 +132,12 @@
     <view wx:if="{{statsLoading}}" class="home-loading muted">刷题数据加载中…</view>
     <view wx:elif="{{statsError}}" class="ios-card home-err">
       <text class="muted">{{statsError}}</text>
-      <view class="home-retry link-tint" bindtap="loadHomeSummary">点击重试</view>
+      <view class="home-retry link-tint tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="loadHomeSummary">点击重试</view>
     </view>
     <view wx:else class="home-dash-card home-dash-card--quiz ios-card">
       <view class="home-dash-head">
         <text class="home-dash-title">刷题</text>
-        <text class="home-dash-link link-tint" bindtap="goQuiz">去刷题</text>
+        <view class="home-dash-link link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goQuiz">去刷题</view>
       </view>
       <text class="home-dash-sub muted">不含班级正式考试；今日同题计 1 次，本周/月/全部按自然日合计后再相加。正确率为原始判题正确率。排名按答题数×正确率</text>
 
@@ -149,29 +149,31 @@
             wx:key="key"
             class="home-practice-tab {{practiceTab === item.key ? 'home-practice-tab--on' : ''}}"
             data-key="{{item.key}}"
+            hover-class="home-practice-tab-hover"
+            hover-stay-time="70"
             bindtap="onPracticeTab"
           >
             {{item.label}}
           </view>
         </view>
         <view class="home-practice-grid">
-          <view class="home-practice-metric" bindtap="goQuiz">
+          <view class="home-practice-metric" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goQuiz">
             <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
             <text class="home-practice-metric-lab">答题数</text>
             <text class="home-practice-metric-h muted">今日每题计 1；周/月/全部按日合计</text>
           </view>
-          <view class="home-practice-metric home-practice-metric--warn" bindtap="goWrongOrReviewToday">
+          <view class="home-practice-metric home-practice-metric--warn" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goWrongOrReviewToday">
             <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
             <text class="home-practice-metric-lab">错题数</text>
             <text class="home-practice-metric-h muted" wx:if="{{practiceTab === 'today'}}">今日待复习（到点即练）</text>
             <text class="home-practice-metric-h muted" wx:else>今日每题错题计 1；周/月/全部按日合计</text>
           </view>
-          <view class="home-practice-metric home-practice-metric--static">
+          <view class="home-practice-metric home-practice-metric--static" hover-class="home-practice-metric-static-hover" hover-stay-time="70">
             <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>
             <text class="home-practice-metric-lab">正确率</text>
             <text class="home-practice-metric-h muted">按本周期判题次数</text>
           </view>
-          <view class="home-practice-metric home-practice-metric--rank" bindtap="goPracticeClassRank">
+          <view class="home-practice-metric home-practice-metric--rank" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goPracticeClassRank">
             <text class="home-practice-metric-val home-practice-metric-val--rank">{{practicePanel.rank_main}}</text>
             <text class="home-practice-metric-lab">班级排名</text>
             <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>

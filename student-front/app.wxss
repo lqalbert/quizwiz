@@ -3,8 +3,9 @@ page {
   --ios-bg-grouped: #f2f2f7;
   --ios-fill: #ffffff;
   --ios-label: #000000;
-  --ios-secondary: rgba(60, 60, 67, 0.6);
-  --ios-tertiary: rgba(60, 60, 67, 0.3);
+  /* 次要文案略加深，满足可读对比（体验分 / WCAG 倾向） */
+  --ios-secondary: rgba(60, 60, 67, 0.72);
+  --ios-tertiary: rgba(60, 60, 67, 0.42);
   --ios-separator: rgba(60, 60, 67, 0.12);
   --ios-tint: #007aff;
   --ios-green: #34c759;
@@ -73,7 +74,8 @@ page {
   box-shadow: 0 6rpx 22rpx rgba(0, 122, 255, 0.26);
 }
 
-.btn-primary:active {
+/* 点击态请用 hover-class="btn-primary-hover"，勿用 :active（避免滑动误触、体验分） */
+.btn-primary-hover {
   opacity: 0.88;
 }
 
@@ -105,7 +107,7 @@ page {
   box-sizing: border-box;
 }
 
-.ios-cell:active {
+.ios-cell-hover {
   background: rgba(0, 0, 0, 0.04);
 }
 
@@ -188,8 +190,35 @@ page {
   font-weight: 500;
 }
 
-.link-tint:active {
+.link-tint-hover {
   opacity: 0.65;
+}
+
+/* 文字链可点热区（≥44pt 等效，体验分） */
+.tap-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72rpx;
+  padding: 10rpx 20rpx;
+  margin: -10rpx -12rpx;
+  box-sizing: border-box;
+  border-radius: 12rpx;
+}
+
+.tap-link--row {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: center;
+  margin: 0;
+  padding-top: 20rpx;
+  padding-bottom: 12rpx;
+}
+
+/* 输入框 placeholder 对比度 */
+.ph {
+  color: rgba(60, 60, 67, 0.48);
 }
 
 /* 页面主标题区：左色条 + 眉标 + 主标题 + 副文案（首页 / 刷题 / 学习 / 记录页共用） */
@@ -302,7 +331,7 @@ page {
   padding: 4rpx 0;
 }
 
-.nav-back-row:active {
+.nav-back-row-hover {
   opacity: 0.55;
 }
 
@@ -310,8 +339,8 @@ page {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 48rpx;
-  min-height: 64rpx;
+  min-width: 56rpx;
+  min-height: 88rpx;
   margin-left: 0;
   font-size: 52rpx;
   font-weight: 300;
@@ -376,7 +405,7 @@ page {
   box-sizing: border-box;
 }
 
-.ui-chip:active {
+.ui-chip-hover {
   opacity: 0.86;
 }
 
@@ -452,7 +481,7 @@ page {
   box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.04);
 }
 
-.ui-btn-secondary:active {
+.ui-btn-secondary-hover {
   background: rgba(60, 60, 67, 0.05);
 }
 
@@ -505,7 +534,7 @@ page {
   line-height: 1;
 }
 
-.ui-row-btn--ghost:active {
+.ui-row-btn--ghost-hover {
   background: rgba(60, 60, 67, 0.05);
 }
 
@@ -515,7 +544,7 @@ page {
   box-shadow: 0 4rpx 16rpx rgba(0, 122, 255, 0.22);
 }
 
-.ui-row-btn--primary:active {
+.ui-row-btn--primary-hover {
   opacity: 0.92;
 }
 
@@ -549,8 +578,7 @@ page {
   color: #fff;
 }
 
-.ui-modal-btn--cancel:active,
-.ui-modal-btn--ok:active {
+.ui-modal-btn-hover {
   opacity: 0.9;
 }
 
@@ -567,7 +595,7 @@ page {
   box-sizing: border-box;
 }
 
-.ui-strip-btn:active {
+.ui-strip-btn-hover {
   opacity: 0.9;
 }
 
@@ -590,6 +618,6 @@ page {
   background: rgba(0, 122, 255, 0.12);
 }
 
-.ui-link-btn:active {
+.ui-link-btn-hover {
   opacity: 0.88;
 }

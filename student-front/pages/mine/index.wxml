@@ -2,14 +2,14 @@
   <block wx:if="{{!loggedIn}}">
     <view class="ios-card profile-card">
       <text class="guest-title">登录后查看班级与练习记录</text>
-      <view class="btn-primary guest-login" bindtap="goLogin">去登录</view>
+      <view class="btn-primary guest-login" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
     </view>
   </block>
 
   <block wx:else>
     <view class="ios-card profile-card">
       <view class="profile-row">
-        <view class="avatar-ring" bindtap="onTapSyncWechatProfile">
+        <view class="avatar-ring" hover-class="avatar-ring-hover" hover-stay-time="70" bindtap="onTapSyncWechatProfile">
           <image wx:if="{{wxAvatarUrl}}" class="avatar-img" src="{{wxAvatarUrl}}" mode="aspectFill" />
           <view wx:else class="avatar">{{avatarLetter}}</view>
         </view>
@@ -43,7 +43,7 @@
 
     <text class="section-label">资料</text>
     <view class="ios-card">
-      <view class="ios-cell" bindtap="onTapEditName">
+      <view class="ios-cell" hover-class="ios-cell-hover" hover-stay-time="70" bindtap="onTapEditName">
         <view class="ios-cell-main">
           <text class="ios-cell-sub">真实姓名</text>
           <text class="ios-cell-title">{{realDisplayName}}</text>
@@ -58,6 +58,8 @@
     <block wx:for="{{menus}}" wx:key="title">
       <view
         class="ios-cell"
+        hover-class="ios-cell-hover"
+        hover-stay-time="70"
         bindtap="onMenu"
         data-title="{{item.title}}"
         data-path="{{item.path}}"
@@ -75,18 +77,18 @@
   <block wx:if="{{mineShowOther}}">
     <text class="section-label">其他</text>
     <view class="ios-card">
-      <view class="ios-cell" bindtap="onPlaceholder" data-title="通知">
+      <view class="ios-cell" hover-class="ios-cell-hover" hover-stay-time="70" bindtap="onPlaceholder" data-title="通知">
         <text class="ios-cell-title plain">通知</text>
         <text class="ios-cell-chevron">›</text>
       </view>
-      <view class="ios-cell" bindtap="onPlaceholder" data-title="关于">
+      <view class="ios-cell" hover-class="ios-cell-hover" hover-stay-time="70" bindtap="onPlaceholder" data-title="关于">
         <text class="ios-cell-title plain">关于</text>
         <text class="ios-cell-chevron">›</text>
       </view>
     </view>
   </block>
 
-  <button wx:if="{{loggedIn}}" class="logout-btn" bindtap="logout">退出登录</button>
+  <button wx:if="{{loggedIn}}" class="logout-btn" hover-class="logout-btn-hover" hover-stay-time="70" bindtap="logout">退出登录</button>
 
   <!-- 姓名编辑：固定遮罩 + 居中弹层，避免内嵌卡片 + overflow 导致输入框畸形 -->
   <view
@@ -110,8 +112,8 @@
         bindinput="onNameDraftInput"
       />
       <view class="ui-modal-actions">
-        <view class="ui-modal-btn ui-modal-btn--cancel" bindtap="cancelNameEdit">取消</view>
-        <view class="ui-modal-btn ui-modal-btn--ok" bindtap="saveNameEdit">保存</view>
+        <view class="ui-modal-btn ui-modal-btn--cancel" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="cancelNameEdit">取消</view>
+        <view class="ui-modal-btn ui-modal-btn--ok" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="saveNameEdit">保存</view>
       </view>
     </view>
   </view>

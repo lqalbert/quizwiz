@@ -342,7 +342,7 @@
   box-sizing: border-box;
 }
 
-.opt-pill:active {
+.opt-pill-hover {
   opacity: 0.9;
 }
 
@@ -387,6 +387,10 @@
   background: rgba(0, 122, 255, 0.12);
   border-color: var(--ios-tint);
   color: var(--ios-tint);
+}
+
+.judge-pill-hover {
+  opacity: 0.88;
 }
 
 .answer-area {
@@ -525,6 +529,10 @@
   border-left-color: #c2410c;
 }
 
+.unit-tab-hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 .catalog-right {
   flex: 1;
   min-width: 0;
@@ -540,7 +548,7 @@
   border-bottom: 1rpx solid #eee;
 }
 
-.point-row:active {
+.point-row-hover {
   background: rgba(0, 0, 0, 0.03);
 }
 
@@ -573,7 +581,7 @@
   box-sizing: border-box;
 }
 
-.style-card:active {
+.style-card-hover {
   opacity: 0.92;
 }
 
@@ -786,7 +794,7 @@
   box-sizing: border-box;
 }
 
-.sub-row:active {
+.sub-row-hover {
   background: rgba(0, 0, 0, 0.03);
 }
 
@@ -795,7 +803,7 @@
   border-left-color: #c2410c;
 }
 
-.sub-row-on:active {
+.sub-row-on-hover {
   background: rgba(194, 65, 12, 0.1);
 }
 

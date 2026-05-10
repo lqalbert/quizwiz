@@ -111,7 +111,7 @@
   box-sizing: border-box;
 }
 
-.opt-pill:active {
+.opt-pill-hover {
   opacity: 0.9;
 }
 
@@ -156,6 +156,10 @@
   background: rgba(0, 122, 255, 0.12);
   border-color: var(--ios-tint);
   color: var(--ios-tint);
+}
+
+.judge-pill-hover {
+  opacity: 0.88;
 }
 
 .answer-area {
@@ -204,7 +208,7 @@
   border: 2rpx solid rgba(0, 122, 255, 0.35);
 }
 
-.exam-nav-pill:active {
+.exam-nav-pill-hover {
   opacity: 0.88;
 }
 
@@ -235,7 +239,7 @@
   box-shadow: 0 6rpx 20rpx rgba(224, 49, 49, 0.28);
 }
 
-.exam-submit-pill:active {
+.exam-submit-pill-hover {
   opacity: 0.9;
 }
 

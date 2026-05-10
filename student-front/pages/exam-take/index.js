@@ -48,6 +48,7 @@ Page({
     this.stopTakeGuards();
     if (this._examTimer) clearInterval(this._examTimer);
     if (this._draftTimer) clearTimeout(this._draftTimer);
+    if (this._forceSubmitTimer) clearTimeout(this._forceSubmitTimer);
   },
 
   onHide() {
@@ -505,7 +506,9 @@ Page({
   scheduleForceSubmitForLeave() {
     if (this._forceSubmitTriggered || this.data.mode !== "take" || this.data.submitting) return;
     this._forceSubmitTriggered = true;
-    setTimeout(() => {
+    if (this._forceSubmitTimer) clearTimeout(this._forceSubmitTimer);
+    this._forceSubmitTimer = setTimeout(() => {
+      this._forceSubmitTimer = null;
       this.forceSubmitForLeave().catch(() => {});
     }, 200);
   },

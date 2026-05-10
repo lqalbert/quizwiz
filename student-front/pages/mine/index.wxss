@@ -30,6 +30,10 @@
   background: linear-gradient(145deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.25));
 }
 
+.avatar-ring-hover {
+  opacity: 0.88;
+}
+
 .avatar {
   width: 112rpx;
   height: 112rpx;
@@ -205,10 +209,10 @@
   border: none;
 }
 
-.logout-btn:active {
+.logout-btn-hover {
   opacity: 0.85;
 }
 
 .ph {
-  color: var(--ios-tertiary);
+  color: rgba(60, 60, 67, 0.48);
 }

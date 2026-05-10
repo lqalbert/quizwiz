@@ -91,7 +91,62 @@ Page({
     wx.switchTab({ url: "/pages/home/index" });
   },
 
-  /** 用户点击：getUserProfile → wx.login → 换 token（须由点击触发授权） */
+  /**
+   * 用 wx.login 的 code 换后端 token。nickname/avatar 可选（新版微信 getUserProfile 常失败，后端已支持默认「微信用户」）。
+   */
+  async runWechatTokenExchange(base, nickname, avatarUrl) {
+    if (this.data._loginInFlight) return;
+    this.setData({ _loginInFlight: true, step: "boot" });
+    try {
+      wx.setNavigationBarTitle({ title: "欢迎使用" });
+    } catch (_) {}
+    try {
+      getApp().globalData.apiBase = base;
+    } catch (_) {}
+    wx.showLoading({ title: "登录中", mask: true });
+    try {
+      const loginRes = await wx.login();
+      const code = loginRes.code;
+      if (!code) throw new Error("未取得微信 code");
+      const r = await request({
+        path: "/api/public/student/wechat-login",
+        method: "POST",
+        auth: false,
+        data: {
+          code,
+          nickname: String(nickname || "").trim().slice(0, 32),
+          avatarUrl: String(avatarUrl || "").trim().slice(0, 512),
+        },
+      });
+      const token = r && r.data && r.data.token;
+      if (!token) throw new Error("未返回 token");
+      wx.setStorageSync("student_token", token);
+      getApp().globalData.token = token;
+      const needJoin = Boolean(r.data && r.data.need_join_class);
+      wx.setStorageSync("need_join_class", needJoin ? "1" : "0");
+      wx.hideLoading();
+      if (needJoin) {
+        this.setData({ step: "join", inviteInput: "", realNameInput: "" });
+        try {
+          wx.setNavigationBarTitle({ title: "加入班级" });
+        } catch (_) {}
+        return;
+      }
+      this.setData({ step: "authed" });
+      wx.switchTab({ url: "/pages/home/index" });
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ step: "boot" });
+      try {
+        wx.setNavigationBarTitle({ title: "欢迎使用" });
+      } catch (_) {}
+      wx.showToast({ title: (err && err.message) || "登录失败，请重试", icon: "none" });
+    } finally {
+      this.setData({ _loginInFlight: false });
+    }
+  },
+
+  /** 用户点击：优先尝试 getUserProfile；失败则仅用 code 登录（避免新版微信无法调起资料授权导致无法进入） */
   onTapWechatLogin() {
     if (this.data._loginInFlight) return;
     const base = getApiBase();
@@ -101,63 +156,17 @@ Page({
       return;
     }
     wx.getUserProfile({
-      desc: "用于注册/登录，并在个人中心展示你的头像与昵称",
-      success: async (res) => {
+      desc: "用于在个人中心展示你的头像与昵称（可选）",
+      success: (res) => {
         if (this.data._loginInFlight) return;
-        this.setData({ _loginInFlight: true, step: "boot" });
-        try {
-          wx.setNavigationBarTitle({ title: "欢迎使用" });
-        } catch (_) {}
-        try {
-          getApp().globalData.apiBase = base;
-        } catch (_) {}
-        wx.showLoading({ title: "登录中", mask: true });
-        try {
-          const ui = (res && res.userInfo) || {};
-          const nickname = String(ui.nickName || "").trim().slice(0, 32);
-          const avatarUrl = String(ui.avatarUrl || "").trim().slice(0, 512);
-          const loginRes = await wx.login();
-          const code = loginRes.code;
-          if (!code) throw new Error("未取得微信 code");
-          const r = await request({
-            path: "/api/public/student/wechat-login",
-            method: "POST",
-            auth: false,
-            data: {
-              code,
-              nickname,
-              avatarUrl,
-            },
-          });
-          const token = r && r.data && r.data.token;
-          if (!token) throw new Error("未返回 token");
-          wx.setStorageSync("student_token", token);
-          getApp().globalData.token = token;
-          const needJoin = Boolean(r.data && r.data.need_join_class);
-          wx.setStorageSync("need_join_class", needJoin ? "1" : "0");
-          wx.hideLoading();
-          if (needJoin) {
-            this.setData({ step: "join", inviteInput: "", realNameInput: "" });
-            try {
-              wx.setNavigationBarTitle({ title: "加入班级" });
-            } catch (_) {}
-            return;
-          }
-          this.setData({ step: "authed" });
-          wx.switchTab({ url: "/pages/home/index" });
-        } catch (err) {
-          wx.hideLoading();
-          this.setData({ step: "boot" });
-          try {
-            wx.setNavigationBarTitle({ title: "欢迎使用" });
-          } catch (_) {}
-          wx.showToast({ title: (err && err.message) || "登录失败，请重试", icon: "none" });
-        } finally {
-          this.setData({ _loginInFlight: false });
-        }
+        const ui = (res && res.userInfo) || {};
+        const nickname = String(ui.nickName || "").trim().slice(0, 32);
+        const avatarUrl = String(ui.avatarUrl || "").trim().slice(0, 512);
+        this.runWechatTokenExchange(base, nickname, avatarUrl);
       },
       fail: () => {
-        wx.showToast({ title: "需要授权头像与昵称后才能登录", icon: "none" });
+        if (this.data._loginInFlight) return;
+        this.runWechatTokenExchange(base, "", "");
       },
     });
   },

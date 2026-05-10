@@ -83,6 +83,10 @@
   border-left-color: #c2410c;
 }
 
+.unit-tab-hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 .catalog-right {
   flex: 1;
   min-width: 0;
@@ -98,7 +102,7 @@
   border-bottom: 1rpx solid #eee;
 }
 
-.point-row:active {
+.point-row-hover {
   background: rgba(0, 0, 0, 0.03);
 }
 
@@ -171,7 +175,17 @@
 }
 
 .load-more-tap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72rpx;
+  padding: 8rpx 24rpx;
   font-size: 28rpx;
   font-weight: 600;
   color: var(--ios-tint);
+  box-sizing: border-box;
+}
+
+.load-more-tap-hover {
+  opacity: 0.86;
 }

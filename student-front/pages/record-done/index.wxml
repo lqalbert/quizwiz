@@ -8,18 +8,20 @@
       </view>
     </view>
     <view class="catalog-wrap">
-      <scroll-view scroll-y class="catalog-left">
+      <scroll-view scroll-y class="catalog-left" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
           wx:for="{{subjects}}"
           wx:key="id"
           class="unit-tab {{subjectId == item.id ? 'unit-tab-on' : ''}}"
+          hover-class="unit-tab-hover"
+          hover-stay-time="70"
           bindtap="onPickSubjectLeft"
           data-id="{{item.id}}"
         >
           {{item.name}}
         </view>
       </scroll-view>
-      <scroll-view scroll-y class="catalog-right">
+      <scroll-view scroll-y class="catalog-right" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view wx:if="{{!units.length}}" class="ios-card record-catalog-empty">
           <text class="record-empty-title">该科目下暂无知识单元</text>
           <text class="muted">可换一个科目，或稍后再试。</text>
@@ -28,6 +30,8 @@
           wx:for="{{units}}"
           wx:key="id"
           class="point-row"
+          hover-class="point-row-hover"
+          hover-stay-time="70"
           bindtap="onPickKnowledgeUnit"
           data-id="{{item.id}}"
           data-name="{{item.name}}"
@@ -40,7 +44,7 @@
   </block>
 
   <block wx:else>
-    <view class="nav-row nav-back-row" bindtap="backFromList">
+    <view class="nav-row nav-back-row" hover-class="nav-back-row-hover" hover-stay-time="70" bindtap="backFromList">
       <text class="nav-back">‹</text>
       <text class="nav-back-hint">返回上一级</text>
     </view>
@@ -52,18 +56,20 @@
       </view>
     </view>
     <view wx:if="{{list.length}}" class="batch-bar">
-      <view class="ui-strip-btn" bindtap="onBatchDonePractice">本单元已做题一起练</view>
+      <view class="ui-strip-btn" hover-class="ui-strip-btn-hover" hover-stay-time="70" bindtap="onBatchDonePractice">本单元已做题一起练</view>
     </view>
     <view wx:if="{{listLoading}}" class="loading-pill muted">加载中…</view>
     <view wx:elif="{{!list.length}}" class="ios-card record-empty-card">
       <text class="record-empty-title">该单元暂无做题记录</text>
       <text class="muted record-empty-desc">去刷题后，做过的题会出现在这里，方便回头巩固。</text>
-      <view class="btn-primary mt" bindtap="goBrowseQuiz">去刷题</view>
+      <view class="btn-primary mt" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goBrowseQuiz">去刷题</view>
     </view>
     <scroll-view
       wx:else
       scroll-y
       class="done-list-scroll"
+      enhanced="{{true}}"
+      show-scrollbar="{{false}}"
       lower-threshold="120"
       bindscrolltolower="onDoneScrollToLower"
     >
@@ -71,12 +77,12 @@
         <text class="record-stem line-clamp">{{item.stem}}</text>
         <text class="record-meta muted">{{item.question_type_text}} · 共 {{item.attempts}} 次 · 对 {{item.correct_count}} · 错 {{item.wrong_count}}</text>
         <view class="record-actions">
-          <view class="ui-link-btn ui-link-btn--tint" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</view>
+          <view class="ui-link-btn ui-link-btn--tint" hover-class="ui-link-btn-hover" hover-stay-time="70" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</view>
         </view>
       </view>
       <view wx:if="{{list.length && hasMore}}" class="load-more-wrap">
         <text wx:if="{{listLoadingMore}}" class="muted load-more-text">加载更多…</text>
-        <text wx:else class="load-more-tap muted" bindtap="onLoadMoreDone">点击加载更多</text>
+        <view wx:else class="load-more-tap muted" hover-class="load-more-tap-hover" hover-stay-time="70" bindtap="onLoadMoreDone">点击加载更多</view>
       </view>
       <view wx:if="{{list.length && !hasMore}}" class="load-more-wrap">
         <text class="muted load-more-text">已加载全部</text>

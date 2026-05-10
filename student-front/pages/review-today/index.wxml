@@ -7,12 +7,12 @@
   <view wx:if="{{loading}}" class="muted">加载中…</view>
   <view wx:elif="{{err}}" class="ios-card" style="padding:32rpx;">
     <text class="muted">{{err}}</text>
-    <view class="ui-btn-secondary" style="margin-top:24rpx;text-align:center;" bindtap="loadList">重试</view>
+    <view class="ui-btn-secondary" style="margin-top:24rpx;text-align:center;" hover-class="ui-btn-secondary-hover" hover-stay-time="70" bindtap="loadList">重试</view>
   </view>
   <block wx:else>
     <view class="review-today-pill">共 {{count}} 题</view>
     <view class="review-today-actions">
-      <view class="btn-primary" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
+      <view class="btn-primary" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
     </view>
     <view wx:if="{{count === 0}}" class="ios-card review-empty">
       <text class="review-empty-title">暂无待复习错题</text>
@@ -24,7 +24,7 @@
     </view>
     <view wx:else class="ios-card" style="padding:8rpx 28rpx 28rpx;">
       <block wx:for="{{questions}}" wx:key="question_id">
-        <view class="review-item" bindtap="startOne" data-id="{{item.question_id}}">
+        <view class="review-item" hover-class="review-item-hover" hover-stay-time="70" bindtap="startOne" data-id="{{item.question_id}}">
           <text class="review-item-stem">{{item.stem_display}}</text>
           <text class="review-item-meta">{{item.question_type_text}} · 下次 {{item.next_label}}</text>
         </view>

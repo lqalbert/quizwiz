@@ -44,6 +44,8 @@
           <block wx:for="{{item.left}}" wx:key="id" wx:for-item="card">
             <view
               class="wf-card"
+              hover-class="wf-card-hover"
+              hover-stay-time="70"
               bindtap="onTapCard"
               data-id="{{card.id}}"
               data-ft="{{card.file_type}}"
@@ -60,6 +62,8 @@
               <view class="wf-card-actions">
                 <view
                   class="wf-btn"
+                  hover-class="wf-btn-hover"
+                  hover-stay-time="70"
                   data-id="{{card.id}}"
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
@@ -79,6 +83,8 @@
           <block wx:for="{{item.right}}" wx:key="id" wx:for-item="card">
             <view
               class="wf-card"
+              hover-class="wf-card-hover"
+              hover-stay-time="70"
               bindtap="onTapCard"
               data-id="{{card.id}}"
               data-ft="{{card.file_type}}"
@@ -95,6 +101,8 @@
               <view class="wf-card-actions">
                 <view
                   class="wf-btn"
+                  hover-class="wf-btn-hover"
+                  hover-stay-time="70"
                   data-id="{{card.id}}"
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
@@ -118,7 +126,7 @@
   <view wx:if="{{videoPreviewVisible}}" class="video-mask" catchtouchmove="noop" bindtap="closeVideoPreview">
     <view class="video-dialog" catchtap="noop">
       <video class="video-player" src="{{videoPreviewUrl}}" controls></video>
-      <view class="video-close" bindtap="closeVideoPreview">关闭</view>
+      <view class="video-close" hover-class="video-close-hover" hover-stay-time="70" bindtap="closeVideoPreview">关闭</view>
     </view>
   </view>
 
@@ -126,8 +134,8 @@
     <view class="audio-sheet-inner" catchtap="noop">
       <text class="audio-sheet-title">{{audioPreviewName}}</text>
       <view class="audio-sheet-row">
-        <view class="audio-sheet-btn" bindtap="toggleAudioPreview">{{audioPlaying ? '暂停' : '播放'}}</view>
-        <view class="audio-sheet-btn audio-sheet-btn-muted" bindtap="closeAudioPreview">关闭</view>
+        <view class="audio-sheet-btn" hover-class="audio-sheet-btn-hover" hover-stay-time="70" bindtap="toggleAudioPreview">{{audioPlaying ? '暂停' : '播放'}}</view>
+        <view class="audio-sheet-btn audio-sheet-btn-muted" hover-class="audio-sheet-btn-hover" hover-stay-time="70" bindtap="closeAudioPreview">关闭</view>
       </view>
     </view>
   </view>

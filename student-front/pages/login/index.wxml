@@ -3,12 +3,12 @@
   <block wx:if="{{step === 'boot'}}">
     <view class="hero-block">
       <text class="hero-title">欢迎使用</text>
-      <text class="hero-lead muted">点击下方按钮授权头像与昵称，完成微信登录</text>
+      <text class="hero-lead muted">点击下方按钮完成微信登录；若弹出资料授权，同意后可同步头像与昵称（也可稍后在「我的」补充）</text>
     </view>
     <view class="ios-card pad-card">
-      <text class="muted">登录后可在「我的」中查看头像与昵称；随后请填写真实姓名与班级邀请码即可开始学习。</text>
+      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习；头像与昵称可在「我的」中查看或修改。</text>
     </view>
-    <view class="btn-primary login-action" bindtap="onTapWechatLogin">微信授权并登录</view>
+    <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onTapWechatLogin">微信登录</view>
   </block>
 
   <!-- 已有班级：从「我的」等入口进入（少见） -->
@@ -17,8 +17,8 @@
       <text class="hero-title">已就绪</text>
       <text class="hero-lead muted">你已加入班级，可以开始学习</text>
     </view>
-    <view class="btn-primary login-action" bindtap="goHome">进入首页</view>
-    <text class="link-row link-tint" bindtap="goJoinFromAuthed">加入其他班级</text>
+    <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goHome">进入首页</view>
+    <view class="link-row link-tint tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goJoinFromAuthed">加入其他班级</view>
   </block>
 
   <!-- 已登录待入班：仅姓名 + 邀请码 -->
@@ -42,6 +42,6 @@
       </view>
     </view>
 
-    <view class="btn-primary join-btn" bindtap="onJoinClass">提交并加入班级</view>
+    <view class="btn-primary join-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onJoinClass">提交并加入班级</view>
   </block>
 </view>

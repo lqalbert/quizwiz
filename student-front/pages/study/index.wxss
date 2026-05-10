@@ -74,6 +74,10 @@
   box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.06);
 }
 
+.wf-card-hover {
+  opacity: 0.94;
+}
+
 .wf-card-type-row {
   display: flex;
   flex-direction: row;
@@ -116,7 +120,16 @@
 .wf-btn {
   font-size: 24rpx;
   color: #007aff;
-  padding: 8rpx 16rpx;
+  padding: 12rpx 24rpx;
+  min-height: 64rpx;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wf-btn-hover {
+  opacity: 0.82;
 }
 
 .video-mask {
@@ -150,10 +163,14 @@
 
 .video-close {
   text-align: center;
-  padding: 20rpx;
+  padding: 24rpx;
   font-size: 28rpx;
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
+}
+
+.video-close-hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .audio-sheet {
@@ -203,4 +220,8 @@
 .audio-sheet-btn-muted {
   background: #e5e5ea;
   color: var(--ios-label);
+}
+
+.audio-sheet-btn-hover {
+  opacity: 0.9;
 }

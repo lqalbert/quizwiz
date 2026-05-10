@@ -81,6 +81,6 @@
   font-weight: 400;
 }
 
-.muted-link:active {
+.muted-link-hover {
   opacity: 0.65;
 }

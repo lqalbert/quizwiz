@@ -274,7 +274,7 @@
   border-top: 1rpx solid var(--ios-separator);
 }
 
-.home-dash-task:active {
+.home-dash-task-hover {
   opacity: 0.88;
 }
 
@@ -323,7 +323,7 @@
   box-sizing: border-box;
 }
 
-.home-dash-spotlight:active {
+.home-dash-spotlight-hover {
   opacity: 0.92;
 }
 
@@ -409,7 +409,7 @@
   box-sizing: border-box;
 }
 
-.home-dash-score-row:active {
+.home-dash-score-row-hover {
   opacity: 0.9;
 }
 
@@ -453,7 +453,7 @@
   padding: 8rpx 4rpx;
 }
 
-.home-dash-strip-item:active {
+.home-dash-strip-item-hover {
   opacity: 0.88;
 }
 
@@ -511,7 +511,7 @@
   box-sizing: border-box;
 }
 
-.home-practice-tab:active {
+.home-practice-tab-hover {
   opacity: 0.88;
 }
 
@@ -536,7 +536,7 @@
   text-align: center;
 }
 
-.home-practice-metric:active {
+.home-practice-metric-hover {
   opacity: 0.9;
 }
 
@@ -550,7 +550,8 @@
   border-color: rgba(0, 122, 255, 0.18);
 }
 
-.home-practice-metric--static:active {
+/* 静态指标格：按下不改变透明度，避免「死区」误触反馈 */
+.home-practice-metric-static-hover {
   opacity: 1;
 }
 

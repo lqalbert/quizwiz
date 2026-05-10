@@ -29,6 +29,10 @@
   border-bottom: none;
 }
 
+.review-item-hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
 .review-item-stem {
   font-size: 30rpx;
   line-height: 1.45;

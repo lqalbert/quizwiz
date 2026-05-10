@@ -24,6 +24,10 @@
   margin-bottom: 20rpx;
 }
 
+.exam-card-hover {
+  opacity: 0.94;
+}
+
 .exam-card-title {
   display: block;
   font-size: 32rpx;
