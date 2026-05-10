@@ -46,6 +46,7 @@ import type { MenuProps, TabsProps, UploadFile, UploadProps } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
+import ExcelJS from 'exceljs'
 import type { DataValidation, Worksheet } from 'exceljs'
 import * as XLSX from 'xlsx'
 import {
@@ -2469,7 +2470,6 @@ function QuestionBankPage() {
 
     const hideLoading = message.loading('正在生成模板…', 0)
     try {
-      const { default: ExcelJS } = await import('exceljs')
       const workbook = new ExcelJS.Workbook()
       const sheet = workbook.addWorksheet('题库模板')
       sheet.views = [{ state: 'frozen', ySplit: 1 }]
