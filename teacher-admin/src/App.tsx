@@ -99,6 +99,16 @@ type LeaveRequestRow = {
 }
 type LeaveRequestTableRow = LeaveRequestRow & { key: string }
 
+/** 班级详情 — 学生列表行（与 /api/classes/:id/students 一致） */
+type ClassRosterStudentRow = {
+  id: number
+  name: string
+  nickname?: string
+  real_name?: string | null
+  avatar_url?: string | null
+}
+type ClassRosterStudentTableRow = ClassRosterStudentRow & { key: string }
+
 const STORAGE_THEME_INDEX = 'teacher-admin-theme-index'
 
 const themeOptions: ThemeOption[] = [
@@ -961,9 +971,7 @@ function ClassPage() {
     }>
   >([])
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
-  const [students, setStudents] = useState<
-    Array<{ id: number; name: string; nickname?: string; real_name?: string | null; avatar_url?: string | null }>
-  >([])
+  const [students, setStudents] = useState<ClassRosterStudentRow[]>([])
   const [teacherRows, setTeacherRows] = useState<
     Array<{ key: string; teacher_id: number; teacher_name: string; teacher_phone: string; subject_id: number; subject_name: string }>
   >([])
@@ -1341,14 +1349,14 @@ function ClassPage() {
                       </Button>
                     </Space>
                   ) : null}
-                  <Table
+                  <Table<ClassRosterStudentTableRow>
                     loading={studentsLoading}
                     columns={[
                       {
                         title: '头像',
                         dataIndex: 'avatar_url',
                         width: 72,
-                        render: (_: unknown, row: { avatar_url?: string | null }) => (
+                        render: (_, row) => (
                           <Avatar src={row.avatar_url || undefined} icon={<UserOutlined />} />
                         ),
                       },
@@ -1356,14 +1364,13 @@ function ClassPage() {
                       {
                         title: '昵称',
                         dataIndex: 'nickname',
-                        render: (v?: string, row?: { name?: string }) =>
-                          v && row?.name && v !== row.name ? v : '—',
+                        render: (v, row) => (v && row.name && v !== row.name ? v : '—'),
                       },
                       {
                         title: '操作',
                         key: 'action',
                         width: 200,
-                        render: (_: unknown, row: { id: number; name: string }) => (
+                        render: (_, row) => (
                           <Space wrap>
                             <Button type="link" style={{ padding: 0 }} onClick={() => void loadStudentInsights(row.id, row.name)}>
                               查看详情
