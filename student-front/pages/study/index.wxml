@@ -4,7 +4,7 @@
     <view class="page-hero-body">
       <text class="page-hero-eyebrow">学习</text>
       <text class="page-hero-title">班级资料</text>
-      <text class="page-hero-lead muted">按科目浏览；本地上传的文件会优先走高速直链，大文件首次打开可能需稍等</text>
+      <text class="page-hero-lead muted">按科目浏览；已下载的文档/音频会标注「已下载」，点击卡片或「打开」可本地直接打开</text>
     </view>
   </view>
 
@@ -52,7 +52,10 @@
               data-name="{{card.name}}"
               data-candl="{{card.can_dl ? '1' : '0'}}"
             >
-              <view class="wf-card-type">{{card.file_type}}</view>
+              <view class="wf-card-type-row">
+                <view class="wf-card-type">{{card.file_type}}</view>
+                <text wx:if="{{card.local_saved}}" class="wf-card-saved">已下载</text>
+              </view>
               <text class="wf-card-name">{{card.name}}</text>
               <view class="wf-card-actions">
                 <view
@@ -61,10 +64,12 @@
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
                   data-turbo="{{card.turbo_download_url}}"
+                  data-ft="{{card.file_type}}"
+                  data-local="{{card.local_saved ? '1' : '0'}}"
                   data-candl="{{card.can_dl ? '1' : '0'}}"
                   catchtap="onTapDownload"
                 >
-                  下载
+                  {{card.local_saved ? '打开' : '下载'}}
                 </view>
               </view>
             </view>
@@ -82,7 +87,10 @@
               data-name="{{card.name}}"
               data-candl="{{card.can_dl ? '1' : '0'}}"
             >
-              <view class="wf-card-type">{{card.file_type}}</view>
+              <view class="wf-card-type-row">
+                <view class="wf-card-type">{{card.file_type}}</view>
+                <text wx:if="{{card.local_saved}}" class="wf-card-saved">已下载</text>
+              </view>
               <text class="wf-card-name">{{card.name}}</text>
               <view class="wf-card-actions">
                 <view
@@ -91,10 +99,12 @@
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
                   data-turbo="{{card.turbo_download_url}}"
+                  data-ft="{{card.file_type}}"
+                  data-local="{{card.local_saved ? '1' : '0'}}"
                   data-candl="{{card.can_dl ? '1' : '0'}}"
                   catchtap="onTapDownload"
                 >
-                  下载
+                  {{card.local_saved ? '打开' : '下载'}}
                 </view>
               </view>
             </view>

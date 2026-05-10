@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const studyLocalCache = require("../../utils/studyLocalCache.js");
 
 function absFileUrl(u) {
   const s = String(u || "").trim();
@@ -128,74 +129,6 @@ function canUseDirectStudyDownload(fileUrlAbs) {
   return false;
 }
 
-/** downloadFile 在 4xx/5xx 时仍可能走 success，且临时文件里是 JSON 错误体（勿用 utf8 读二进制大文件） */
-function readTempFileHeadBytes(tempFilePath, byteLen) {
-  return new Promise((resolve) => {
-    wx.getFileSystemManager().readFile({
-      filePath: tempFilePath,
-      position: 0,
-      length: byteLen,
-      success(r) {
-        const raw = r.data;
-        if (raw instanceof ArrayBuffer && raw.byteLength) resolve(new Uint8Array(raw));
-        else resolve(null);
-      },
-      fail: () => resolve(null),
-    });
-  });
-}
-
-function sniffDownloadTempIsJsonError(tempFilePath) {
-  return new Promise((resolve) => {
-    wx.getFileSystemManager().readFile({
-      filePath: tempFilePath,
-      position: 0,
-      length: 2048,
-      success(r) {
-        const raw = r.data;
-        if (typeof raw === "string") {
-          const trim = raw.trim();
-          if (!trim.startsWith("{")) {
-            resolve({ ok: true });
-            return;
-          }
-          try {
-            const j = JSON.parse(trim);
-            const msg = (j && (j.message || j.detail)) || "";
-            resolve({ ok: false, message: typeof msg === "string" ? msg : JSON.stringify(msg) });
-          } catch (_) {
-            resolve({ ok: false, message: "无法加载文件" });
-          }
-          return;
-        }
-        const ab = raw;
-        if (!(ab instanceof ArrayBuffer) || ab.byteLength === 0) {
-          resolve({ ok: true });
-          return;
-        }
-        const u8 = new Uint8Array(ab);
-        if (u8[0] !== 0x7b) {
-          resolve({ ok: true });
-          return;
-        }
-        let s = "";
-        for (let i = 0; i < u8.length; i += 1) s += String.fromCharCode(u8[i]);
-        const trim = s.trim();
-        try {
-          const j = JSON.parse(trim);
-          const msg = (j && (j.message || j.detail)) || "";
-          resolve({ ok: false, message: typeof msg === "string" ? msg : JSON.stringify(msg) });
-        } catch (_) {
-          resolve({ ok: false, message: "无法加载文件" });
-        }
-      },
-      fail() {
-        resolve({ ok: true });
-      },
-    });
-  });
-}
-
 Page({
   data: {
     loadError: "",
@@ -267,12 +200,16 @@ Page({
     try {
       const res = await request({ path: "/api/student/my-classes", method: "GET" });
       const raw = takeArrayFromStudentApi(res);
-      const classes = raw.map((c) => ({
-        id: Number(c.id),
-        name: String(c.name || ""),
-        grade: String(c.grade || ""),
-        label: `${String(c.name || "")}（${String(c.grade || "-")}）`,
-      })).filter((c) => c.id > 0);
+      const classes = raw.map((c) => {
+        const name = String(c.name || "");
+        const grade = String(c.grade || "").trim();
+        return {
+          id: Number(c.id),
+          name,
+          grade,
+          label: grade ? `${name}（${grade}）` : name,
+        };
+      }).filter((c) => c.id > 0);
       if (classes.length === 0) {
         this.setData({
           classes: [],
@@ -346,7 +283,7 @@ Page({
         method: "GET",
       });
       const list = takeArrayFromStudentApi(res);
-      const sections = buildSections(list);
+      const sections = studyLocalCache.mergeLocalSavedFlag(classId, buildSections(list));
       this.setData({
         sections,
         resourcesEmpty: list.length === 0,
@@ -390,60 +327,43 @@ Page({
     else this._audioCtx.play();
   },
 
-  /** 下载完成后：体积、HTML/错误页、PDF 魔数，避免 openDocument 对无效文件无提示失败 */
-  async validateDownloadedFileAfterDownload(path, displayName, silent) {
-    const fs = wx.getFileSystemManager();
-    const size = await new Promise((resolve) => {
-      fs.getFileInfo({
-        filePath: path,
-        success: (s) => resolve(Number(s.size) || 0),
-        fail: () => resolve(-1),
-      });
-    });
-    if (size === 0) {
-      if (!silent) wx.showToast({ title: "下载为空", icon: "none" });
-      throw new Error("empty");
-    }
-    const head = await readTempFileHeadBytes(path, 24);
-    if (head && head.length && head[0] === 0x3c) {
-      if (!silent) wx.showToast({ title: "无法打开（无效响应）", icon: "none" });
-      throw new Error("html");
-    }
-    const ext = getFileExt(displayName, "").toLowerCase();
-    if (ext === "pdf") {
-      if (!head || head.length < 4) {
-        if (!silent) wx.showToast({ title: "PDF 文件不完整", icon: "none" });
-        throw new Error("badpdf");
-      }
-      const sig = String.fromCharCode(head[0], head[1], head[2], head[3]);
-      if (sig !== "%PDF") {
-        if (!silent) wx.showToast({ title: "不是有效PDF", icon: "none" });
-        throw new Error("badpdf");
-      }
-    }
+  refreshSectionsLocalFlags() {
+    const cid = this.data.classId;
+    const sections = this.data.sections;
+    if (!cid || !Array.isArray(sections) || sections.length === 0) return;
+    this.setData({ sections: studyLocalCache.mergeLocalSavedFlag(cid, sections) });
   },
 
-  tempFileStartsWithJsonBrace(tempFilePath) {
-    return new Promise((resolve) => {
-      wx.getFileSystemManager().readFile({
-        filePath: tempFilePath,
-        position: 0,
-        length: 1,
-        success(r) {
-          const raw = r.data;
-          if (raw instanceof ArrayBuffer && raw.byteLength) {
-            resolve(new Uint8Array(raw)[0] === 0x7b);
-            return;
-          }
-          if (typeof raw === "string" && raw.trim().startsWith("{")) {
-            resolve(true);
-            return;
-          }
-          resolve(false);
-        },
-        fail: () => resolve(false),
+  /**
+   * 若 Storage 中有持久路径且文件仍在，则直接打开（文档 openDocument / 音频播放器）。
+   * @returns {Promise<boolean>} 是否已成功从本地打开
+   */
+  async tryOpenSavedOfficeOrAudioFile(resourceId, displayName, isAudio) {
+    const cid = this.data.classId;
+    const rec = studyLocalCache.getRecord(cid, resourceId);
+    if (!rec || !rec.path) return false;
+    const ok = await studyLocalCache.checkPathUsable(rec.path);
+    if (!ok) {
+      studyLocalCache.removeRecord(cid, resourceId);
+      this.refreshSectionsLocalFlags();
+      return false;
+    }
+    if (isAudio) {
+      this.closeVideoPreview();
+      if (!this._audioCtx) return false;
+      this._audioCtx.stop();
+      this._audioCtx.src = rec.path;
+      this.setData({
+        audioPreviewVisible: true,
+        audioPreviewName: displayName || "音频",
       });
-    });
+      this._audioCtx.play();
+      return true;
+    }
+    this.closeAudioPreview();
+    this.closeVideoPreview();
+    this.openDocumentFromTemp(rec.path, displayName, "无法从本地打开", resourceId);
+    return true;
   },
 
   /**
@@ -481,29 +401,12 @@ Page({
           const sc = res.statusCode;
           if (sc !== undefined && sc !== 200) {
             if (!silent) {
-              const sniff = await sniffDownloadTempIsJsonError(path);
-              const hint = !sniff.ok && sniff.message ? sniff.message : `请求失败(${sc})`;
-              wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
+              wx.showToast({
+                title: `请求失败(${sc})`,
+                icon: "none",
+              });
             }
             reject(new Error("http"));
-            return;
-          }
-          const brace = await this.tempFileStartsWithJsonBrace(path);
-          if (brace) {
-            const sniff200 = await sniffDownloadTempIsJsonError(path);
-            if (!sniff200.ok) {
-              if (!silent) {
-                const hint = sniff200.message || "文件获取失败";
-                wx.showToast({ title: hint.length > 36 ? `${hint.slice(0, 34)}…` : hint, icon: "none" });
-              }
-              reject(new Error("jsonerr"));
-              return;
-            }
-          }
-          try {
-            await this.validateDownloadedFileAfterDownload(path, displayName, silent);
-          } catch (e) {
-            reject(e);
             return;
           }
           resolve(path);
@@ -573,9 +476,10 @@ Page({
     return this._downloadResourceViaApi(resourceId, displayName, loadingTitle);
   },
 
-  openDocumentFromTemp(tempFilePath, displayName, failHint) {
+  openDocumentFromTemp(tempFilePath, displayName, failHint, resourceId) {
     const ext = getFileExt(displayName, "").toLowerCase();
     const mapped = mapOpenDocumentFileType(ext);
+    const rid = resourceId != null && resourceId !== "" ? Number(resourceId) : NaN;
     const tip = (msg) => {
       const t = String(msg || failHint || "无法打开");
       wx.showToast({ title: t.length > 44 ? `${t.slice(0, 42)}…` : t, icon: "none" });
@@ -592,6 +496,10 @@ Page({
             setTimeout(() => run(true), 80);
             return;
           }
+          if (Number.isFinite(rid) && rid > 0 && this.data.classId) {
+            studyLocalCache.removeRecord(this.data.classId, rid);
+            this.refreshSectionsLocalFlags();
+          }
           tip(em || failHint);
         },
       });
@@ -602,16 +510,22 @@ Page({
   async openDocPreviewFromResource(id, displayName, turboUrl) {
     this.closeAudioPreview();
     this.closeVideoPreview();
+    if (await this.tryOpenSavedOfficeOrAudioFile(id, displayName, false)) return;
     try {
       const p = await this.downloadResourceToTemp(id, displayName, "正在打开…", turboUrl);
-      this.openDocumentFromTemp(p, displayName, "无法预览，可点「下载」重试");
+      studyLocalCache.setRecord(this.data.classId, id, p, displayName);
+      this.refreshSectionsLocalFlags();
+      this.openDocumentFromTemp(p, displayName, "无法预览，可点「下载」重试", id);
     } catch (_) {}
   },
 
   async openAudioPreviewFromResource(id, displayName, turboUrl) {
     this.closeVideoPreview();
+    if (await this.tryOpenSavedOfficeOrAudioFile(id, displayName, true)) return;
     try {
       const p = await this.downloadResourceToTemp(id, displayName, "正在加载…", turboUrl);
+      studyLocalCache.setRecord(this.data.classId, id, p, displayName);
+      this.refreshSectionsLocalFlags();
       if (!this._audioCtx) return;
       this._audioCtx.stop();
       this._audioCtx.src = p;
@@ -678,6 +592,9 @@ Page({
     this.closeAudioPreview();
     const id = Number(e.currentTarget.dataset.id);
     const name = String(e.currentTarget.dataset.name || "");
+    const urlHint = String(e.currentTarget.dataset.url || "");
+    const ft = String(e.currentTarget.dataset.ft || "");
+    const localSaved = e.currentTarget.dataset.local === "1" || e.currentTarget.dataset.local === 1;
     const canDl = e.currentTarget.dataset.candl === "1" || e.currentTarget.dataset.candl === 1;
     if (!canDl) {
       const url = String(e.currentTarget.dataset.url || "");
@@ -693,7 +610,19 @@ Page({
       wx.showToast({ title: "资料无效", icon: "none" });
       return;
     }
-    const turbo = String(e.currentTarget.dataset.turbo || "").trim() || String(e.currentTarget.dataset.url || "");
+    const turbo = String(e.currentTarget.dataset.turbo || "").trim() || urlHint;
+    const ext = getFileExt(name, urlHint);
+    const isAudio = isAudioExt(ext) || ft === "audio";
+    if (localSaved) {
+      void this.tryOpenSavedOfficeOrAudioFile(id, name, isAudio).then((opened) => {
+        if (!opened) wx.showToast({ title: "本地文件已失效，请重新下载", icon: "none" });
+      });
+      return;
+    }
+    if (isAudio) {
+      void this.openAudioPreviewFromResource(id, name, turbo);
+      return;
+    }
     void this.downloadAndOpen(id, name, turbo);
   },
 
@@ -701,7 +630,9 @@ Page({
     this.closeVideoPreview();
     void this.downloadResourceToTemp(resourceId, displayName, "正在保存…", turboUrl)
       .then((p) => {
-        this.openDocumentFromTemp(p, displayName, "无法打开该格式，可尝试保存后查看");
+        studyLocalCache.setRecord(this.data.classId, resourceId, p, displayName);
+        this.refreshSectionsLocalFlags();
+        this.openDocumentFromTemp(p, displayName, "无法打开该格式，可尝试保存后查看", resourceId);
       })
       .catch(() => {});
   },

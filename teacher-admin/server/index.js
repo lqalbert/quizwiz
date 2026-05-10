@@ -2101,10 +2101,10 @@ app.post('/api/classes', authRequired, async (req, res) => {
     return res.status(403).json({ message: '仅管理员或班主任可创建班级' })
   }
   const name = String(req.body?.name || '').trim()
-  const grade = String(req.body?.grade || '').trim()
-  if (!name || !grade) {
-    return res.status(400).json({ message: '班级名称和年级不能为空' })
+  if (!name) {
+    return res.status(400).json({ message: '班级名称不能为空' })
   }
+  const grade = String(req.body?.grade ?? '').trim()
   const inviteCode = Math.random().toString(36).slice(2, 8).toUpperCase()
   try {
     const result = await pool.query(

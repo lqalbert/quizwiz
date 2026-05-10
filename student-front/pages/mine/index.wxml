@@ -29,20 +29,8 @@
       <view wx:for="{{classes}}" wx:key="id" class="class-row">
         <view class="class-row-text">
           <text class="class-name">{{item.name}}</text>
-          <text class="class-grade muted">{{item.grade}}</text>
         </view>
         <text wx:if="{{item.leave_pending}}" class="leave-pending-label muted">退出审核中</text>
-        <button
-          wx:else
-          class="leave-class-btn"
-          size="mini"
-          type="warn"
-          plain="{{true}}"
-          data-id="{{item.id}}"
-          bindtap="onRequestLeaveClass"
-        >
-          退出班级
-        </button>
       </view>
     </view>
     <view class="ios-card empty-class-card" wx:elif="{{needJoinClass}}">

@@ -106,7 +106,6 @@ const themeOptions: ThemeOption[] = [
 
 const classColumns = [
   { title: '班级名称', dataIndex: 'name' },
-  { title: '年级', dataIndex: 'grade' },
   { title: '学生人数', dataIndex: 'studentCount' },
   { title: '邀请码', dataIndex: 'inviteCode' },
 ]
@@ -1255,7 +1254,7 @@ function ClassPage() {
           <Form
             form={createForm}
             layout="vertical"
-            onFinish={async (values: { name: string; grade: string }) => {
+            onFinish={async (values: { name: string }) => {
               if (!CAN_USE_API) return
               try {
                 const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes`, {
@@ -1264,7 +1263,7 @@ function ClassPage() {
                     'Content-Type': 'application/json',
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
                   },
-                  body: JSON.stringify(values),
+                  body: JSON.stringify({ name: String(values?.name || '').trim() }),
                 })
                 const payload = await response.json().catch(() => ({}))
                 if (!response.ok) throw new Error(payload?.message || `创建失败(${response.status})`)
@@ -1278,10 +1277,7 @@ function ClassPage() {
             }}
           >
             <Form.Item name="name" label="班级名称" rules={[{ required: true, message: '请输入班级名称' }]}>
-              <Input placeholder="例如：高一(3)班" />
-            </Form.Item>
-            <Form.Item name="grade" label="年级" required>
-              <Select options={[{ value: '高一', label: '高一' }, { value: '高二', label: '高二' }, { value: '高三', label: '高三' }]} />
+              <Input placeholder="例如：高三(3)班" />
             </Form.Item>
           </Form>
         </Modal>

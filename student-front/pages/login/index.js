@@ -1,40 +1,46 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 
+/** 无 token：进入自动微信登录；有 token 需入班：入班表单；否则已就绪 */
 function initialStep() {
   const token = wx.getStorageSync("student_token") || "";
-  const needJoin = wx.getStorageSync("need_join_class") === "1";
-  if (!token) return "login";
-  if (needJoin) return "join";
+  if (!token) return "boot";
+  if (wx.getStorageSync("need_join_class") === "1") return "join";
   return "authed";
 }
 
 Page({
   data: {
-    step: "login",
-    apiBaseInput: "",
-    nicknameInput: "",
+    step: "boot",
     inviteInput: "",
     realNameInput: "",
+    /** 防止 onShow 与 onLoad 并发重复调登录 */
+    _loginInFlight: false,
   },
 
   onLoad() {
-    const apiBase = wx.getStorageSync("api_base") || "";
     const step = initialStep();
     if (step === "authed") {
       wx.switchTab({ url: "/pages/home/index" });
       return;
     }
-    this.setData({
-      apiBaseInput: apiBase,
-      step,
-    });
+    this.setData({ step });
+    if (step === "boot") {
+      void this.runWechatLogin();
+    } else if (step === "join") {
+      try {
+        wx.setNavigationBarTitle({ title: "加入班级" });
+      } catch (_) {}
+    }
   },
 
   onShow() {
     const token = wx.getStorageSync("student_token") || "";
+    const s = this.data.step;
     if (!token) {
-      this.setData({ step: "login" });
+      if (s === "boot" || s === "login_fail") return;
+      this.setData({ step: "boot" });
+      void this.runWechatLogin();
       return;
     }
     request({ path: "/api/student/profile", method: "GET" })
@@ -45,10 +51,18 @@ Page({
         if (cur === "join") {
           if (!need) {
             this.setData({ step: "authed" });
+            wx.switchTab({ url: "/pages/home/index" });
           }
           return;
         }
-        this.setData({ step: need ? "join" : "authed" });
+        if (need) {
+          this.setData({ step: "join", inviteInput: "", realNameInput: "" });
+          try {
+            wx.setNavigationBarTitle({ title: "加入班级" });
+          } catch (_) {}
+        } else if (cur !== "authed") {
+          wx.switchTab({ url: "/pages/home/index" });
+        }
       })
       .catch((e) => {
         if (e && e.statusCode === 401) {
@@ -57,18 +71,19 @@ Page({
           try {
             getApp().globalData.token = "";
           } catch (_) {}
-          this.setData({ step: "login" });
+          this.setData({ step: "boot", inviteInput: "", realNameInput: "" });
+          void this.runWechatLogin();
         }
       });
   },
 
   goJoinFromAuthed() {
     this.setData({ step: "join", inviteInput: "", realNameInput: "" });
+    try {
+      wx.setNavigationBarTitle({ title: "加入班级" });
+    } catch (_) {}
   },
 
-  onNickInput(e) {
-    this.setData({ nicknameInput: e.detail.value });
-  },
   onInviteInput(e) {
     this.setData({ inviteInput: e.detail.value });
   },
@@ -80,16 +95,28 @@ Page({
     wx.switchTab({ url: "/pages/home/index" });
   },
 
-  async onWechatLogin() {
+  onRetryWechatLogin() {
+    this.setData({ step: "boot" });
+    void this.runWechatLogin();
+  },
+
+  /** 自动 / 重试：静默 wx.login + 换 token */
+  async runWechatLogin() {
+    if (this.data._loginInFlight) return;
+    this.setData({ _loginInFlight: true, step: "boot" });
+    try {
+      wx.setNavigationBarTitle({ title: "欢迎使用" });
+    } catch (_) {}
     const base = getApiBase();
     if (!base) {
+      this.setData({ _loginInFlight: false, step: "login_fail" });
       wx.showToast({ title: "未配置 API 地址，请联系管理员", icon: "none" });
       return;
     }
     try {
       getApp().globalData.apiBase = base;
     } catch (_) {}
-    wx.showLoading({ title: "登录中" });
+    wx.showLoading({ title: "登录中", mask: true });
     try {
       const loginRes = await wx.login();
       const code = loginRes.code;
@@ -100,7 +127,7 @@ Page({
         auth: false,
         data: {
           code,
-          nickname: String(this.data.nicknameInput || "").trim(),
+          nickname: "",
         },
       });
       const token = res && res.data && res.data.token;
@@ -112,13 +139,22 @@ Page({
       wx.hideLoading();
       if (needJoin) {
         this.setData({ step: "join", inviteInput: "", realNameInput: "" });
+        try {
+          wx.setNavigationBarTitle({ title: "加入班级" });
+        } catch (_) {}
         return;
       }
       this.setData({ step: "authed" });
       wx.switchTab({ url: "/pages/home/index" });
     } catch (err) {
       wx.hideLoading();
-      wx.showToast({ title: err.message || "登录失败", icon: "none" });
+      this.setData({ step: "login_fail" });
+      try {
+        wx.setNavigationBarTitle({ title: "欢迎使用" });
+      } catch (_) {}
+      wx.showToast({ title: (err && err.message) || "登录失败", icon: "none" });
+    } finally {
+      this.setData({ _loginInFlight: false });
     }
   },
 
@@ -137,7 +173,7 @@ Page({
       wx.showToast({ title: "请填写邀请码", icon: "none" });
       return;
     }
-    wx.showLoading({ title: "提交中" });
+    wx.showLoading({ title: "提交中", mask: true });
     try {
       const res = await request({
         path: "/api/student/join-by-invite",
@@ -162,5 +198,4 @@ Page({
       wx.showToast({ title: err.message || "加入失败", icon: "none" });
     }
   },
-
 });

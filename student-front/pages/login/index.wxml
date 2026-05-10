@@ -1,51 +1,55 @@
 <view class="page-wrap login-page">
-  <block wx:if="{{step === 'authed'}}">
+  <!-- 首次无 token：自动微信登录中 -->
+  <block wx:if="{{step === 'boot'}}">
     <view class="hero-block">
-      <text class="hero-title">已登录</text>
-      <text class="hero-lead muted">已进入班级，可以开始练习</text>
+      <text class="hero-title">欢迎使用</text>
+      <text class="hero-lead muted">正在通过微信登录，请稍候…</text>
+    </view>
+    <view class="ios-card pad-card">
+      <text class="muted">首次使用需授权微信登录，随后请填写姓名与班级邀请码即可开始学习。</text>
+    </view>
+  </block>
+
+  <!-- 自动登录失败 -->
+  <block wx:elif="{{step === 'login_fail'}}">
+    <view class="hero-block">
+      <text class="hero-title">登录未成功</text>
+      <text class="hero-lead muted">请检查网络，或确认小程序与后台配置正确后重试</text>
+    </view>
+    <view class="btn-primary login-action" bindtap="onRetryWechatLogin">重新登录</view>
+  </block>
+
+  <!-- 已有班级：从「我的」等入口进入（少见） -->
+  <block wx:elif="{{step === 'authed'}}">
+    <view class="hero-block">
+      <text class="hero-title">已就绪</text>
+      <text class="hero-lead muted">你已加入班级，可以开始学习</text>
     </view>
     <view class="btn-primary login-action" bindtap="goHome">进入首页</view>
     <text class="link-row link-tint" bindtap="goJoinFromAuthed">加入其他班级</text>
   </block>
 
-  <block wx:elif="{{step === 'login'}}">
-    <view class="hero-block">
-      <text class="hero-title">登录</text>
-      <text class="hero-lead muted">使用微信登录；登录后须加入班级方可使用刷题与考试</text>
-    </view>
-
-    <text class="section-label">资料（可选）</text>
-    <view class="ios-card">
-      <view class="field-row">
-        <text class="field-label">昵称</text>
-        <input class="field-input" placeholder="选填，默认可用微信名" placeholder-class="ph" value="{{nicknameInput}}" bindinput="onNickInput" />
-      </view>
-    </view>
-
-    <view class="btn-primary login-action" bindtap="onWechatLogin">通过微信登录</view>
-    <text class="link-row link-tint" bindtap="goHome">暂不登录，回首页</text>
-  </block>
-
-  <block wx:else>
+  <!-- 已登录待入班：仅姓名 + 邀请码 -->
+  <block wx:elif="{{step === 'join'}}">
     <view class="hero-block">
       <text class="hero-title">加入班级</text>
-      <text class="hero-lead muted">请填写真实姓名与班级邀请码；须成功入班后才能使用其余功能</text>
+      <text class="hero-lead muted">请填写真实姓名与班级邀请码，完成后即可使用学习功能</text>
     </view>
 
     <text class="section-label">真实姓名</text>
     <view class="ios-card">
       <view class="field-row field-row-single">
-        <input class="field-input field-input-full" placeholder="与身份证或学校登记一致，便于老师识别" placeholder-class="ph" value="{{realNameInput}}" maxlength="64" bindinput="onRealNameInput" />
+        <input class="field-input field-input-full" placeholder="与学校登记一致，便于老师识别" placeholder-class="ph" value="{{realNameInput}}" maxlength="64" bindinput="onRealNameInput" />
       </view>
     </view>
 
-    <text class="section-label">邀请码</text>
+    <text class="section-label">班级邀请码</text>
     <view class="ios-card">
       <view class="field-row field-row-single">
-        <input class="field-input field-input-full" placeholder="例如 ABC12X" placeholder-class="ph" value="{{inviteInput}}" bindinput="onInviteInput" />
+        <input class="field-input field-input-full" placeholder="向班主任获取，例如 ABC12X" placeholder-class="ph" value="{{inviteInput}}" bindinput="onInviteInput" />
       </view>
     </view>
 
-    <view class="btn-primary join-btn" bindtap="onJoinClass">加入班级</view>
+    <view class="btn-primary join-btn" bindtap="onJoinClass">提交并加入班级</view>
   </block>
 </view>

@@ -2,6 +2,10 @@
   padding-top: 16rpx;
 }
 
+.pad-card {
+  padding: 28rpx 28rpx;
+}
+
 .hero-block {
   margin-bottom: 40rpx;
 }

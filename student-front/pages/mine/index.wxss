@@ -88,21 +88,9 @@
   font-weight: 500;
 }
 
-.class-grade {
-  font-size: 26rpx;
-}
-
 .leave-pending-label {
   font-size: 24rpx;
   flex-shrink: 0;
-}
-
-.leave-class-btn {
-  flex-shrink: 0;
-  margin: 0 !important;
-  font-size: 24rpx !important;
-  line-height: 1.8 !important;
-  padding: 0 20rpx !important;
 }
 
 .leave-pending-tip {

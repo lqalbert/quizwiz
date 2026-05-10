@@ -74,6 +74,15 @@
   box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.06);
 }
 
+.wf-card-type-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
 .wf-card-type {
   display: inline-block;
   font-size: 20rpx;
@@ -81,7 +90,12 @@
   border-radius: 8rpx;
   background: rgba(0, 122, 255, 0.12);
   color: #007aff;
-  margin-bottom: 12rpx;
+}
+
+.wf-card-saved {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #34c759;
 }
 
 .wf-card-name {
