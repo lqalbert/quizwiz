@@ -48,6 +48,7 @@
               data-id="{{card.id}}"
               data-ft="{{card.file_type}}"
               data-url="{{card.file_url_abs}}"
+              data-turbo="{{card.turbo_download_url}}"
               data-name="{{card.name}}"
               data-candl="{{card.can_dl ? '1' : '0'}}"
             >
@@ -59,6 +60,7 @@
                   data-id="{{card.id}}"
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
+                  data-turbo="{{card.turbo_download_url}}"
                   data-candl="{{card.can_dl ? '1' : '0'}}"
                   catchtap="onTapDownload"
                 >
@@ -76,6 +78,7 @@
               data-id="{{card.id}}"
               data-ft="{{card.file_type}}"
               data-url="{{card.file_url_abs}}"
+              data-turbo="{{card.turbo_download_url}}"
               data-name="{{card.name}}"
               data-candl="{{card.can_dl ? '1' : '0'}}"
             >
@@ -87,6 +90,7 @@
                   data-id="{{card.id}}"
                   data-name="{{card.name}}"
                   data-url="{{card.file_url_abs}}"
+                  data-turbo="{{card.turbo_download_url}}"
                   data-candl="{{card.can_dl ? '1' : '0'}}"
                   catchtap="onTapDownload"
                 >

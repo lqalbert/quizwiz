@@ -2864,6 +2864,27 @@ app.get('/api/student/my-classes', studentAuthRequired, async (req, res) => {
   }
 })
 
+/** 小程序直链下载：用当前请求的 Host/Proto 拼 /uploads/，避免 DB 里 UPLOAD_PUBLIC_BASE 与小程序 api_base 不一致导致永远走慢速 API */
+function buildStudentPublicUploadUrl(req, fileUrl, expectedPrefix) {
+  try {
+    const fu = String(fileUrl || '')
+    const pre = String(expectedPrefix || '')
+    if (!fu.startsWith(pre)) return null
+    const tail = fu.slice(pre.length)
+    const safeFileName = path.basename(String(tail.split('?')[0] || '').replace(/\\/g, '/'))
+    if (!safeFileName || safeFileName === '.' || safeFileName === '..') return null
+    const rawProto = String(req.get('x-forwarded-proto') || req.protocol || 'https')
+    const proto = rawProto.split(',')[0].trim().replace(/:+$/, '').toLowerCase() || 'https'
+    const host = String(req.get('x-forwarded-host') || req.get('host') || '')
+      .split(',')[0]
+      .trim()
+    if (!host) return null
+    return `${proto}://${host}/uploads/${encodeURIComponent(safeFileName)}`
+  } catch {
+    return null
+  }
+}
+
 app.get('/api/student/resources', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
   const classId = Number(req.query.class_id)
   if (!Number.isInteger(classId) || classId <= 0) {
@@ -2909,6 +2930,9 @@ app.get('/api/student/resources', studentAuthRequired, studentClassMembershipReq
     return res.json({
       data: resourceResult.rows.map((row) => {
         const fileUrl = String(row.file_url || '')
+        const canSystemDl = Boolean(fileUrl && fileUrl.startsWith(expectedPrefix))
+        const fromReq = canSystemDl ? buildStudentPublicUploadUrl(req, fileUrl, expectedPrefix) : null
+        const fromDb = canSystemDl && /^https:\/\//i.test(fileUrl) ? fileUrl : null
         return {
           id: row.id,
           name: row.name,
@@ -2918,7 +2942,8 @@ app.get('/api/student/resources', studentAuthRequired, studentClassMembershipReq
           subject_id: row.subject_id != null ? Number(row.subject_id) : null,
           subject_name: String(row.subject_name || ''),
           created_at: row.created_at,
-          can_system_download: Boolean(fileUrl && fileUrl.startsWith(expectedPrefix)),
+          can_system_download: canSystemDl,
+          direct_download_url: fromReq || fromDb,
         }
       }),
     })
@@ -2975,7 +3000,7 @@ app.get('/api/student/resources/:id/download', studentAuthRequired, studentClass
       return res.status(404).json({ message: '文件不存在，可能已被移除' })
     }
     const displayName = String(resource.name || safeFileName)
-    await writeOperationLog({
+    void writeOperationLog({
       operatorId: null,
       action: 'resource.student_download',
       targetType: 'resource',
@@ -2987,7 +3012,7 @@ app.get('/api/student/resources/:id/download', studentAuthRequired, studentClass
         student_id: req.studentAuth.studentId,
         class_id: classId,
       },
-    })
+    }).catch(() => {})
     return res.download(absPath, displayName)
   } catch (error) {
     return res.status(500).json({ message: '下载资料失败', detail: error instanceof Error ? error.message : String(error) })

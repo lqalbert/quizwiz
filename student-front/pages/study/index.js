@@ -48,14 +48,18 @@ function buildSections(list) {
     const left = [];
     const right = [];
     sec.items.forEach((it, i) => {
+      const canDl =
+        it.can_system_download === true ||
+        it.can_system_download === 1 ||
+        it.can_system_download === "1" ||
+        it.can_system_download === "true";
+      const turbo = String(it.direct_download_url || "").trim();
       const enriched = {
         ...it,
         file_url_abs: absFileUrl(it.file_url),
-        can_dl:
-          it.can_system_download === true ||
-          it.can_system_download === 1 ||
-          it.can_system_download === "1" ||
-          it.can_system_download === "true",
+        can_dl: canDl,
+        /** 与当前 API 同域的直链，优先用于 wx.downloadFile */
+        turbo_download_url: turbo || (canDl ? absFileUrl(it.file_url) : ""),
       };
       if (i % 2 === 0) left.push(enriched);
       else right.push(enriched);
@@ -98,17 +102,30 @@ function mapOpenDocumentFileType(ext) {
   return map[e] || undefined;
 }
 
+function parseUrlHost(u) {
+  const m = String(u || "").match(/^https?:\/\/([^/?#]+)/i);
+  return m ? String(m[1]).toLowerCase() : "";
+}
+
 /**
  * 本地上传的资料 file_url 指向 /uploads/，可由静态服务直出。
  * 直链 wx.downloadFile 不走 Node 鉴权接口，明显更快；失败再回退 API。
+ * http 仅允许本机调试或与 api_base 同 Host（内网 http 联调）。
  */
 function canUseDirectStudyDownload(fileUrlAbs) {
   const s = String(fileUrlAbs || "").trim();
   if (!s || /\.\./.test(s)) return false;
+  if (!/\/uploads\//i.test(s)) return false;
   const isHttps = /^https:\/\//i.test(s);
   const isLocalHttp = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(s);
-  if (!isHttps && !isLocalHttp) return false;
-  return /\/uploads\//i.test(s);
+  if (isHttps || isLocalHttp) return true;
+  const isHttp = /^http:\/\//i.test(s);
+  if (isHttp) {
+    const h1 = parseUrlHost(s);
+    const h2 = parseUrlHost(getApiBase());
+    return Boolean(h1 && h2 && h1 === h2);
+  }
+  return false;
 }
 
 /** downloadFile 在 4xx/5xx 时仍可能走 success，且临时文件里是 JSON 错误体（勿用 utf8 读二进制大文件） */
@@ -398,6 +415,7 @@ Page({
     const filePath = canFilePath
       ? `${userPath}/qw_res_${resourceKey}_${Date.now()}.${safeExt}`
       : undefined;
+    const baseTitle = String(loadingTitle || "加载中").replace(/…$/, "");
     wx.showLoading({ title: loadingTitle || "加载中", mask: true });
     return new Promise((resolve, reject) => {
       const opts = {
@@ -445,7 +463,21 @@ Page({
         },
       };
       if (filePath) opts.filePath = filePath;
-      wx.downloadFile(opts);
+      const task = wx.downloadFile(opts);
+      if (task && typeof task.onProgressUpdate === "function") {
+        let lastPct = -10;
+        task.onProgressUpdate((ev) => {
+          const tot = ev.totalBytesExpectedToWrite;
+          const cur = ev.totalBytesWritten;
+          if (!tot || tot <= 0) return;
+          const pct = Math.min(99, Math.floor((100 * cur) / tot));
+          if (pct < lastPct + 5 && pct < 99) return;
+          lastPct = pct;
+          try {
+            wx.showLoading({ title: `${baseTitle} ${pct}%`, mask: true });
+          } catch (_) {}
+        });
+      }
     });
   },
 
@@ -470,14 +502,14 @@ Page({
     );
   },
 
-  /** @param {string} [fileUrlAbs] 列表里的绝对地址；本地上传时优先直链下载 */
-  downloadResourceToTemp(resourceId, displayName, loadingTitle, fileUrlAbs) {
+  /** @param {string} [turboUrl] 优先服务端下发的 direct_download_url，与 api 同域 */
+  downloadResourceToTemp(resourceId, displayName, loadingTitle, turboUrl) {
     const classId = this.data.classId;
     if (!classId || !Number.isFinite(resourceId) || resourceId <= 0) {
       wx.showToast({ title: "无法打开", icon: "none" });
       return Promise.reject(new Error("bad"));
     }
-    const abs = String(fileUrlAbs || "").trim();
+    const abs = String(turboUrl || "").trim();
     if (canUseDirectStudyDownload(abs)) {
       return this.runWxDownloadOnce(abs, {}, displayName, resourceId, loadingTitle, true).catch(() =>
         this._downloadResourceViaApi(resourceId, displayName, loadingTitle),
@@ -499,19 +531,19 @@ Page({
     });
   },
 
-  async openDocPreviewFromResource(id, displayName, fileUrlAbs) {
+  async openDocPreviewFromResource(id, displayName, turboUrl) {
     this.closeAudioPreview();
     this.closeVideoPreview();
     try {
-      const p = await this.downloadResourceToTemp(id, displayName, "正在打开…", fileUrlAbs);
+      const p = await this.downloadResourceToTemp(id, displayName, "正在打开…", turboUrl);
       this.openDocumentFromTemp(p, displayName, "无法预览，可点「下载」重试");
     } catch (_) {}
   },
 
-  async openAudioPreviewFromResource(id, displayName, fileUrlAbs) {
+  async openAudioPreviewFromResource(id, displayName, turboUrl) {
     this.closeVideoPreview();
     try {
-      const p = await this.downloadResourceToTemp(id, displayName, "正在加载…", fileUrlAbs);
+      const p = await this.downloadResourceToTemp(id, displayName, "正在加载…", turboUrl);
       if (!this._audioCtx) return;
       this._audioCtx.stop();
       this._audioCtx.src = p;
@@ -528,6 +560,7 @@ Page({
     const id = Number(ds.id);
     const fileType = String(ds.ft || "file");
     const url = String(ds.url || "");
+    const turbo = String(ds.turbo || "").trim() || url;
     const name = String(ds.name || "");
     const canDl = ds.candl === "1" || ds.candl === 1;
     if (!url) {
@@ -554,10 +587,10 @@ Page({
         return;
       }
       if (isAudioExt(ext)) {
-        void this.openAudioPreviewFromResource(id, name, url);
+        void this.openAudioPreviewFromResource(id, name, turbo);
         return;
       }
-      void this.openDocPreviewFromResource(id, name, url);
+      void this.openDocPreviewFromResource(id, name, turbo);
       return;
     }
     wx.showActionSheet({
@@ -592,13 +625,13 @@ Page({
       wx.showToast({ title: "资料无效", icon: "none" });
       return;
     }
-    const fileUrl = String(e.currentTarget.dataset.url || "");
-    void this.downloadAndOpen(id, name, fileUrl);
+    const turbo = String(e.currentTarget.dataset.turbo || "").trim() || String(e.currentTarget.dataset.url || "");
+    void this.downloadAndOpen(id, name, turbo);
   },
 
-  downloadAndOpen(resourceId, displayName, fileUrlAbs) {
+  downloadAndOpen(resourceId, displayName, turboUrl) {
     this.closeVideoPreview();
-    void this.downloadResourceToTemp(resourceId, displayName, "正在保存…", fileUrlAbs)
+    void this.downloadResourceToTemp(resourceId, displayName, "正在保存…", turboUrl)
       .then((p) => {
         this.openDocumentFromTemp(p, displayName, "无法打开该格式，可尝试保存后查看");
       })
