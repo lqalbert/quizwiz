@@ -89,6 +89,16 @@ type ThemeOption = {
   progressTrailColor: string
 }
 
+/** 待审核退出班级申请（与接口、setLeaveRequests 一致） */
+type LeaveRequestRow = {
+  id: number
+  student_id: number
+  student_name: string
+  student_avatar_url?: string | null
+  requested_at: string
+}
+type LeaveRequestTableRow = LeaveRequestRow & { key: string }
+
 const STORAGE_THEME_INDEX = 'teacher-admin-theme-index'
 
 const themeOptions: ThemeOption[] = [
@@ -979,9 +989,7 @@ function ClassPage() {
   const [joinRequests, setJoinRequests] = useState<
     Array<{ id: number; student_name: string; source: string; requested_at: string }>
   >([])
-  const [leaveRequests, setLeaveRequests] = useState<
-    Array<{ id: number; student_id: number; student_name: string; student_avatar_url?: string | null; requested_at: string }>
-  >([])
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRow[]>([])
   const [createForm] = Form.useForm()
   const [addStudentForm] = Form.useForm()
   const [addTeacherForm] = Form.useForm()
@@ -1665,7 +1673,7 @@ function ClassPage() {
               />
             </Card>
             <Card size="small" title="待审核退出班级申请">
-              <Table
+              <Table<LeaveRequestTableRow>
                 size="small"
                 pagination={{ pageSize: 5 }}
                 dataSource={leaveRequests.map((item) => ({ ...item, key: String(item.id) }))}
@@ -1674,7 +1682,7 @@ function ClassPage() {
                   {
                     title: '学生',
                     dataIndex: 'student_name',
-                    render: (_: unknown, row: { student_name?: string; student_avatar_url?: string | null }) => (
+                    render: (_, row) => (
                       <Space>
                         <Avatar size="small" src={row.student_avatar_url || undefined} icon={<UserOutlined />} />
                         <span>{row.student_name || '-'}</span>
@@ -1686,7 +1694,7 @@ function ClassPage() {
                         {
                           title: '操作',
                           key: 'action',
-                          render: (_: unknown, row: { id: number }) => (
+                          render: (_, row) => (
                             <Space>
                               <Popconfirm
                                 title="确认同意该学生退出班级？"
