@@ -1,22 +1,14 @@
 <view class="page-wrap login-page">
-  <!-- 首次无 token：自动微信登录中 -->
+  <!-- 首次无 token：点按钮授权并登录 -->
   <block wx:if="{{step === 'boot'}}">
     <view class="hero-block">
       <text class="hero-title">欢迎使用</text>
-      <text class="hero-lead muted">正在通过微信登录，请稍候…</text>
+      <text class="hero-lead muted">点击下方按钮授权头像与昵称，完成微信登录</text>
     </view>
     <view class="ios-card pad-card">
-      <text class="muted">首次使用需授权微信登录，随后请填写姓名与班级邀请码即可开始学习。</text>
+      <text class="muted">登录后可在「我的」中查看头像与昵称；随后请填写真实姓名与班级邀请码即可开始学习。</text>
     </view>
-  </block>
-
-  <!-- 自动登录失败 -->
-  <block wx:elif="{{step === 'login_fail'}}">
-    <view class="hero-block">
-      <text class="hero-title">登录未成功</text>
-      <text class="hero-lead muted">请检查网络，或确认小程序与后台配置正确后重试</text>
-    </view>
-    <view class="btn-primary login-action" bindtap="onRetryWechatLogin">重新登录</view>
+    <view class="btn-primary login-action" bindtap="onTapWechatLogin">微信授权并登录</view>
   </block>
 
   <!-- 已有班级：从「我的」等入口进入（少见） -->
