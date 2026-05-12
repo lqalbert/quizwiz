@@ -3,10 +3,10 @@
   <block wx:if="{{step === 'boot'}}">
     <view class="hero-block">
       <text class="hero-title">欢迎使用</text>
-      <text class="hero-lead muted">点击下方按钮完成微信登录；若弹出资料授权，同意后可同步头像与昵称（也可稍后在「我的」补充）</text>
+      <text class="hero-lead muted">点击下方按钮完成微信登录；头像与昵称请在登录后于「我的」中通过「选择头像 / 昵称填写」设置（微信已不再提供一键读取）。</text>
     </view>
     <view class="ios-card pad-card">
-      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习；头像与昵称可在「我的」中查看或修改。</text>
+      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习；展示用头像与昵称在「我的」中设置。</text>
     </view>
     <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onTapWechatLogin">微信登录</view>
   </block>

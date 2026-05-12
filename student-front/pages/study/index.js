@@ -148,14 +148,79 @@ Page({
   },
 
   onLoad() {
+    this._audioPlayEpoch = 0;
+    this._audioSuppressErrorUntil = 0;
+    this._audioCurrentResourceId = 0;
     this._audioCtx = wx.createInnerAudioContext();
-    this._audioCtx.onPlay(() => this.setData({ audioPlaying: true }));
+    this._audioCtx.onPlay(() => {
+      this._suppressInnerAudioErrors(250);
+      this.setData({ audioPlaying: true });
+    });
     this._audioCtx.onPause(() => this.setData({ audioPlaying: false }));
     this._audioCtx.onStop(() => this.setData({ audioPlaying: false }));
     this._audioCtx.onEnded(() => this.setData({ audioPlaying: false }));
-    this._audioCtx.onError(() => {
-      wx.showToast({ title: "音频播放失败", icon: "none" });
+    this._audioCtx.onError((res) => this._onInnerAudioError(res));
+  },
+
+  /** 在 stop/destroy/切歌 前后短暂屏蔽 onError，避免误报「音频播放失败」 */
+  _suppressInnerAudioErrors(ms) {
+    this._audioSuppressErrorUntil = Math.max(this._audioSuppressErrorUntil || 0, Date.now() + (ms || 500));
+  },
+
+  _onInnerAudioError(res) {
+    if (Date.now() < (this._audioSuppressErrorUntil || 0)) return;
+    if (!this.data.audioPreviewVisible) return;
+    const errMsg = String((res && res.errMsg) || "");
+    if (/abort|interrupt|cancel|stop|seek|pause/i.test(errMsg)) return;
+    const code = Number((res && res.errCode) != null ? res.errCode : NaN);
+    const cid = this.data.classId;
+    const rid = Number(this._audioCurrentResourceId) || 0;
+    if (code === 10003 && cid && rid > 0) {
+      studyLocalCache.removeRecord(cid, rid);
+      this.refreshSectionsLocalFlags();
+    }
+    let title = "音频播放失败";
+    if (code === 10003) title = "文件无法播放，已清除本地缓存，请重新下载";
+    else if (code === 10004) title = "该音频格式本机无法解码，请换 MP3 等常见格式";
+    else if (code === 10002) title = "网络异常，请检查网络后重试";
+    else if (code === 10001) title = "播放异常，请稍后重试";
+    try {
+      console.warn("[study audio]", code, errMsg);
+    } catch (_) {}
+    this.setData({ audioPlaying: false });
+    wx.showToast({ title, icon: "none" });
+  },
+
+  /**
+   * 停止当前播放后设置新地址并播放；用 epoch + nextTick 减轻切歌/停止触发的误报 onError。
+   */
+  _playLocalAudioFile(localPath, resourceId, displayName) {
+    if (!this._audioCtx || !String(localPath || "").trim()) return;
+    this._audioPlayEpoch = (this._audioPlayEpoch || 0) + 1;
+    const epoch = this._audioPlayEpoch;
+    this._suppressInnerAudioErrors(700);
+    try {
+      this._audioCtx.stop();
+    } catch (_) {}
+    this._audioCurrentResourceId = Number(resourceId) > 0 ? Number(resourceId) : 0;
+    this._audioCtx.src = localPath;
+    this.setData({
+      audioPreviewVisible: true,
+      audioPreviewName: displayName || "音频",
     });
+    const run = () => {
+      if (!this._audioCtx || this._audioPlayEpoch !== epoch) return;
+      try {
+        this._audioCtx.play();
+      } catch (e) {
+        try {
+          console.warn("[study audio] play()", e);
+        } catch (_) {}
+        wx.showToast({ title: "无法开始播放", icon: "none" });
+      }
+    };
+    if (typeof wx.nextTick === "function") wx.nextTick(run);
+    else setTimeout(run, 50);
   },
 
   onHide() {
@@ -165,6 +230,7 @@ Page({
   onUnload() {
     this.closeAudioPreview();
     if (this._audioCtx) {
+      this._suppressInnerAudioErrors(2000);
       try {
         this._audioCtx.destroy();
       } catch (_) {}
@@ -309,20 +375,34 @@ Page({
   },
 
   closeAudioPreview() {
+    this._suppressInnerAudioErrors(500);
+    this._audioPlayEpoch = (this._audioPlayEpoch || 0) + 1;
+    this._audioCurrentResourceId = 0;
+    if (this.data.audioPreviewVisible) {
+      this.setData({ audioPreviewVisible: false, audioPreviewName: "", audioPlaying: false });
+    }
     if (this._audioCtx) {
       try {
         this._audioCtx.stop();
       } catch (_) {}
     }
-    if (this.data.audioPreviewVisible) {
-      this.setData({ audioPreviewVisible: false, audioPreviewName: "", audioPlaying: false });
-    }
   },
 
   toggleAudioPreview() {
     if (!this._audioCtx) return;
-    if (this.data.audioPlaying) this._audioCtx.pause();
-    else this._audioCtx.play();
+    if (this.data.audioPlaying) {
+      this._audioCtx.pause();
+      return;
+    }
+    if (!String(this._audioCtx.src || "").trim()) {
+      wx.showToast({ title: "请先选择一条音频资料", icon: "none" });
+      return;
+    }
+    try {
+      this._audioCtx.play();
+    } catch (e) {
+      this._onInnerAudioError({ errCode: 10001, errMsg: String((e && e.message) || "") });
+    }
   },
 
   refreshSectionsLocalFlags() {
@@ -349,13 +429,7 @@ Page({
     if (isAudio) {
       this.closeVideoPreview();
       if (!this._audioCtx) return false;
-      this._audioCtx.stop();
-      this._audioCtx.src = rec.path;
-      this.setData({
-        audioPreviewVisible: true,
-        audioPreviewName: displayName || "音频",
-      });
-      this._audioCtx.play();
+      this._playLocalAudioFile(rec.path, resourceId, displayName || "音频");
       return true;
     }
     this.closeAudioPreview();
@@ -525,13 +599,7 @@ Page({
       studyLocalCache.setRecord(this.data.classId, id, p, displayName);
       this.refreshSectionsLocalFlags();
       if (!this._audioCtx) return;
-      this._audioCtx.stop();
-      this._audioCtx.src = p;
-      this.setData({
-        audioPreviewVisible: true,
-        audioPreviewName: displayName || "音频",
-      });
-      this._audioCtx.play();
+      this._playLocalAudioFile(p, id, displayName || "音频");
     } catch (_) {}
   },
 

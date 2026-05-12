@@ -15,7 +15,7 @@
         </view>
         <view class="profile-text">
           <text class="name">{{wxNickname}}</text>
-          <text class="subline muted" wx:if="{{showWxProfileHint}}">轻点头像可授权同步微信头像与昵称</text>
+          <text class="subline muted" wx:if="{{showWxProfileHint}}">轻点头像，使用微信提供的头像与昵称填写能力完成设置</text>
           <text class="subline muted" wx:if="{{needJoinClass}}">须加入班级后方可使用刷题、考试与做题记录</text>
         </view>
       </view>
@@ -89,6 +89,44 @@
   </block>
 
   <button wx:if="{{loggedIn}}" class="logout-btn" hover-class="logout-btn-hover" hover-stay-time="70" bindtap="logout">退出登录</button>
+
+  <!-- 微信头像昵称：chooseAvatar + nickname（替代 getUserProfile） -->
+  <view
+    wx:if="{{loggedIn && wxProfileVisible}}"
+    class="name-edit-mask"
+    catchtouchmove="noop"
+    bindtap="cancelWxProfile"
+  >
+    <view class="name-edit-dialog wx-profile-dialog" catchtap="noop">
+      <text class="name-edit-dialog-title">设置头像与昵称</text>
+      <text class="name-edit-hint muted">微信已不再开放一键读取真实头像与昵称，请使用下方能力填写；头像将保存到服务器以便长期显示。</text>
+      <view class="wx-profile-avatar-row">
+        <button
+          class="wx-choose-avatar-btn"
+          open-type="chooseAvatar"
+          bindchooseavatar="onWxChooseAvatar"
+          disabled="{{profileAvatarUploading}}"
+        >
+          {{profileAvatarUploading ? '上传中…' : '选择头像'}}
+        </button>
+      </view>
+      <text class="wx-profile-field-label muted">昵称（将展示在「我的」顶部）</text>
+      <input
+        class="name-edit-input wx-nickname-input"
+        type="nickname"
+        value="{{profileNickDraft}}"
+        maxlength="32"
+        placeholder="点击输入或选用微信昵称"
+        placeholder-class="ph"
+        adjust-position="{{true}}"
+        bindinput="onProfileNickInput"
+      />
+      <view class="ui-modal-actions">
+        <view class="ui-modal-btn ui-modal-btn--cancel" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="cancelWxProfile">取消</view>
+        <view class="ui-modal-btn ui-modal-btn--ok" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="confirmWxProfile">完成</view>
+      </view>
+    </view>
+  </view>
 
   <!-- 姓名编辑：固定遮罩 + 居中弹层，避免内嵌卡片 + overflow 导致输入框畸形 -->
   <view

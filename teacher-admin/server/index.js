@@ -2705,6 +2705,48 @@ app.patch('/api/student/profile', studentAuthRequired, async (req, res) => {
   }
 })
 
+/** 小程序「头像昵称填写能力」：chooseAvatar 得到本地临时文件后上传，存为可长期访问的 URL */
+app.post('/api/student/profile/avatar-upload', studentAuthRequired, (req, res) => {
+  const studentId = req.studentAuth.studentId
+  avatarUpload.single('file')(req, res, async (error) => {
+    if (error) {
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: '头像图片不能超过 2MB' })
+      }
+      return res.status(400).json({ message: error instanceof Error ? error.message : '上传失败' })
+    }
+    const file = req.file
+    if (!file) return res.status(400).json({ message: '未检测到上传文件' })
+    const base = String(UPLOAD_PUBLIC_BASE || '').replace(/\/$/, '')
+    const fileUrl = `${base}/uploads/${file.filename}`
+    try {
+      const r = await pool.query(
+        `UPDATE students SET wechat_avatar_url = $1 WHERE id = $2 RETURNING id, name, real_name, student_no, wechat_avatar_url`,
+        [fileUrl, studentId],
+      )
+      const row = r.rows[0]
+      if (!row) return res.status(404).json({ message: '学生不存在' })
+      const rn = String(row.real_name || '').trim()
+      const nn = String(row.name || '').trim()
+      const wxAvatar = String(row.wechat_avatar_url || '').trim()
+      return res.json({
+        data: {
+          student: {
+            id: row.id,
+            name: row.name,
+            real_name: row.real_name,
+            display_name: rn || nn || '同学',
+            wx_nickname: nn || '微信用户',
+            wx_avatar_url: wxAvatar,
+          },
+        },
+      })
+    } catch (e) {
+      return res.status(500).json({ message: '保存头像失败', detail: e instanceof Error ? e.message : String(e) })
+    }
+  })
+})
+
 /** 学生申请退出某班级（须教师审核通过后才会真正退班；通过后删除「考试曾关联该班」的答卷，与是否仍在别班无关；个人刷题数据保留） */
 app.post('/api/student/leave-class-request', studentAuthRequired, async (req, res) => {
   const classId = Number(req.body?.class_id ?? req.body?.classId)
