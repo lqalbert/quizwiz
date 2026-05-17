@@ -41,8 +41,32 @@ function formatBeijingDateTime(value, withSeconds = false) {
 }
 
 function formatBeijingDateOnly(value) {
-  const s = formatBeijingDateTime(value, false);
-  return s ? s.slice(0, 10) : "";
+  return formatBeijingCalendarDate(value);
+}
+
+/**
+ * 日历日期（复习日、统计日等）：按 Asia/Shanghai 取 YYYY-MM-DD。
+ * 兼容 PG DATE 序列化、纯日期字符串、timestamptz。
+ */
+function formatBeijingCalendarDate(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") {
+    const t = value.trim();
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch (_) {
+    return "";
+  }
 }
 
 function formatBeijingRange(startIso, endIso) {
@@ -60,7 +84,7 @@ function formatBeijingMonthDaySlash(value) {
 
 /** 与首页 hero 一致的北京「当天」日历键 YYYY-MM-DD */
 function beijingCalendarDateKey(d = new Date()) {
-  return formatBeijingDateOnly(d);
+  return formatBeijingCalendarDate(d);
 }
 
 /**
@@ -107,6 +131,7 @@ function beijingNowDateTimeLocalValue() {
 module.exports = {
   formatBeijingDateTime,
   formatBeijingDateOnly,
+  formatBeijingCalendarDate,
   formatBeijingRange,
   formatBeijingMonthDaySlash,
   beijingCalendarDateKey,

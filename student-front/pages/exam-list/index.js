@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatBeijingRange } = require("../../utils/beijingTime.js");
+const { sortExamsNewestFirst } = require("../../utils/examSort.js");
 
 Page({
   data: {
@@ -25,7 +26,7 @@ Page({
     this.setData({ loading: true, err: "" });
     try {
       const res = await request({ path: "/api/student/exams", method: "GET" });
-      const raw = (res && res.data) || [];
+      const raw = sortExamsNewestFirst((res && res.data) || []);
       const exams = raw.map((item) => {
         let phaseLabel = "未开始";
         if (item.phase === "ongoing") phaseLabel = "进行中";

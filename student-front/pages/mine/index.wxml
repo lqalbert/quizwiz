@@ -21,7 +21,7 @@
             <text class="name-edit-hint muted">修改</text>
           </view>
           <text class="subline muted" wx:if="{{showWxProfileHint}}">点头像选微信头像；点昵称可修改（使用微信昵称输入框）</text>
-          <text class="subline muted" wx:if="{{needJoinClass}}">须加入班级后方可使用刷题、考试与做题记录</text>
+          <text class="subline muted" wx:if="{{needJoinClass}}">请前往首页填写真实姓名与班级邀请码</text>
         </view>
       </view>
     </view>
@@ -40,10 +40,10 @@
       </view>
     </view>
     <view class="ios-card empty-class-card" wx:elif="{{needJoinClass}}">
-      <text class="empty-class muted">加入班级后，将在此显示你的班级（入班请在登录页完成）</text>
+      <text class="empty-class muted">加入班级后，将在此显示你的班级（请在首页填写邀请码与姓名）</text>
     </view>
     <view class="ios-card empty-class-card" wx:else>
-      <text class="empty-class muted">暂无班级（入班请在登录页完成）</text>
+      <text class="empty-class muted">暂无班级（请在首页填写邀请码与姓名）</text>
     </view>
 
     <text class="section-label">资料</text>

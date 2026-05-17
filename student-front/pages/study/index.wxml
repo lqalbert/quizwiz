@@ -4,7 +4,7 @@
     <view class="page-hero-body">
       <text class="page-hero-eyebrow">学习</text>
       <text class="page-hero-title">班级资料</text>
-      <text class="page-hero-lead muted">按科目浏览；已下载的文档/音频会标注「已下载」，点击卡片或「打开」可本地直接打开</text>
+      <text class="page-hero-lead muted">按科目浏览；已下载的资料会标注「已下载」，图片可预览，文档/音频可本地打开</text>
     </view>
   </view>
 

@@ -1,7 +1,7 @@
 <view class="page-wrap review-today-root">
   <view class="review-today-hero">
     <text class="h2">今日待复习</text>
-    <text class="muted" style="display:block;margin-top:12rpx;">与首页「今日」错题数同一口径：到复习日或尚未排期的错题。</text>
+    <text class="muted" style="display:block;margin-top:12rpx;">与首页「今日」错题数同一口径（北京时间 {{beijingToday}}）：到复习日或尚未排期的错题。</text>
   </view>
 
   <view wx:if="{{loading}}" class="muted">加载中…</view>
@@ -26,7 +26,8 @@
       <block wx:for="{{questions}}" wx:key="question_id">
         <view class="review-item" hover-class="review-item-hover" hover-stay-time="70" bindtap="startOne" data-id="{{item.question_id}}">
           <text class="review-item-stem">{{item.stem_display}}</text>
-          <text class="review-item-meta">{{item.question_type_text}} · 下次 {{item.next_label}}</text>
+          <text class="review-item-meta">{{item.question_type_text}} · 复习日 {{item.next_label}}</text>
+          <text wx:if="{{item.last_wrong_label}}" class="review-item-meta muted">{{item.last_wrong_label}}</text>
         </view>
       </block>
     </view>

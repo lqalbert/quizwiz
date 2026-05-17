@@ -88,6 +88,26 @@ function isAudioExt(ext) {
   return ["mp3", "m4a", "aac", "wav", "flac", "ogg"].includes(String(ext || "").toLowerCase());
 }
 
+function isImageExt(ext) {
+  return ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(String(ext || "").toLowerCase());
+}
+
+function isImageResource(fileType, displayName, fileUrl) {
+  const ft = String(fileType || "").toLowerCase();
+  if (ft === "image") return true;
+  const ext = getFileExt(displayName, fileUrl);
+  if (isImageExt(ext)) return true;
+  return /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(String(fileUrl || ""));
+}
+
+function friendlyOpenFailMsg(errMsg, fallback) {
+  const em = String(errMsg || "");
+  if (/filetype not supported/i.test(em)) return "该格式无法在小程序内直接打开";
+  if (/openDocument/i.test(em)) return fallback || "无法打开文件";
+  if (/previewImage/i.test(em)) return fallback || "无法预览图片";
+  return em || fallback || "无法打开";
+}
+
 /** wx.openDocument 的 fileType，缺省时由基础库按扩展名推断 */
 function mapOpenDocumentFileType(ext) {
   const e = String(ext || "").toLowerCase();
@@ -246,6 +266,9 @@ Page({
     if (!wx.getStorageSync("student_token")) {
       wx.reLaunch({ url: "/pages/login/index" });
       return;
+    }
+    if (this.data.classId && Array.isArray(this.data.sections) && this.data.sections.length > 0) {
+      this.refreshSectionsLocalFlags();
     }
     void this.bootstrap();
   },
@@ -412,11 +435,25 @@ Page({
     this.setData({ sections: studyLocalCache.mergeLocalSavedFlag(cid, sections) });
   },
 
+  /** 下载成功后写入本地记录并刷新「已下载」标注 */
+  async markResourceDownloaded(resourceId, localPath, displayName) {
+    const cid = this.data.classId;
+    if (!cid || !Number.isFinite(resourceId) || resourceId <= 0) return localPath;
+    let saved = localPath;
+    try {
+      saved = await studyLocalCache.saveDownloadRecord(cid, resourceId, localPath, displayName);
+    } catch (e) {
+      console.warn("[study] saveDownloadRecord failed", e);
+    }
+    this.refreshSectionsLocalFlags();
+    return saved;
+  },
+
   /**
    * 若 Storage 中有持久路径且文件仍在，则直接打开（文档 openDocument / 音频播放器）。
    * @returns {Promise<boolean>} 是否已成功从本地打开
    */
-  async tryOpenSavedOfficeOrAudioFile(resourceId, displayName, isAudio) {
+  async tryOpenSavedLocalFile(resourceId, displayName, fileType, fileUrl, isAudio) {
     const cid = this.data.classId;
     const rec = studyLocalCache.getRecord(cid, resourceId);
     if (!rec || !rec.path) return false;
@@ -430,6 +467,12 @@ Page({
       this.closeVideoPreview();
       if (!this._audioCtx) return false;
       this._playLocalAudioFile(rec.path, resourceId, displayName || "音频");
+      return true;
+    }
+    if (isImageResource(fileType, displayName || rec.name, fileUrl)) {
+      this.closeAudioPreview();
+      this.closeVideoPreview();
+      this.previewImageFromPath(rec.path, "无法预览图片", resourceId);
       return true;
     }
     this.closeAudioPreview();
@@ -548,12 +591,35 @@ Page({
     return this._downloadResourceViaApi(resourceId, displayName, loadingTitle);
   },
 
-  openDocumentFromTemp(tempFilePath, displayName, failHint, resourceId) {
-    const ext = getFileExt(displayName, "").toLowerCase();
+  previewImageFromPath(localPath, failHint, resourceId) {
+    const rid = resourceId != null && resourceId !== "" ? Number(resourceId) : NaN;
+    wx.previewImage({
+      urls: [localPath],
+      current: localPath,
+      fail: (err) => {
+        const em = friendlyOpenFailMsg((err && err.errMsg) || "", failHint);
+        if (Number.isFinite(rid) && rid > 0 && this.data.classId) {
+          studyLocalCache.removeRecord(this.data.classId, rid);
+          this.refreshSectionsLocalFlags();
+        }
+        wx.showToast({
+          title: em.length > 44 ? `${em.slice(0, 42)}…` : em,
+          icon: "none",
+        });
+      },
+    });
+  },
+
+  openDocumentFromTemp(tempFilePath, displayName, failHint, resourceId, fileUrl) {
+    const ext = getFileExt(displayName, fileUrl || "").toLowerCase();
+    if (isImageExt(ext)) {
+      this.previewImageFromPath(tempFilePath, failHint, resourceId);
+      return;
+    }
     const mapped = mapOpenDocumentFileType(ext);
     const rid = resourceId != null && resourceId !== "" ? Number(resourceId) : NaN;
     const tip = (msg) => {
-      const t = String(msg || failHint || "无法打开");
+      const t = friendlyOpenFailMsg(msg, failHint || "无法打开");
       wx.showToast({ title: t.length > 44 ? `${t.slice(0, 42)}…` : t, icon: "none" });
     };
     const run = (withMappedType) => {
@@ -572,34 +638,54 @@ Page({
             studyLocalCache.removeRecord(this.data.classId, rid);
             this.refreshSectionsLocalFlags();
           }
-          tip(em || failHint);
+          tip(em);
         },
       });
     };
     setTimeout(() => run(false), 100);
   },
 
+  ensureDownloadDisplayName(displayName, fileUrl, fileType) {
+    const name = String(displayName || "").trim() || "资料";
+    if (getFileExt(name, fileUrl)) return name;
+    if (isImageResource(fileType, name, fileUrl)) {
+      const ext = getFileExt("", fileUrl) || "png";
+      return `${name}.${ext}`;
+    }
+    return name;
+  },
+
+  async openImageFromResource(id, displayName, turboUrl, fileUrl) {
+    this.closeAudioPreview();
+    this.closeVideoPreview();
+    const dlName = this.ensureDownloadDisplayName(displayName, fileUrl, "image");
+    if (await this.tryOpenSavedLocalFile(id, dlName, "image", fileUrl, false)) return;
+    try {
+      const p = await this.downloadResourceToTemp(id, dlName, "正在下载…", turboUrl);
+      const saved = await this.markResourceDownloaded(id, p, dlName);
+      this.previewImageFromPath(saved, "无法预览图片", id);
+    } catch (_) {}
+  },
+
   async openDocPreviewFromResource(id, displayName, turboUrl) {
     this.closeAudioPreview();
     this.closeVideoPreview();
-    if (await this.tryOpenSavedOfficeOrAudioFile(id, displayName, false)) return;
+    if (await this.tryOpenSavedLocalFile(id, displayName, "file", "", false)) return;
     try {
       const p = await this.downloadResourceToTemp(id, displayName, "正在打开…", turboUrl);
-      studyLocalCache.setRecord(this.data.classId, id, p, displayName);
-      this.refreshSectionsLocalFlags();
-      this.openDocumentFromTemp(p, displayName, "无法预览，可点「下载」重试", id);
+      const saved = await this.markResourceDownloaded(id, p, displayName);
+      this.openDocumentFromTemp(saved, displayName, "无法预览，可点「下载」重试", id, turboUrl);
     } catch (_) {}
   },
 
   async openAudioPreviewFromResource(id, displayName, turboUrl) {
     this.closeVideoPreview();
-    if (await this.tryOpenSavedOfficeOrAudioFile(id, displayName, true)) return;
+    if (await this.tryOpenSavedLocalFile(id, displayName, "audio", "", true)) return;
     try {
       const p = await this.downloadResourceToTemp(id, displayName, "正在加载…", turboUrl);
-      studyLocalCache.setRecord(this.data.classId, id, p, displayName);
-      this.refreshSectionsLocalFlags();
+      const saved = await this.markResourceDownloaded(id, p, displayName);
       if (!this._audioCtx) return;
-      this._playLocalAudioFile(p, id, displayName || "音频");
+      this._playLocalAudioFile(saved, id, displayName || "音频");
     } catch (_) {}
   },
 
@@ -616,11 +702,7 @@ Page({
       return;
     }
     this.closeAudioPreview();
-    const ext = getFileExt(name, url);
-    const isImg =
-      fileType === "image" ||
-      /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
-    if (isImg) {
+    if (isImageResource(fileType, name, url)) {
       this.closeVideoPreview();
       wx.previewImage({ urls: [url], current: url });
       return;
@@ -634,7 +716,8 @@ Page({
         wx.showToast({ title: "资料无效", icon: "none" });
         return;
       }
-      if (isAudioExt(ext)) {
+      const ext = getFileExt(name, url);
+      if (isAudioExt(ext) || fileType === "audio") {
         void this.openAudioPreviewFromResource(id, name, turbo);
         return;
       }
@@ -679,8 +762,9 @@ Page({
     const turbo = String(e.currentTarget.dataset.turbo || "").trim() || urlHint;
     const ext = getFileExt(name, urlHint);
     const isAudio = isAudioExt(ext) || ft === "audio";
+    const isImg = isImageResource(ft, name, urlHint);
     if (localSaved) {
-      void this.tryOpenSavedOfficeOrAudioFile(id, name, isAudio).then((opened) => {
+      void this.tryOpenSavedLocalFile(id, name, ft, urlHint, isAudio).then((opened) => {
         if (!opened) wx.showToast({ title: "本地文件已失效，请重新下载", icon: "none" });
       });
       return;
@@ -689,16 +773,25 @@ Page({
       void this.openAudioPreviewFromResource(id, name, turbo);
       return;
     }
-    void this.downloadAndOpen(id, name, turbo);
+    if (isImg) {
+      void this.openImageFromResource(id, name, turbo, urlHint);
+      return;
+    }
+    void this.downloadAndOpen(id, name, turbo, urlHint);
   },
 
-  downloadAndOpen(resourceId, displayName, turboUrl) {
+  downloadAndOpen(resourceId, displayName, turboUrl, fileUrl) {
     this.closeVideoPreview();
     void this.downloadResourceToTemp(resourceId, displayName, "正在保存…", turboUrl)
-      .then((p) => {
-        studyLocalCache.setRecord(this.data.classId, resourceId, p, displayName);
-        this.refreshSectionsLocalFlags();
-        this.openDocumentFromTemp(p, displayName, "无法打开该格式，可尝试保存后查看", resourceId);
+      .then(async (p) => {
+        const saved = await this.markResourceDownloaded(resourceId, p, displayName);
+        this.openDocumentFromTemp(
+          saved,
+          displayName,
+          "无法打开该格式，可尝试保存后查看",
+          resourceId,
+          fileUrl,
+        );
       })
       .catch(() => {});
   },

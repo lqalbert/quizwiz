@@ -1,68 +1,21 @@
 <view class="page-wrap login-page">
-  <!-- 首次无 token：点按钮授权并登录 -->
-  <block wx:if="{{step === 'boot'}}">
-    <view class="hero-block">
-      <text class="hero-title">欢迎使用</text>
-      <text class="hero-lead muted">可先设置头像与昵称（微信官方组件），再点「微信登录」；也可跳过，登录后在「我的」补充。</text>
-    </view>
-    <view class="ios-card pad-card profile-setup-card">
-      <view class="profile-setup-row">
-        <button class="avatar-choose-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
-          <image wx:if="{{pendingAvatarPath}}" class="avatar-preview" src="{{pendingAvatarPath}}" mode="aspectFill" />
-          <view wx:else class="avatar-preview avatar-preview--placeholder">头像</view>
-        </button>
-        <view class="profile-setup-fields">
-          <text class="profile-setup-label">昵称</text>
-          <input
-            class="profile-nickname-input"
-            type="nickname"
-            placeholder="点击使用微信昵称"
-            placeholder-class="ph"
-            maxlength="32"
-            value="{{pendingNickname}}"
-            bindinput="onNicknameInput"
-            bindblur="onNicknameBlur"
-          />
-        </view>
-      </view>
-    </view>
-    <view class="ios-card pad-card">
-      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习。</text>
-    </view>
-    <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onTapWechatLogin">微信登录</view>
-  </block>
+  <view class="hero-block">
+    <text class="hero-title">欢迎使用</text>
+    <text class="hero-lead muted">点击下方按钮，在弹窗中点「允许」即可完成登录；入班信息在首页填写。</text>
+  </view>
 
-  <!-- 已有班级：从「我的」等入口进入（少见） -->
-  <block wx:elif="{{step === 'authed'}}">
-    <view class="hero-block">
-      <text class="hero-title">已就绪</text>
-      <text class="hero-lead muted">你已加入班级，可以开始学习</text>
-    </view>
-    <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goHome">进入首页</view>
-    <view class="link-row link-tint tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goJoinFromAuthed">加入其他班级</view>
-  </block>
+  <view class="ios-card pad-card">
+    <text class="muted">我们将获取你的微信头像与昵称，用于个人中心展示，不会用于其他用途。</text>
+  </view>
 
-  <!-- 已登录待入班：仅姓名 + 邀请码 -->
-  <block wx:elif="{{step === 'join'}}">
-    <view class="hero-block">
-      <text class="hero-title">加入班级</text>
-      <text class="hero-lead muted">请填写真实姓名与班级邀请码，完成后即可使用学习功能</text>
-    </view>
-
-    <text class="section-label">真实姓名</text>
-    <view class="ios-card">
-      <view class="field-row field-row-single">
-        <input class="field-input field-input-full" placeholder="与学校登记一致，便于老师识别" placeholder-class="ph" value="{{realNameInput}}" maxlength="64" bindinput="onRealNameInput" />
-      </view>
-    </view>
-
-    <text class="section-label">班级邀请码</text>
-    <view class="ios-card">
-      <view class="field-row field-row-single">
-        <input class="field-input field-input-full" placeholder="向班主任获取，例如 ABC12X" placeholder-class="ph" value="{{inviteInput}}" bindinput="onInviteInput" />
-      </view>
-    </view>
-
-    <view class="btn-primary join-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onJoinClass">提交并加入班级</view>
-  </block>
+  <button
+    class="btn-primary login-action"
+    hover-class="btn-primary-hover"
+    hover-stay-time="70"
+    loading="{{_loginInFlight}}"
+    disabled="{{_loginInFlight}}"
+    bindtap="onTapWechatLogin"
+  >
+    确认登录
+  </button>
 </view>

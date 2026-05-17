@@ -4,7 +4,6 @@ const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
 const { showPostSessionDailyFeedback } = require("../../utils/dailyFeedback.js");
-const { markReviewPracticeCompleted, localDateKey } = require("../../utils/dailyMission.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 
 function ensureToken() {
@@ -848,7 +847,6 @@ Page({
         }
         if (origin === "review_today") {
           try {
-            markReviewPracticeCompleted(localDateKey(new Date()));
             refreshHomeSummaryIfOpen();
           } catch (_) {}
         }
@@ -1039,7 +1037,6 @@ Page({
         const results = (res.data && res.data.results) || [];
         if (this.data.sessionOrigin === "review_today" && results.length > 0) {
           try {
-            markReviewPracticeCompleted(localDateKey(new Date()));
             refreshHomeSummaryIfOpen();
           } catch (_) {}
         }

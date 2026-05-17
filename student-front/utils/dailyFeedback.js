@@ -36,7 +36,7 @@ async function showPostSessionDailyFeedback(roundQuestions) {
   await new Promise((resolve) => {
     wx.showModal({
       title: "今天的收获",
-      content: lines || "已完成本轮练习，回首页可查看今日任务进度。",
+      content: lines || "已完成本轮练习，回首页可查看今日收获。",
       showCancel: false,
       confirmText: "好的",
       complete: resolve,

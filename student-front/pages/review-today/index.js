@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
+const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 
 function ensureToken() {
   const token = wx.getStorageSync("student_token");
@@ -21,7 +22,18 @@ function unwrapPayload(root) {
 function nextReviewLabel(row) {
   const d = row && row.next_review_date;
   if (d == null || d === "") return "尽快";
-  return String(d);
+  const dateStr = formatBeijingCalendarDate(d);
+  if (!dateStr) return "尽快";
+  const today = beijingCalendarDateKey();
+  if (dateStr <= today) return `今日 · ${dateStr}`;
+  return dateStr;
+}
+
+function lastWrongLabel(row) {
+  const t = row && row.updated_at;
+  if (t == null || t === "") return "";
+  const s = formatBeijingDateTime(t, false);
+  return s ? `最近做错 ${s}` : "";
 }
 
 Page({
@@ -30,12 +42,15 @@ Page({
     err: "",
     count: 0,
     questions: [],
+    /** 北京日历「今天」，与接口统计口径一致 */
+    beijingToday: "",
   },
 
   onLoad() {
     if (!ensureToken()) return;
     if (redirectIfNeedJoinClass()) return;
     wx.setNavigationBarTitle({ title: "今日待复习" });
+    this.setData({ beijingToday: beijingCalendarDateKey() });
   },
 
   onShow() {
@@ -55,6 +70,8 @@ Page({
         ...it,
         stem_display: formatStemForDisplay(it.stem),
         next_label: nextReviewLabel(it),
+        last_wrong_label: lastWrongLabel(it),
+        next_review_date_display: formatBeijingCalendarDate(it.next_review_date),
       }));
       this.setData({ loading: false, count, questions });
     } catch (e) {

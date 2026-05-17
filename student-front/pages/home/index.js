@@ -1,7 +1,9 @@
 const { request } = require("../../utils/request.js");
 const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
-const { bumpOpenStreak, buildTodaySnapshot, setPracticeGoal } = require("../../utils/dailyMission.js");
+const { submitJoinByInvite, syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
+const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
 const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
+const { sortExamsNewestFirst } = require("../../utils/examSort.js");
 
 /** 兼容接口体为 { data: {...} } 或直接为业务对象两种形态 */
 function unwrapStudentPayload(root) {
@@ -33,12 +35,22 @@ Page({
     examListLoading: false,
     /** 首次进入首页：非弹窗引导卡片 */
     homeGuideVisible: false,
-    /** 今日收获：练题目标、连续打开、任务完成度（由 practice_periods.today + 本地存储计算） */
+    /** 今日收获：连续打卡与今日统计（由 home-summary 接口统计） */
     todaySnapshot: null,
+    checkinStreak: 0,
+    /** 未入班：首页全屏入班引导（form=填表 pending=已提交待审核） */
+    joinGateVisible: false,
+    joinGateMode: "form",
+    joinInviteInput: "",
+    joinRealNameInput: "",
+    joinSubmitting: false,
   },
 
   onLoad() {
     this.setData({ dateText: beijingCalendarDateKey(new Date()) });
+    if (!wx.getStorageSync("student_token")) {
+      wx.reLaunch({ url: "/pages/login/index" });
+    }
   },
 
   onShow() {
@@ -49,11 +61,17 @@ Page({
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
-      bumpOpenStreak();
+      void this.refreshJoinGate();
       this.loadHomeSummary();
       this.loadStudentExams();
       this.updateHomeGuideVisibility();
     } else {
+      this.setData({
+        joinGateVisible: false,
+        joinGateMode: "form",
+        joinInviteInput: "",
+        joinRealNameInput: "",
+      });
       this.setData({
         examTasks: [],
         examOverview: null,
@@ -129,7 +147,7 @@ Page({
     this.setData({ examListError: "", examListLoading: true });
     try {
       const res = await request({ path: "/api/student/exams", method: "GET" });
-      const rows = (res && res.data) || [];
+      const rows = sortExamsNewestFirst((res && res.data) || []);
       const examTasks = rows.filter((e) => {
         if (e.phase !== "ongoing") return false;
         const st = e.submission_status == null || e.submission_status === "" ? 0 : Number(e.submission_status);
@@ -219,13 +237,19 @@ Page({
       const totals = d.totals || null;
       const practice_periods = d.practice_periods != null ? d.practice_periods : null;
       const today = practice_periods && practice_periods.today;
+      const checkinStreak = Math.max(0, Number(d.checkin_streak) || 0);
       const todaySnapshot = today
-        ? buildTodaySnapshot({ dateText: this.data.dateText, todayPeriod: today })
+        ? buildTodaySnapshot({
+            dateText: this.data.dateText,
+            todayPeriod: today,
+            checkinStreak,
+          })
         : null;
       this.setData(
         {
           totals,
           practice_periods,
+          checkinStreak,
           statsLoading: false,
           todaySnapshot,
         },
@@ -251,26 +275,106 @@ Page({
     const pp = this.data.practice_periods;
     const today = pp && pp.today;
     if (!today) return;
-    const todaySnapshot = buildTodaySnapshot({ dateText: this.data.dateText, todayPeriod: today });
-    this.setData({ todaySnapshot });
-  },
-
-  onAdjustPracticeGoal() {
-    wx.showActionSheet({
-      itemList: ["5 题/天", "10 题/天", "15 题/天", "20 题/天"],
-      success: (res) => {
-        const map = [5, 10, 15, 20];
-        const v = map[res.tapIndex];
-        if (!v) return;
-        setPracticeGoal(v);
-        this.refreshTodaySnapshotOnly();
-        wx.showToast({ title: `已设为每天 ${v} 题`, icon: "none" });
-      },
+    const todaySnapshot = buildTodaySnapshot({
+      dateText: this.data.dateText,
+      todayPeriod: today,
+      checkinStreak: this.data.checkinStreak,
     });
+    this.setData({ todaySnapshot });
   },
 
   goLogin() {
     wx.reLaunch({ url: "/pages/login/index" });
+  },
+
+  noop() {},
+
+  async refreshJoinGate() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ joinGateVisible: false, joinGateMode: "form" });
+      return;
+    }
+    try {
+      const { needJoin, pendingManual } = await syncNeedJoinClassFromServer();
+      this.setData({
+        joinGateVisible: needJoin,
+        joinGateMode: pendingManual ? "pending" : "form",
+      });
+    } catch (e) {
+      if (e && e.statusCode === 401) {
+        wx.removeStorageSync("student_token");
+        wx.removeStorageSync("need_join_class");
+        try {
+          getApp().globalData.token = "";
+        } catch (_) {}
+        this.setData({ loggedIn: false, joinGateVisible: false });
+        wx.reLaunch({ url: "/pages/login/index" });
+        return;
+      }
+      const need = wx.getStorageSync("need_join_class") === "1";
+      this.setData({
+        joinGateVisible: need,
+        joinGateMode: wx.getStorageSync("join_pending_manual") === "1" ? "pending" : "form",
+      });
+    }
+  },
+
+  onJoinInviteInput(e) {
+    this.setData({ joinInviteInput: e.detail.value });
+  },
+
+  onJoinRealNameInput(e) {
+    this.setData({ joinRealNameInput: e.detail.value });
+  },
+
+  async onSubmitJoinClass() {
+    if (this.data.joinSubmitting || this.data.joinGateMode !== "form") return;
+    const invite = String(this.data.joinInviteInput || "").trim();
+    const realName = String(this.data.joinRealNameInput || "").trim();
+    this.setData({ joinSubmitting: true });
+    wx.showLoading({ title: "提交中", mask: true });
+    try {
+      const result = await submitJoinByInvite({ inviteCode: invite, realName });
+      wx.hideLoading();
+      if (result.mode === "manual") {
+        this.setData({ joinGateMode: "pending", joinSubmitting: false });
+        wx.showToast({ title: result.message, icon: "none", duration: 2800 });
+        return;
+      }
+      wx.showToast({ title: result.message, icon: "success" });
+      this.setData({
+        joinGateVisible: false,
+        joinGateMode: "form",
+        joinInviteInput: "",
+        joinRealNameInput: "",
+        joinSubmitting: false,
+      });
+      this.loadHomeSummary();
+      this.loadStudentExams();
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ joinSubmitting: false });
+      wx.showToast({ title: (err && err.message) || "加入失败", icon: "none" });
+    }
+  },
+
+  async onRefreshJoinPending() {
+    wx.showLoading({ title: "查询中", mask: true });
+    try {
+      await this.refreshJoinGate();
+      wx.hideLoading();
+      if (!this.data.joinGateVisible) {
+        wx.showToast({ title: "已通过审核，可以开始学习", icon: "success" });
+        this.loadHomeSummary();
+        this.loadStudentExams();
+        return;
+      }
+      if (this.data.joinGateMode === "pending") {
+        wx.showToast({ title: "仍在审核中，请稍后再试", icon: "none" });
+      }
+    } catch (_) {
+      wx.hideLoading();
+    }
   },
 
   goRecordDone() {
@@ -287,6 +391,15 @@ Page({
       return;
     }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
+  },
+
+  /** 今日收获卡片：待复习 → 待复习列表 */
+  goReviewToday() {
+    if (!wx.getStorageSync("student_token")) {
+      wx.reLaunch({ url: "/pages/login/index" });
+      return;
+    }
+    wx.navigateTo({ url: "/pages/review-today/index" });
   },
 
   /** 「今日」Tab：错题数 = 待复习口径，进入待复习列表；其它 Tab 仍进完整错题本 */

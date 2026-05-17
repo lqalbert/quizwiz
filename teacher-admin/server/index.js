@@ -454,6 +454,15 @@ const incrementStudentQuestionStats = async (client, studentId, questionId, isCo
     [studentId, questionId, isCorrect, src],
   )
   if (src === 'practice_check' || src === 'practice_exam') {
+    await client.query(
+      `
+      INSERT INTO student_practice_day (student_id, practice_date, attempts)
+      VALUES ($1, (timezone('Asia/Shanghai', now()))::date, 1)
+      ON CONFLICT (student_id, practice_date) DO UPDATE SET
+        attempts = student_practice_day.attempts + 1
+      `,
+      [studentId],
+    )
     await bumpWrongReviewAfterPractice(client, studentId, questionId, isCorrect)
   }
 }
@@ -3123,26 +3132,30 @@ app.get('/api/student/exams', studentAuthRequired, studentClassMembershipRequire
   try {
     const { rows } = await pool.query(
       `
-      SELECT DISTINCT ON (e.id)
-        e.id,
-        e.title,
-        e.subject_id,
-        s.name AS subject_name,
-        e.start_time,
-        e.end_time,
-        e.duration,
-        e.description,
-        es.id AS submission_id,
-        es.status AS submission_status,
-        es.submit_time,
-        es.total_score
-      FROM exams e
-      JOIN subjects s ON s.id = e.subject_id
-      JOIN exam_classes ec ON ec.exam_id = e.id
-      JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $1
-      LEFT JOIN exam_submissions es ON es.exam_id = e.id AND es.student_id = $1
-      WHERE e.end_time >= NOW() - INTERVAL '120 days'
-      ORDER BY e.id, e.start_time DESC
+      SELECT *
+      FROM (
+        SELECT DISTINCT ON (e.id)
+          e.id,
+          e.title,
+          e.subject_id,
+          s.name AS subject_name,
+          e.start_time,
+          e.end_time,
+          e.duration,
+          e.description,
+          es.id AS submission_id,
+          es.status AS submission_status,
+          es.submit_time,
+          es.total_score
+        FROM exams e
+        JOIN subjects s ON s.id = e.subject_id
+        JOIN exam_classes ec ON ec.exam_id = e.id
+        JOIN class_members cm ON cm.class_id = ec.class_id AND cm.student_id = $1
+        LEFT JOIN exam_submissions es ON es.exam_id = e.id AND es.student_id = $1
+        WHERE e.end_time >= NOW() - INTERVAL '120 days'
+        ORDER BY e.id, e.start_time DESC
+      ) deduped
+      ORDER BY start_time DESC, id DESC
       `,
       [studentId],
     )
@@ -3784,7 +3797,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, studentClass
       `
       SELECT s.question_id, s.wrong_count, s.attempts, s.correct_count, s.updated_at,
         q.stem, q.question_type,
-        r.next_review_date,
+        to_char(r.next_review_date, 'YYYY-MM-DD') AS next_review_date,
         COALESCE(r.ladder, 0)::int AS ladder
       FROM student_question_stats s
       INNER JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
@@ -3916,6 +3929,67 @@ const loadStudentClassPeerIds = async (executor, studentId) => {
 }
 
 const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+
+/** PG date / timestamptz → 北京日历 YYYY-MM-DD */
+const toShanghaiDateKey = (value) => {
+  if (value == null || value === '') return ''
+  if (typeof value === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim())
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  }
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  } catch {
+    return ''
+  }
+}
+
+const addShanghaiCalendarDays = (dateKey, deltaDays) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || '').trim())
+  if (!m) return String(dateKey || '')
+  const anchor = new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00+08:00`)
+  anchor.setTime(anchor.getTime() + deltaDays * 86400000)
+  return toShanghaiDateKey(anchor)
+}
+
+/**
+ * 连续打卡天数：按北京日历日，当日至少 1 次刷题（practice_check / practice_exam）。
+ * 若今日尚未打卡，则统计至昨日为止的连续天数（当日结束前仍展示昨日 streak）。
+ */
+const loadPracticeCheckinStreak = async (executor, studentId) => {
+  const [datesR, todayR] = await Promise.all([
+    executor.query(
+      `
+      SELECT DISTINCT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS d
+      FROM student_practice_events
+      WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES}
+      ORDER BY d DESC
+      LIMIT 400
+      `,
+      [studentId],
+    ),
+    executor.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`),
+  ])
+  const daySet = new Set(datesR.rows.map((row) => toShanghaiDateKey(row.d)).filter(Boolean))
+  if (daySet.size === 0) return 0
+  const today = toShanghaiDateKey(todayR.rows[0]?.d)
+  if (!today) return 0
+  let cursor = daySet.has(today) ? today : addShanghaiCalendarDays(today, -1)
+  if (!daySet.has(cursor)) return 0
+  let streak = 0
+  while (daySet.has(cursor)) {
+    streak += 1
+    cursor = addShanghaiCalendarDays(cursor, -1)
+  }
+  return streak
+}
 
 /** 今日待复习错题数：wrong_count>0 且（无排期或 next_review_date ≤ 上海当日），按题去重计数 */
 const loadReviewDueWrongCountsByStudentIds = async (executor, peerIdsForQuery) => {
@@ -4153,6 +4227,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
     )
 
     const practice_periods = { today, week, month, all }
+    const checkin_streak = await loadPracticeCheckinStreak(pool, studentId)
 
     return res.json({
       data: {
@@ -4165,6 +4240,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
           accuracy_pct,
         },
         practice_periods,
+        checkin_streak,
         timezone_note:
           '刷题 Tab 按 Asia/Shanghai。今日：答题数为当天每题最多计 1 次；错题数为「待复习」口径（错题本中 wrong_count>0 且已到 next_review_date 或无排期），与「今日待复习」列表一致；本周/月/全部错题数仍为先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
       },

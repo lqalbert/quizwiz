@@ -1,4 +1,55 @@
 <view class="page-wrap home-page">
+  <!-- 未入班：首页填写真实姓名与邀请码（老师端展示姓名） -->
+  <view
+    wx:if="{{loggedIn && joinGateVisible}}"
+    class="join-gate-mask"
+    catchtouchmove="noop"
+  >
+    <view class="join-gate-panel" catchtap="noop">
+      <block wx:if="{{joinGateMode === 'pending'}}">
+        <text class="join-gate-title">入班申请审核中</text>
+        <text class="join-gate-lead muted">教师通过后自动解锁刷题、考试等功能；可先下拉刷新状态。</text>
+        <view class="btn-primary join-gate-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onRefreshJoinPending">刷新审核状态</view>
+      </block>
+      <block wx:else>
+        <text class="join-gate-title">加入班级</text>
+        <text class="join-gate-lead muted">请填写与学校登记一致的真实姓名及班级邀请码，便于老师在后台识别你。</text>
+        <text class="join-gate-label">真实姓名</text>
+        <view class="ios-card join-gate-field-card">
+          <input
+            class="join-gate-input"
+            placeholder="例如：张三"
+            placeholder-class="ph"
+            maxlength="64"
+            value="{{joinRealNameInput}}"
+            bindinput="onJoinRealNameInput"
+          />
+        </view>
+        <text class="join-gate-label">班级邀请码</text>
+        <view class="ios-card join-gate-field-card">
+          <input
+            class="join-gate-input"
+            placeholder="向班主任获取，例如 ABC12X"
+            placeholder-class="ph"
+            maxlength="32"
+            value="{{joinInviteInput}}"
+            bindinput="onJoinInviteInput"
+          />
+        </view>
+        <button
+          class="btn-primary join-gate-btn"
+          hover-class="btn-primary-hover"
+          hover-stay-time="70"
+          loading="{{joinSubmitting}}"
+          disabled="{{joinSubmitting}}"
+          bindtap="onSubmitJoinClass"
+        >
+          提交并加入班级
+        </button>
+      </block>
+    </view>
+  </view>
+
   <view class="page-hero home-hero">
     <view class="page-hero-accent"></view>
     <view class="page-hero-body">
@@ -28,7 +79,7 @@
     <view wx:if="{{todaySnapshot}}" class="ios-card home-today-card">
       <view class="home-today-head">
         <text class="home-today-title">今日收获</text>
-        <text class="home-today-streak">连续打开 <text class="home-today-streak-n">{{todaySnapshot.streak}}</text> 天</text>
+        <text class="home-today-streak">连续打卡 <text class="home-today-streak-n">{{todaySnapshot.streak}}</text> 天</text>
       </view>
       <text class="home-today-lead muted">{{todaySnapshot.lead}}</text>
       <view class="home-today-stats">
@@ -40,30 +91,15 @@
           <text class="home-today-stat-val">{{todaySnapshot.accuracy}}%</text>
           <text class="home-today-stat-lab">今日正确率</text>
         </view>
-        <view class="home-today-stat">
+        <view
+          class="home-today-stat home-today-stat--tap"
+          hover-class="home-today-stat-hover"
+          hover-stay-time="70"
+          bindtap="goReviewToday"
+        >
           <text class="home-today-stat-val home-today-stat-val--warn">{{todaySnapshot.reviewDue}}</text>
           <text class="home-today-stat-lab">待复习</text>
         </view>
-      </view>
-      <view class="home-today-goal-row">
-        <text class="muted home-today-goal-label">练题目标 {{todaySnapshot.practiced}}/{{todaySnapshot.goal}} 题</text>
-        <view class="link-tint home-today-goal-edit tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="onAdjustPracticeGoal">调整</view>
-      </view>
-      <view class="home-today-bar">
-        <view class="home-today-bar-fill" style="width: {{todaySnapshot.goalPct}}%;"></view>
-      </view>
-      <text class="home-today-mission-title">今日任务 {{todaySnapshot.tasksDone}}/{{todaySnapshot.tasksTotal}}</text>
-      <view class="home-today-task {{todaySnapshot.task1 ? 'home-today-task--ok' : ''}}">
-        <text class="home-today-task-ico">{{todaySnapshot.task1 ? '✓' : '○'}}</text>
-        <text class="home-today-task-txt">至少练 1 题（今日答题 ≥1）</text>
-      </view>
-      <view class="home-today-task {{todaySnapshot.task2 ? 'home-today-task--ok' : ''}}">
-        <text class="home-today-task-ico">{{todaySnapshot.task2 ? '✓' : '○'}}</text>
-        <text class="home-today-task-txt">完成练题目标（≥{{todaySnapshot.goal}} 题）</text>
-      </view>
-      <view class="home-today-task {{todaySnapshot.task3 ? 'home-today-task--ok' : ''}}">
-        <text class="home-today-task-ico">{{todaySnapshot.task3 ? '✓' : '○'}}</text>
-        <text class="home-today-task-txt">今日待复习至少判题 1 道（从首页今日错题进列表开练）</text>
       </view>
     </view>
     <!-- 考试 -->
