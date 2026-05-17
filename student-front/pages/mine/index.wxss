@@ -30,8 +30,32 @@
   background: linear-gradient(145deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.25));
 }
 
-.avatar-ring-hover {
-  opacity: 0.88;
+.avatar-choose-btn {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  line-height: 1;
+  display: block;
+}
+
+.avatar-choose-btn::after {
+  border: none;
+}
+
+.name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+}
+
+.name-row-hover {
+  opacity: 0.75;
+}
+
+.name-edit-hint {
+  font-size: 24rpx;
+  font-weight: 400;
 }
 
 .avatar {
@@ -215,36 +239,4 @@
 
 .ph {
   color: rgba(60, 60, 67, 0.48);
-}
-
-.wx-profile-dialog .wx-profile-avatar-row {
-  margin-bottom: 24rpx;
-}
-
-.wx-choose-avatar-btn {
-  width: 100%;
-  margin: 0;
-  padding: 24rpx 28rpx;
-  line-height: 1.4;
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #007aff;
-  background: rgba(0, 122, 255, 0.1);
-  border-radius: 16rpx;
-  border: none;
-  box-sizing: border-box;
-}
-
-.wx-choose-avatar-btn::after {
-  border: none;
-}
-
-.wx-profile-field-label {
-  display: block;
-  font-size: 24rpx;
-  margin-bottom: 12rpx;
-}
-
-.wx-nickname-input {
-  margin-bottom: 8rpx;
 }

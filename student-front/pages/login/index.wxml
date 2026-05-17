@@ -3,10 +3,31 @@
   <block wx:if="{{step === 'boot'}}">
     <view class="hero-block">
       <text class="hero-title">欢迎使用</text>
-      <text class="hero-lead muted">点击下方按钮完成微信登录；头像与昵称请在登录后于「我的」中通过「选择头像 / 昵称填写」设置（微信已不再提供一键读取）。</text>
+      <text class="hero-lead muted">可先设置头像与昵称（微信官方组件），再点「微信登录」；也可跳过，登录后在「我的」补充。</text>
+    </view>
+    <view class="ios-card pad-card profile-setup-card">
+      <view class="profile-setup-row">
+        <button class="avatar-choose-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+          <image wx:if="{{pendingAvatarPath}}" class="avatar-preview" src="{{pendingAvatarPath}}" mode="aspectFill" />
+          <view wx:else class="avatar-preview avatar-preview--placeholder">头像</view>
+        </button>
+        <view class="profile-setup-fields">
+          <text class="profile-setup-label">昵称</text>
+          <input
+            class="profile-nickname-input"
+            type="nickname"
+            placeholder="点击使用微信昵称"
+            placeholder-class="ph"
+            maxlength="32"
+            value="{{pendingNickname}}"
+            bindinput="onNicknameInput"
+            bindblur="onNicknameBlur"
+          />
+        </view>
+      </view>
     </view>
     <view class="ios-card pad-card">
-      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习；展示用头像与昵称在「我的」中设置。</text>
+      <text class="muted">登录后请填写真实姓名与班级邀请码即可开始学习。</text>
     </view>
     <view class="btn-primary login-action" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onTapWechatLogin">微信登录</view>
   </block>

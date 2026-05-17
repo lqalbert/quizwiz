@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { getApiBase } = require("../../utils/config.js");
+const { uploadStudentAvatar } = require("../../utils/profile.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -24,10 +24,8 @@ Page({
     needJoinClass: false,
     nameEditVisible: false,
     nameDraft: "",
-    /** 微信头像昵称填写（替代已回收的 getUserProfile 真实资料） */
-    wxProfileVisible: false,
-    profileNickDraft: "",
-    profileAvatarUploading: false,
+    nickEditVisible: false,
+    nickDraft: "",
     menus: [
       { title: "退出班级", action: "leave_class" },
       { title: "错题本", extra: "", path: "/pages/record-wrong/index" },
@@ -53,9 +51,6 @@ Page({
         needJoinClass: false,
         nameEditVisible: false,
         nameDraft: "",
-        wxProfileVisible: false,
-        profileNickDraft: "",
-        profileAvatarUploading: false,
       });
       return;
     }
@@ -116,9 +111,6 @@ Page({
           leavePendingCount: 0,
           needJoinClass: false,
           nameEditVisible: false,
-          wxProfileVisible: false,
-          profileNickDraft: "",
-          profileAvatarUploading: false,
         });
         wx.showToast({ title: "请重新登录", icon: "none" });
         return;
@@ -137,89 +129,57 @@ Page({
     });
   },
 
-  onTapSyncWechatProfile() {
+  async onChooseAvatar(e) {
     if (!this.data.loggedIn) return;
-    const nick = String(this.data.wxNickname || "").trim();
+    const path = e.detail && e.detail.avatarUrl;
+    if (!path) return;
+    wx.showLoading({ title: "上传中", mask: true });
+    try {
+      const r = await uploadStudentAvatar(path);
+      const st = (r.data && r.data.student) || {};
+      if (st.id) this.applyStudentHeader(st);
+      wx.hideLoading();
+      wx.showToast({ title: "头像已更新", icon: "success" });
+    } catch (err) {
+      wx.hideLoading();
+      wx.showToast({ title: (err && err.message) || "上传失败", icon: "none" });
+    }
+  },
+
+  onTapEditNickname() {
+    if (!this.data.loggedIn) return;
     this.setData({
-      wxProfileVisible: true,
-      profileNickDraft: nick === "微信用户" ? "" : nick,
-      profileAvatarUploading: false,
+      nickEditVisible: true,
+      nickDraft: this.data.wxNickname === "微信用户" ? "" : this.data.wxNickname,
     });
   },
 
-  cancelWxProfile() {
-    this.setData({ wxProfileVisible: false, profileNickDraft: "", profileAvatarUploading: false });
+  onNickDraftInput(e) {
+    this.setData({ nickDraft: e.detail.value });
   },
 
-  onProfileNickInput(e) {
-    this.setData({ profileNickDraft: e.detail.value });
+  cancelNickEdit() {
+    this.setData({ nickEditVisible: false, nickDraft: "" });
   },
 
-  onWxChooseAvatar(e) {
-    const fp = e.detail && e.detail.avatarUrl ? String(e.detail.avatarUrl).trim() : "";
-    if (!fp) {
-      wx.showToast({ title: "未选择头像", icon: "none" });
+  async saveNickEdit() {
+    const name = String(this.data.nickDraft || "").trim().slice(0, 32);
+    if (!name) {
+      wx.showToast({ title: "昵称不能为空", icon: "none" });
       return;
     }
-    const base = getApiBase().replace(/\/$/, "");
-    const token = wx.getStorageSync("student_token") || "";
-    if (!base || !token) {
-      wx.showToast({ title: "登录已失效，请重新登录", icon: "none" });
-      return;
+    wx.showLoading({ title: "保存中", mask: true });
+    try {
+      const res = await request({ path: "/api/student/profile", method: "PATCH", data: { name } });
+      const st = (res.data && res.data.student) || {};
+      this.applyStudentHeader(st);
+      this.setData({ nickEditVisible: false, nickDraft: "" });
+      wx.hideLoading();
+      wx.showToast({ title: "已保存", icon: "success" });
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: e.message || "保存失败", icon: "none" });
     }
-    this.setData({ profileAvatarUploading: true });
-    wx.uploadFile({
-      url: `${base}/api/student/profile/avatar-upload`,
-      filePath: fp,
-      name: "file",
-      header: { Authorization: `Bearer ${token}` },
-      success: (res) => {
-        this.setData({ profileAvatarUploading: false });
-        let body = {};
-        try {
-          body = JSON.parse(res.data || "{}");
-        } catch (_) {
-          body = {};
-        }
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          const msg = (body && body.message) || `上传失败(${res.statusCode})`;
-          wx.showToast({ title: String(msg).slice(0, 40), icon: "none" });
-          return;
-        }
-        const st = body.data && body.data.student;
-        if (!st) {
-          wx.showToast({ title: "上传响应异常", icon: "none" });
-          return;
-        }
-        this.applyStudentHeader(st);
-        wx.showToast({ title: "头像已更新", icon: "success" });
-      },
-      fail: (err) => {
-        this.setData({ profileAvatarUploading: false });
-        const em = (err && err.errMsg) || "上传失败";
-        wx.showToast({ title: String(em).slice(0, 40), icon: "none" });
-      },
-    });
-  },
-
-  async confirmWxProfile() {
-    if (!this.data.loggedIn) return;
-    const nick = String(this.data.profileNickDraft || "").trim().slice(0, 64);
-    if (nick) {
-      wx.showLoading({ title: "保存中", mask: true });
-      try {
-        const r = await request({ path: "/api/student/profile", method: "PATCH", data: { name: nick } });
-        const st = (r.data && r.data.student) || {};
-        this.applyStudentHeader(st);
-        wx.hideLoading();
-        wx.showToast({ title: "已保存", icon: "success" });
-      } catch (e) {
-        wx.hideLoading();
-        wx.showToast({ title: (e && e.message) || "保存失败", icon: "none" });
-        return;
-      }
-    }
-    this.setData({ wxProfileVisible: false, profileNickDraft: "" });
   },
 
   onNameDraftInput(e) {
@@ -381,9 +341,6 @@ Page({
           needJoinClass: false,
           nameEditVisible: false,
           nameDraft: "",
-          wxProfileVisible: false,
-          profileNickDraft: "",
-          profileAvatarUploading: false,
         });
       },
     });

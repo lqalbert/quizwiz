@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
+const { uploadStudentAvatar } = require("../../utils/profile.js");
 
 /** 无 token：进入欢迎页（点按钮授权登录）；有 token 需入班：入班表单；否则已就绪 */
 function initialStep() {
@@ -16,6 +17,10 @@ Page({
     realNameInput: "",
     /** 防止重复提交登录 */
     _loginInFlight: false,
+    /** chooseAvatar 本地临时路径（登录成功后上传） */
+    pendingAvatarPath: "",
+    /** 微信昵称输入（input type=nickname） */
+    pendingNickname: "",
   },
 
   onLoad() {
@@ -91,10 +96,23 @@ Page({
     wx.switchTab({ url: "/pages/home/index" });
   },
 
+  onChooseAvatar(e) {
+    const path = e.detail && e.detail.avatarUrl;
+    if (path) this.setData({ pendingAvatarPath: path });
+  },
+
+  onNicknameInput(e) {
+    this.setData({ pendingNickname: String((e.detail && e.detail.value) || "").trim().slice(0, 32) });
+  },
+
+  onNicknameBlur(e) {
+    this.setData({ pendingNickname: String((e.detail && e.detail.value) || "").trim().slice(0, 32) });
+  },
+
   /**
-   * 用 wx.login 的 code 换后端 token。nickname/avatar 可选（新版微信 getUserProfile 常失败，后端已支持默认「微信用户」）。
+   * 用 wx.login 的 code 换后端 token；昵称可选；头像在登录后通过 upload 持久化。
    */
-  async runWechatTokenExchange(base, nickname, avatarUrl) {
+  async runWechatTokenExchange(base, nickname) {
     if (this.data._loginInFlight) return;
     this.setData({ _loginInFlight: true, step: "boot" });
     try {
@@ -115,13 +133,21 @@ Page({
         data: {
           code,
           nickname: String(nickname || "").trim().slice(0, 32),
-          avatarUrl: String(avatarUrl || "").trim().slice(0, 512),
         },
       });
       const token = r && r.data && r.data.token;
       if (!token) throw new Error("未返回 token");
       wx.setStorageSync("student_token", token);
       getApp().globalData.token = token;
+      const avatarPath = String(this.data.pendingAvatarPath || "").trim();
+      if (avatarPath) {
+        try {
+          await uploadStudentAvatar(avatarPath);
+        } catch (uploadErr) {
+          console.warn("[QuizWiz] 头像上传失败", uploadErr);
+          wx.showToast({ title: "头像上传失败，可在「我的」重试", icon: "none", duration: 2500 });
+        }
+      }
       const needJoin = Boolean(r.data && r.data.need_join_class);
       wx.setStorageSync("need_join_class", needJoin ? "1" : "0");
       wx.hideLoading();
@@ -146,7 +172,7 @@ Page({
     }
   },
 
-  /** 用户点击：优先尝试 getUserProfile；失败则仅用 code 登录（避免新版微信无法调起资料授权导致无法进入） */
+  /** 微信登录：code 换 token；头像/昵称来自 chooseAvatar 与 nickname 输入框（勿用已废弃的 getUserProfile） */
   onTapWechatLogin() {
     if (this.data._loginInFlight) return;
     const base = getApiBase();
@@ -155,20 +181,8 @@ Page({
       wx.showToast({ title: "未配置 API 地址，请联系管理员", icon: "none" });
       return;
     }
-    wx.getUserProfile({
-      desc: "用于在个人中心展示你的头像与昵称（可选）",
-      success: (res) => {
-        if (this.data._loginInFlight) return;
-        const ui = (res && res.userInfo) || {};
-        const nickname = String(ui.nickName || "").trim().slice(0, 32);
-        const avatarUrl = String(ui.avatarUrl || "").trim().slice(0, 512);
-        this.runWechatTokenExchange(base, nickname, avatarUrl);
-      },
-      fail: () => {
-        if (this.data._loginInFlight) return;
-        this.runWechatTokenExchange(base, "", "");
-      },
-    });
+    const nickname = String(this.data.pendingNickname || "").trim().slice(0, 32);
+    this.runWechatTokenExchange(base, nickname);
   },
 
   async onJoinClass() {
