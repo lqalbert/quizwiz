@@ -187,7 +187,18 @@ const authRequired = (req, res, next) => {
 }
 
 const hasRole = (req, roleCode) => Array.isArray(req.auth?.roles) && req.auth.roles.includes(roleCode)
-const canManageResources = (req) => hasRole(req, 'admin') || hasRole(req, 'class_teacher')
+const canAccessTeacherAccounts = (req) => hasRole(req, 'admin') || hasRole(req, 'class_teacher')
+const canCreateClass = (req) => hasRole(req, 'admin') || hasRole(req, 'class_teacher')
+const canManageResources = (req) =>
+  hasRole(req, 'admin') || hasRole(req, 'class_teacher') || hasRole(req, 'subject_teacher')
+
+const loadTeacherSubjectIds = async (executor, userId) => {
+  const { rows } = await executor.query(
+    `SELECT subject_id FROM teacher_subjects WHERE teacher_id = $1 ORDER BY subject_id ASC`,
+    [userId],
+  )
+  return rows.map((row) => Number(row.subject_id)).filter((id) => Number.isInteger(id) && id > 0)
+}
 
 /** 学情/概览等：非管理员可见班级 = 任班主任(owner) 或任课(class_teachers)；兼任两种角色取并集 */
 const buildVisibleClassesAccessSql = (req) => {
@@ -205,11 +216,22 @@ const buildVisibleClassesAccessSql = (req) => {
 
 const validateResourceClassScope = async ({ req, classIds, client }) => {
   if (hasRole(req, 'admin') || classIds.length === 0) return true
-  if (!hasRole(req, 'class_teacher')) return false
   const executor = client || pool
-  const ownedClassResult = await executor.query(`SELECT id FROM classes WHERE owner_id = $1`, [req.auth?.userId || 0])
-  const ownedClassSet = new Set(ownedClassResult.rows.map((row) => Number(row.id)))
-  return classIds.every((classId) => ownedClassSet.has(classId))
+  const uid = Number(req.auth?.userId) || 0
+  if (hasRole(req, 'class_teacher')) {
+    const ownedClassResult = await executor.query(`SELECT id FROM classes WHERE owner_id = $1`, [uid])
+    const ownedClassSet = new Set(ownedClassResult.rows.map((row) => Number(row.id)))
+    if (classIds.every((classId) => ownedClassSet.has(classId))) return true
+  }
+  if (hasRole(req, 'subject_teacher')) {
+    const memberResult = await executor.query(
+      `SELECT DISTINCT class_id FROM class_teachers WHERE teacher_id = $1`,
+      [uid],
+    )
+    const memberSet = new Set(memberResult.rows.map((row) => Number(row.class_id)))
+    if (classIds.every((classId) => memberSet.has(classId))) return true
+  }
+  return false
 }
 
 /** 学生 JWT：优先 Authorization，其次 query（小程序 wx.downloadFile 在部分网关下会丢 Header，可用 access_token 兜底） */
@@ -748,6 +770,7 @@ app.post('/api/auth/login', async (req, res) => {
       [user.id],
     )
     const roleCodes = rolesResult.rows.map((row) => row.code)
+    const subjectIds = await loadTeacherSubjectIds(pool, user.id)
 
     const token = jwt.sign(
       {
@@ -770,6 +793,7 @@ app.post('/api/auth/login', async (req, res) => {
           phone: user.phone,
           roles: roleCodes,
           avatarUrl: user.avatar_url || '',
+          subjectIds,
         },
       },
     })
@@ -816,6 +840,7 @@ const handleTeacherGetMe = async (req, res) => {
       [userId],
     )
     const roles = rolesResult.rows.map((row) => row.code)
+    const subjectIds = await loadTeacherSubjectIds(pool, userId)
     return res.json({
       data: {
         id: user.id,
@@ -824,6 +849,7 @@ const handleTeacherGetMe = async (req, res) => {
         status: user.status,
         avatarUrl: user.avatar_url || '',
         roles,
+        subjectIds,
         created_at: user.created_at,
       },
     })
@@ -1509,13 +1535,14 @@ app.delete('/api/knowledge-units/:id', authRequired, async (req, res) => {
 
 app.get('/api/users', authRequired, async (req, res) => {
   try {
-    const isAdmin = hasRole(req, 'admin')
-    const isClassTeacher = hasRole(req, 'class_teacher')
-    if (!isAdmin && !isClassTeacher) {
+    if (!canAccessTeacherAccounts(req)) {
       return res.status(403).json({ message: '无权限查看教师账号列表' })
     }
+    const isAdmin = hasRole(req, 'admin')
+    const ownerId = Number(req.auth?.userId) || 0
 
-    const sql = `
+    const sql = isAdmin
+      ? `
       SELECT
         u.id,
         u.name,
@@ -1531,9 +1558,31 @@ app.get('/api/users', authRequired, async (req, res) => {
       LEFT JOIN subjects s ON s.id = ts.subject_id
       GROUP BY u.id
     `
-    const { rows } = await pool.query(sql)
-    const filtered = isAdmin ? rows : rows.filter((row) => Array.isArray(row.roles) && row.roles.includes('subject_teacher'))
-    return res.json({ data: filtered })
+      : `
+      SELECT
+        u.id,
+        u.name,
+        u.phone,
+        u.status,
+        u.created_at,
+        COALESCE(array_remove(array_agg(DISTINCT r.code), NULL), '{}') AS roles,
+        COALESCE(array_remove(array_agg(DISTINCT s.name), NULL), '{}') AS subjects
+      FROM users u
+      INNER JOIN user_roles ur ON ur.user_id = u.id
+      INNER JOIN roles r ON r.id = ur.role_id AND r.code = 'subject_teacher'
+      LEFT JOIN teacher_subjects ts ON ts.teacher_id = u.id
+      LEFT JOIN subjects s ON s.id = ts.subject_id
+      WHERE EXISTS (
+        SELECT 1
+        FROM class_teachers ct
+        JOIN classes c ON c.id = ct.class_id
+        WHERE ct.teacher_id = u.id AND c.owner_id = $1
+      )
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `
+    const { rows } = await pool.query(sql, isAdmin ? [] : [ownerId])
+    return res.json({ data: rows })
   } catch (error) {
     return res.status(500).json({ message: '教师账号列表查询失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -1595,9 +1644,7 @@ app.get('/api/classes', authRequired, async (req, res) => {
 })
 
 app.post('/api/classes', authRequired, async (req, res) => {
-  const isAdmin = hasRole(req, 'admin')
-  const isClassTeacher = hasRole(req, 'class_teacher')
-  if (!isAdmin && !isClassTeacher) {
+  if (!canCreateClass(req)) {
     return res.status(403).json({ message: '仅管理员或班主任可创建班级' })
   }
   const name = String(req.body?.name || '').trim()
@@ -7395,7 +7442,7 @@ app.get('/api/resources/meta', authRequired, async (_req, res) => {
 
 app.post('/api/resources/upload', authRequired, (req, res) => {
   if (!canManageResources(req)) {
-    return res.status(403).json({ message: '仅管理员或班主任可上传资料' })
+    return res.status(403).json({ message: '无权限上传资料' })
   }
   resourceUpload.single('file')(req, res, (error) => {
     if (error) {
@@ -7652,7 +7699,7 @@ app.get('/api/resources/download-logs', authRequired, async (req, res) => {
 })
 
 app.post('/api/resources', authRequired, async (req, res) => {
-  if (!canManageResources(req)) return res.status(403).json({ message: '仅管理员或班主任可新增资料' })
+  if (!canManageResources(req)) return res.status(403).json({ message: '无权限新增资料' })
   const name = String(req.body?.name || '').trim()
   const fileUrl = String(req.body?.fileUrl || '').trim()
   const fileType = String(req.body?.fileType || '').trim() || 'file'
@@ -7715,7 +7762,7 @@ app.post('/api/resources', authRequired, async (req, res) => {
 })
 
 app.patch('/api/resources/:id', authRequired, async (req, res) => {
-  if (!canManageResources(req)) return res.status(403).json({ message: '仅管理员或班主任可编辑资料' })
+  if (!canManageResources(req)) return res.status(403).json({ message: '无权限编辑资料' })
   const resourceId = Number(req.params.id)
   if (!Number.isInteger(resourceId) || resourceId <= 0) return res.status(400).json({ message: '资料ID不合法' })
   const name = String(req.body?.name || '').trim()
@@ -7880,7 +7927,7 @@ app.get('/api/resources/:id/download', authRequired, async (req, res) => {
 })
 
 app.delete('/api/resources/:id', authRequired, async (req, res) => {
-  if (!canManageResources(req)) return res.status(403).json({ message: '仅管理员或班主任可删除资料' })
+  if (!canManageResources(req)) return res.status(403).json({ message: '无权限删除资料' })
   const resourceId = Number(req.params.id)
   if (!Number.isInteger(resourceId) || resourceId <= 0) return res.status(400).json({ message: '资料ID不合法' })
   const client = await pool.connect()

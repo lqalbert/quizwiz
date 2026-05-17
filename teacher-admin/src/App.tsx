@@ -59,6 +59,17 @@ import {
   parseBeijingDateTimeInput,
   toBeijingDateTimeInput,
 } from './beijingTime'
+import {
+  canAccessSystemSettings,
+  canAccessTeacherAccounts,
+  canCreateClass,
+  canHandleStudentWarning,
+  canManageResources,
+  canViewResourceAudit,
+  filterSubjectsByRole,
+  hasRole,
+  isSubjectTeacherOnly,
+} from './roles'
 
 const { Header, Sider, Content } = Layout
 
@@ -248,6 +259,8 @@ type AuthUser = {
   phone: string
   roles: string[]
   avatarUrl?: string
+  /** 科任教师任教科目 id，登录与 /api/auth/me 返回 */
+  subjectIds?: number[]
 }
 
 type TeacherAccountRow = {
@@ -961,7 +974,7 @@ function ClassPage() {
       return null
     }
   }, [authUserRaw])
-  const canManageClass = Boolean(authUser?.roles?.includes('admin') || authUser?.roles?.includes('class_teacher'))
+  const canCreateClassFlag = canCreateClass(authUser?.roles)
   const [openCreate, setOpenCreate] = useState(false)
   const [openDetail, setOpenDetail] = useState(false)
   const [openAddStudent, setOpenAddStudent] = useState(false)
@@ -1230,7 +1243,7 @@ function ClassPage() {
           >
             查看班级详情
           </Button>
-          {canManageClass ? (
+          {canCreateClassFlag ? (
             <Button type="primary" onClick={() => setOpenCreate(true)}>
               创建班级
             </Button>
@@ -1272,7 +1285,7 @@ function ClassPage() {
         pagination={{ pageSize: 20 }}
       />
 
-      {canManageClass ? (
+      {canCreateClassFlag ? (
         <Modal
           open={openCreate}
           title="创建班级"
@@ -1331,7 +1344,7 @@ function ClassPage() {
               label: '学生列表',
               children: (
                 <Space direction="vertical" style={{ width: '100%' }}>
-                  {canManageClass ? (
+                  {selectedClassCanManage ? (
                     <Space>
                       <Button type="primary" onClick={() => setOpenAddStudent(true)}>
                         手动添加学生
@@ -1384,7 +1397,7 @@ function ClassPage() {
                             <Button type="link" style={{ padding: 0 }} onClick={() => void loadStudentInsights(row.id, row.name)}>
                               查看详情
                             </Button>
-                            {canManageClass ? (
+                            {selectedClassCanManage ? (
                               <Popconfirm
                                 title={`确认将「${row.name}」移出本班？`}
                                 description="移出后该生不再归属本班级；凡考试曾分配给本班的，其答卷将被删除（与是否仍在别班无关），个人刷题数据保留。"
@@ -1432,7 +1445,7 @@ function ClassPage() {
               label: '科任教师列表',
               children: (
                 <Space direction="vertical" style={{ width: '100%' }}>
-                  {canManageClass ? (
+                  {selectedClassCanManage ? (
                     <Button
                       type="primary"
                       onClick={async () => {
@@ -1450,7 +1463,7 @@ function ClassPage() {
                       { title: '姓名', dataIndex: 'teacher_name' },
                       { title: '手机号', dataIndex: 'teacher_phone' },
                       { title: '科目', dataIndex: 'subject_name' },
-                      ...(canManageClass
+                      ...(selectedClassCanManage
                         ? [
                             {
                               title: '操作',
@@ -1516,7 +1529,7 @@ function ClassPage() {
               >
                 复制邀请码
               </Button>
-              {canManageClass ? (
+              {selectedClassCanManage ? (
                 <Button
                   onClick={async () => {
                     if (!selectedClassId || !CAN_USE_API) return
@@ -1542,7 +1555,7 @@ function ClassPage() {
             <Typography.Text type="secondary">
               有效期：{inviteExpiresAt ? inviteExpiresAt.replace('T', ' ') : '永久有效（未设置过期）'}
             </Typography.Text>
-            {canManageClass ? (
+            {selectedClassCanManage ? (
               <Space>
                 <Switch checked={inviteEnabled} onChange={setInviteEnabled} checkedChildren="启用" unCheckedChildren="停用" />
                 <Select
@@ -1921,7 +1934,7 @@ function ClassPage() {
         )}
       </Modal>
 
-      {canManageClass ? (
+      {selectedClassCanManage ? (
         <Modal
           open={openAddStudent}
           title="添加学生"
@@ -1964,7 +1977,7 @@ function ClassPage() {
         </Modal>
       ) : null}
 
-      {canManageClass ? (
+      {selectedClassCanManage ? (
         <Modal
           open={openAddTeacher}
           title="添加科任教师"
@@ -5480,7 +5493,9 @@ function AnalyticsPage() {
       return null
     }
   }, [authUserRaw])
-  const canHandleWarning = Boolean(authUser?.roles?.includes('admin') || authUser?.roles?.includes('class_teacher'))
+  const canHandleWarning = canHandleStudentWarning(authUser?.roles)
+  const subjectTeacherOnly = isSubjectTeacherOnly(authUser?.roles)
+  const mySubjectIds = authUser?.subjectIds || []
   const REVIEW_TASKS_STORAGE_KEY = 'quizwiz-analytics-review-tasks'
   const [loading, setLoading] = useState(false)
   const [classFilter, setClassFilter] = useState<number | undefined>(undefined)
@@ -5654,12 +5669,23 @@ function AnalyticsPage() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载科目失败(${response.status})`)
-      setSubjectOptions(
-        (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => ({
-          label: String(item.name || ''),
-          value: Number(item.id),
-        })),
-      )
+      const all = (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => ({
+        label: String(item.name || ''),
+        value: Number(item.id),
+      }))
+      const filtered = filterSubjectsByRole(authUser?.roles, mySubjectIds, all)
+      setSubjectOptions(filtered)
+      if (subjectTeacherOnly && filtered.length > 0) {
+        const sid = filtered[0].value
+        setSubjectFilter(sid)
+        const scoped = { subjectId: sid }
+        void loadAnalytics(scoped)
+        void loadQuestionInsights(scoped)
+        void loadStudentWarnings(scoped)
+        void loadWarningOverview(scoped)
+        void loadExamQualityOverview(scoped)
+        return
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载科目失败')
     }
@@ -5868,11 +5894,13 @@ function AnalyticsPage() {
 
   useEffect(() => {
     void loadSubjectOptions()
-    void loadAnalytics()
-    void loadQuestionInsights()
-    void loadStudentWarnings()
-    void loadWarningOverview()
-    void loadExamQualityOverview()
+    if (!subjectTeacherOnly) {
+      void loadAnalytics()
+      void loadQuestionInsights()
+      void loadStudentWarnings()
+      void loadWarningOverview()
+      void loadExamQualityOverview()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -6933,14 +6961,8 @@ function AnalyticsPage() {
 
 function ResourcePage({ authUser }: { authUser: AuthUser }) {
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
-  const canManageResource = useMemo(
-    () => authUser.roles.includes('admin') || authUser.roles.includes('class_teacher'),
-    [authUser.roles],
-  )
-  const canAuditResource = useMemo(
-    () => authUser.roles.includes('admin') || authUser.roles.includes('class_teacher'),
-    [authUser.roles],
-  )
+  const canManageResource = useMemo(() => canManageResources(authUser.roles), [authUser.roles])
+  const canAuditResource = useMemo(() => canViewResourceAudit(authUser.roles), [authUser.roles])
   const [resourceTab, setResourceTab] = useState<'list' | 'audit'>('list')
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditRows, setAuditRows] = useState<
@@ -7641,7 +7663,8 @@ function ResourcePage({ authUser }: { authUser: AuthUser }) {
 
 function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
-  const isAdmin = authUser.roles.includes('admin')
+  const isAdmin = hasRole(authUser.roles, 'admin')
+  const allowed = canAccessTeacherAccounts(authUser.roles)
   const [loading, setLoading] = useState(false)
   const [openCreate, setOpenCreate] = useState(false)
   const [rows, setRows] = useState<TeacherAccountRow[]>([])
@@ -7732,6 +7755,14 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '账号创建失败')
     }
+  }
+
+  if (!allowed) {
+    return (
+      <Card title="教师账号管理">
+        <Empty description="当前角色无权限访问教师账号管理" />
+      </Card>
+    )
   }
 
   return (
@@ -8960,32 +8991,24 @@ function AppLayout({
   )
 
   const menuItems: MenuProps['items'] = useMemo(() => {
+    const roles = authUser.roles || []
     const common = [{ key: '/dashboard', icon: <AppstoreOutlined />, label: '概览' }]
-    const classTeacher = [
-      { key: '/teacher-accounts', icon: <UserOutlined />, label: '教师账号管理' },
-      { key: '/classes', icon: <TeamOutlined />, label: '班级管理' },
-      { key: '/analytics', icon: <BarChartOutlined />, label: '学情分析' },
-      { key: '/resources', icon: <FolderOpenOutlined />, label: '资料库' },
-    ]
-    const subjectTeacher = [
+    const items: MenuProps['items'] = [...common]
+    if (canAccessTeacherAccounts(roles)) {
+      items.push({ key: '/teacher-accounts', icon: <UserOutlined />, label: '教师账号管理' })
+    }
+    items.push(
       { key: '/classes', icon: <TeamOutlined />, label: '班级管理' },
       { key: '/question-bank', icon: <ReadOutlined />, label: '题库中心' },
       { key: '/exams', icon: <BookOutlined />, label: '考试管理' },
       { key: '/analytics', icon: <BarChartOutlined />, label: '学情分析' },
       { key: '/resources', icon: <FolderOpenOutlined />, label: '资料库' },
-    ]
-    if (role === 'admin')
-      return [
-        ...common,
-        ...classTeacher,
-        { key: '/question-bank', icon: <ReadOutlined />, label: '题库中心' },
-        { key: '/exams', icon: <BookOutlined />, label: '考试管理' },
-        { key: '/system-settings', icon: <FileProtectOutlined />, label: '系统设置' },
-      ]
-    if (role === 'class_teacher') return [...common, ...classTeacher]
-    if (role === 'subject_teacher') return [...common, ...subjectTeacher]
-    return [...common, ...classTeacher, ...subjectTeacher, { key: '/system-settings', icon: <FileProtectOutlined />, label: '系统设置' }]
-  }, [role])
+    )
+    if (canAccessSystemSettings(roles)) {
+      items.push({ key: '/system-settings', icon: <FileProtectOutlined />, label: '系统设置' })
+    }
+    return items
+  }, [authUser.roles])
 
   const currentMenu = menuItems?.find((item) => item && 'key' in item && item.key === location.pathname)
   const currentTitle = currentMenu && 'label' in currentMenu ? currentMenu.label : '模块'
@@ -9128,7 +9151,10 @@ function AppLayout({
             <Route path="/exams/:examId" element={<ExamDetailPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/resources" element={<ResourcePage authUser={authUser} />} />
-            <Route path="/system-settings" element={<SystemSettingsPage />} />
+            <Route
+              path="/system-settings"
+              element={canAccessSystemSettings(authUser.roles) ? <SystemSettingsPage /> : <Navigate to="/dashboard" replace />}
+            />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </Content>
