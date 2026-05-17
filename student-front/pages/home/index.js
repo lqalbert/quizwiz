@@ -61,10 +61,14 @@ Page({
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
-      void this.refreshJoinGate();
-      this.loadHomeSummary();
-      this.loadStudentExams();
-      this.updateHomeGuideVisibility();
+      void (async () => {
+        const gate = await this.refreshJoinGate();
+        if (!gate.needJoin) {
+          this.loadHomeSummary();
+          this.loadStudentExams();
+        }
+        this.updateHomeGuideVisibility();
+      })();
     } else {
       this.setData({
         joinGateVisible: false,
@@ -292,7 +296,7 @@ Page({
   async refreshJoinGate() {
     if (!wx.getStorageSync("student_token")) {
       this.setData({ joinGateVisible: false, joinGateMode: "form" });
-      return;
+      return { needJoin: false, pendingManual: false };
     }
     try {
       const { needJoin, pendingManual } = await syncNeedJoinClassFromServer();
@@ -300,6 +304,7 @@ Page({
         joinGateVisible: needJoin,
         joinGateMode: pendingManual ? "pending" : "form",
       });
+      return { needJoin, pendingManual };
     } catch (e) {
       if (e && e.statusCode === 401) {
         wx.removeStorageSync("student_token");
@@ -309,13 +314,15 @@ Page({
         } catch (_) {}
         this.setData({ loggedIn: false, joinGateVisible: false });
         wx.reLaunch({ url: "/pages/login/index" });
-        return;
+        return { needJoin: false, pendingManual: false };
       }
       const need = wx.getStorageSync("need_join_class") === "1";
+      const pendingManual = need && wx.getStorageSync("join_pending_manual") === "1";
       this.setData({
         joinGateVisible: need,
-        joinGateMode: wx.getStorageSync("join_pending_manual") === "1" ? "pending" : "form",
+        joinGateMode: pendingManual ? "pending" : "form",
       });
+      return { needJoin: need, pendingManual };
     }
   },
 

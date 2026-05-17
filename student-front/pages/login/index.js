@@ -15,12 +15,6 @@ Page({
     }
   },
 
-  onShow() {
-    const token = wx.getStorageSync("student_token") || "";
-    if (!token) return;
-    wx.switchTab({ url: "/pages/home/index" });
-  },
-
   async runWechatTokenExchange(base, nickname, avatarUrl) {
     if (this.data._loginInFlight) return;
     this.setData({ _loginInFlight: true });

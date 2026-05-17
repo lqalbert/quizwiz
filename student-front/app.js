@@ -45,7 +45,14 @@ App({
     const route = cur && (cur.route || cur.__route__ || "");
     const onLoginPage = route === "pages/login/index";
     if (!token && !onLoginPage) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      if (this._authRelaunching) return;
+      this._authRelaunching = true;
+      wx.reLaunch({
+        url: "/pages/login/index",
+        complete: () => {
+          this._authRelaunching = false;
+        },
+      });
     }
   },
 });
