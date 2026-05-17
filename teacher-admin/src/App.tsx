@@ -169,6 +169,14 @@ const excelTemplateHeaders = [
   '知识点',
 ]
 const validQuestionTypes = new Set(['单选', '多选', '判断', '填空', '简答'])
+/** 与后端 questionTypeMap、新增题目表单一致 */
+const questionTypeApiSelectOptions = [
+  { value: 'single', label: '单选' },
+  { value: 'multiple', label: '多选' },
+  { value: 'judge', label: '判断' },
+  { value: 'fill', label: '填空' },
+  { value: 'short', label: '简答' },
+]
 const validDifficulties = new Set(['1', '2', '3', '4', '5'])
 const difficultyLevelSelectOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))
 /** 生产须配置完整 API 根地址；开发未配置时用同源相对路径，由 vite 代理到后端（见 vite.config.ts）。 */
@@ -3359,17 +3367,23 @@ function QuestionBankPage() {
         <Form.Item label="科目">
           <Select
             value={subjectFilter}
-            style={{ width: 140 }}
+            style={{ width: 180 }}
             allowClear
-            options={[{ value: 'math', label: '数学' }, { value: 'english', label: '英语' }]}
+            placeholder="全部科目"
+            showSearch
+            optionFilterProp="label"
+            options={subjectOptions.map((o) => ({ value: o.value, label: o.label }))}
+            notFoundContent={subjectOptions.length === 0 ? '请先在系统设置维护科目字典' : '无匹配科目'}
             onChange={(value) => setSubjectFilter(value)}
           />
         </Form.Item>
         <Form.Item label="题型">
           <Select
+            value={typeFilter}
             style={{ width: 140 }}
             allowClear
-            options={[{ value: 'single', label: '单选' }, { value: 'fill', label: '填空' }]}
+            placeholder="全部题型"
+            options={questionTypeApiSelectOptions}
             onChange={(value) => setTypeFilter(value)}
           />
         </Form.Item>
@@ -3891,9 +3905,7 @@ function QuestionBankPage() {
             />
           </Form.Item>
           <Form.Item label="题型" name="type" rules={[{ required: true, message: '请选择题型' }]}>
-            <Select
-              options={[{ value: 'single', label: '单选' }, { value: 'multiple', label: '多选' }, { value: 'judge', label: '判断' }, { value: 'fill', label: '填空' }, { value: 'short', label: '简答' }]}
-            />
+            <Select options={questionTypeApiSelectOptions} />
           </Form.Item>
           <Form.Item label="题干（富文本占位）" name="stem" rules={[{ required: true, message: '请输入题干' }]}>
             <Input.TextArea rows={4} />
