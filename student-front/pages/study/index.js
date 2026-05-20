@@ -1,6 +1,5 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const studyLocalCache = require("../../utils/studyLocalCache.js");
 
 function absFileUrl(u) {
@@ -151,6 +150,7 @@ function canUseDirectStudyDownload(fileUrlAbs) {
 
 Page({
   data: {
+    loggedIn: false,
     loadError: "",
     /** null 表示尚未拉取班级列表 */
     classes: null,
@@ -262,15 +262,29 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 });
     }
-    if (redirectIfNeedJoinClass()) return;
-    if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+    const token = wx.getStorageSync("student_token");
+    if (!token) {
+      this.setData({
+        loggedIn: false,
+        classes: [],
+        classId: null,
+        currentClassLabel: "",
+        sections: [],
+        resourcesEmpty: true,
+        resourcesLoading: false,
+        loadError: "",
+      });
       return;
     }
+    this.setData({ loggedIn: true });
     if (this.data.classId && Array.isArray(this.data.sections) && this.data.sections.length > 0) {
       this.refreshSectionsLocalFlags();
     }
     void this.bootstrap();
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   onPullDownRefresh() {

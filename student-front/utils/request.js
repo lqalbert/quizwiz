@@ -1,5 +1,4 @@
 const { getApiBase } = require("./config.js");
-const { redirectToJoinHomeIfNeeded } = require("./joinClassRedirect.js");
 
 function request({ path, method = "GET", data, auth = true }) {
   const base = getApiBase();
@@ -24,9 +23,6 @@ function request({ path, method = "GET", data, auth = true }) {
           return;
         }
         const body = res.data && typeof res.data === "object" ? res.data : {};
-        if (res.statusCode === 403 && body.code === "NEED_JOIN_CLASS") {
-          redirectToJoinHomeIfNeeded();
-        }
         const msg = (body.message || body.detail) || `请求失败(${res.statusCode})`;
         const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
         err.statusCode = res.statusCode;

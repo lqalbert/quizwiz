@@ -1,6 +1,27 @@
 <wxs src="../../wxs/tags.wxs" module="tg" />
 
 <view class="page-wrap quiz-root">
+  <view wx:if="{{joinPanelVisible}}" class="ios-card quiz-join-card">
+    <block wx:if="{{joinPanelMode === 'pending'}}">
+      <text class="join-gate-title">入班申请审核中</text>
+      <text class="join-gate-lead muted">通过后即可开始刷题；可先刷新状态。</text>
+      <view class="btn-primary join-gate-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onRefreshJoinPending">刷新审核状态</view>
+    </block>
+    <block wx:else>
+      <text class="join-gate-title">开始刷题前请入班</text>
+      <text class="join-gate-lead muted">填写真实姓名与班级邀请码（与学校登记一致）。</text>
+      <text class="join-gate-label">真实姓名</text>
+      <view class="ios-card join-gate-field-card">
+        <input class="join-gate-input" placeholder="例如：张三" placeholder-class="ph" maxlength="64" value="{{joinRealNameInput}}" bindinput="onJoinRealNameInput" />
+      </view>
+      <text class="join-gate-label">班级邀请码</text>
+      <view class="ios-card join-gate-field-card">
+        <input class="join-gate-input" placeholder="向班主任获取" placeholder-class="ph" maxlength="32" value="{{joinInviteInput}}" bindinput="onJoinInviteInput" />
+      </view>
+      <button class="btn-primary join-gate-btn" hover-class="btn-primary-hover" hover-stay-time="70" loading="{{joinSubmitting}}" disabled="{{joinSubmitting}}" bindtap="onSubmitJoinClass">提交并加入班级</button>
+    </block>
+  </view>
+
   <block wx:if="{{loading && step === 'play'}}">
     <view class="loading-pill muted">加载题目…</view>
   </block>

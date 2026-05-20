@@ -2119,6 +2119,108 @@ app.post('/api/public/student/wechat-login', async (req, res) => {
   }
 })
 
+/** 备案合规：未登录可浏览题库目录（科目 / 知识单元 / 单元详情），不含答题与统计 */
+app.get('/api/public/catalog/subjects', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, sort_order FROM subjects ORDER BY sort_order ASC, id ASC`,
+    )
+    return res.json({ data: rows })
+  } catch (error) {
+    return res.status(500).json({ message: '加载科目失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/public/catalog/knowledge-units', async (req, res) => {
+  const subjectId = Number(req.query.subject_id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subject_id 不合法' })
+  }
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT id, name, sort_order
+      FROM knowledge_units
+      WHERE subject_id = $1 AND name <> '未分类'
+      ORDER BY sort_order ASC, id ASC
+      `,
+      [subjectId],
+    )
+    return res.json({ data: rows })
+  } catch (error) {
+    return res.status(500).json({ message: '加载知识单元失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/api/public/catalog/unit-detail', async (req, res) => {
+  const unitId = Number(req.query.unit_id)
+  if (!Number.isInteger(unitId) || unitId <= 0) {
+    return res.status(400).json({ message: 'unit_id 不合法' })
+  }
+  try {
+    const unitRes = await pool.query(
+      `
+      SELECT ku.id, ku.name, ku.subject_id, ku.sort_order, s.name AS subject_name
+      FROM knowledge_units ku
+      JOIN subjects s ON s.id = ku.subject_id
+      WHERE ku.id = $1
+      LIMIT 1
+      `,
+      [unitId],
+    )
+    const unitRow = unitRes.rows[0]
+    if (!unitRow) return res.status(404).json({ message: '知识单元不存在' })
+
+    const countRes = await pool.query(
+      `
+      SELECT COUNT(DISTINCT q.id)::int AS c
+      FROM questions q
+      INNER JOIN question_tag_rel qtr ON qtr.question_id = q.id
+      INNER JOIN question_tags qt ON qt.id = qtr.tag_id AND qt.unit_id = $1
+      WHERE q.deleted_at IS NULL AND q.subject_id = $2
+      `,
+      [unitId, unitRow.subject_id],
+    )
+    const unitQuestionCount = Number(countRes.rows[0]?.c || 0)
+
+    const tagsRes = await pool.query(
+      `
+      SELECT qt.id, qt.name,
+        (
+          SELECT COUNT(DISTINCT q2.id)
+          FROM questions q2
+          INNER JOIN question_tag_rel qtr2 ON qtr2.question_id = q2.id AND qtr2.tag_id = qt.id
+          WHERE q2.deleted_at IS NULL AND q2.subject_id = $2
+        )::int AS question_count
+      FROM question_tags qt
+      WHERE qt.unit_id = $1
+      ORDER BY qt.name ASC
+      `,
+      [unitId, unitRow.subject_id],
+    )
+
+    return res.json({
+      data: {
+        unit: {
+          id: unitRow.id,
+          name: unitRow.name,
+          subject_id: unitRow.subject_id,
+          sort_order: unitRow.sort_order,
+        },
+        subject: { id: unitRow.subject_id, name: unitRow.subject_name },
+        unit_question_count: unitQuestionCount,
+        tags: tagsRes.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          question_count: Number(r.question_count || 0),
+        })),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载单元详情失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   try {
     const studentId = req.studentAuth.studentId

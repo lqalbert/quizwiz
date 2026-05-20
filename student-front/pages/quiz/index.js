@@ -1,19 +1,12 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
+const { ensureReadyForPractice, submitJoinOnPage } = require("../../utils/practiceGate.js");
+const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
 const { showPostSessionDailyFeedback } = require("../../utils/dailyFeedback.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
-
-function ensureToken() {
-  const token = wx.getStorageSync("student_token");
-    if (!token) {
-      wx.reLaunch({ url: "/pages/login/index" });
-      return false;
-    }
-  return true;
-}
 
 /** API 的 id 可能是字符串；点击 data-id 会变成 number，必须与列表 id 类型一致，否则选中态 `===` 失效 */
 function normalizePositiveInt(v) {
@@ -70,17 +63,16 @@ Page({
     practiceResumeHint: null,
     wrapUpRight: 0,
     wrapUpWrong: 0,
+    joinPanelVisible: false,
+    joinPanelMode: "form",
+    joinInviteInput: "",
+    joinRealNameInput: "",
+    joinSubmitting: false,
   },
 
   onShow() {
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
-    }
-    if (redirectIfNeedJoinClass()) return;
-    const token = wx.getStorageSync("student_token");
-    if (!token) {
-      wx.reLaunch({ url: "/pages/login/index" });
-      return;
     }
     try {
       const app = getApp();
@@ -136,15 +128,55 @@ Page({
   },
 
   onLoad() {
-    if (!ensureToken()) return;
     this.bootstrap();
     syncNavTitle();
+  },
+
+  onJoinInviteInput(e) {
+    this.setData({ joinInviteInput: e.detail.value });
+  },
+
+  onJoinRealNameInput(e) {
+    this.setData({ joinRealNameInput: e.detail.value });
+  },
+
+  async onSubmitJoinClass() {
+    if (this.data.joinSubmitting) return;
+    const ok = await submitJoinOnPage(this);
+    if (ok && this._resumeAfterJoin) {
+      const fn = this._resumeAfterJoin;
+      this._resumeAfterJoin = null;
+      await fn();
+    }
+  },
+
+  async onRefreshJoinPending() {
+    wx.showLoading({ title: "查询中", mask: true });
+    try {
+      const st = await syncNeedJoinClassFromServer();
+      wx.hideLoading();
+      if (!st.needJoin) {
+        this.setData({ joinPanelVisible: false, joinPanelMode: "form" });
+        wx.showToast({ title: "已通过审核", icon: "success" });
+        if (this._resumeAfterJoin) {
+          const fn = this._resumeAfterJoin;
+          this._resumeAfterJoin = null;
+          await fn();
+        }
+        return;
+      }
+      this.setData({ joinPanelMode: st.pendingManual ? "pending" : "form" });
+      wx.showToast({ title: "仍在审核中", icon: "none" });
+    } catch (_) {
+      wx.hideLoading();
+    }
   },
 
   async bootstrap() {
     this.setData({ catalogLoadError: "", catalogLoaded: false });
     try {
-      const res = await request({ path: "/api/student/subjects", method: "GET" });
+      const paths = catalogPaths();
+      const res = await request({ path: paths.subjects, method: "GET", auth: catalogUsesStudentApi() });
       const raw = res.data || [];
       const subjects = raw
         .map((s) => ({ ...s, id: normalizePositiveInt(s.id) }))
@@ -183,7 +215,13 @@ Page({
     });
   },
 
-  resumePracticeDraft() {
+  async resumePracticeDraft() {
+    const ready = await ensureReadyForPractice(this);
+    if (!ready) {
+      this._resumeAfterJoin = () => this.resumePracticeDraft();
+      return;
+    }
+    this._resumeAfterJoin = null;
     const draft = loadPracticeDraft();
     if (!draft) {
       this.setData({ practiceResumeHint: null });
@@ -232,9 +270,11 @@ Page({
     const sid = Number(subjectId);
     if (!sid) return;
     try {
+      const paths = catalogPaths();
       const res = await request({
-        path: `/api/student/catalog/knowledge-units?subject_id=${sid}`,
+        path: paths.knowledgeUnits(sid),
         method: "GET",
+        auth: catalogUsesStudentApi(),
       });
       const units = (res.data || [])
         .map((u) => ({ ...u, id: normalizePositiveInt(u.id) }))
@@ -245,7 +285,13 @@ Page({
     }
   },
 
-  startFromWrongBook(questionIds, feedbackMode, sessionOrigin = "") {
+  async startFromWrongBook(questionIds, feedbackMode, sessionOrigin = "") {
+    const ready = await ensureReadyForPractice(this);
+    if (!ready) {
+      this._resumeAfterJoin = () => this.startFromWrongBook(questionIds, feedbackMode, sessionOrigin);
+      return;
+    }
+    this._resumeAfterJoin = null;
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
     const origin =
@@ -372,9 +418,11 @@ Page({
     if (!id || !sid) return;
     wx.showLoading({ title: "加载中" });
     try {
+      const paths = catalogPaths();
       const res = await request({
-        path: `/api/student/catalog/unit-detail?unit_id=${id}`,
+        path: paths.unitDetail(id),
         method: "GET",
+        auth: catalogUsesStudentApi(),
       });
       const d = res.data || {};
       const unit = d.unit || {};
@@ -581,6 +629,12 @@ Page({
   },
 
   async buildAndStart() {
+    const ready = await ensureReadyForPractice(this);
+    if (!ready) {
+      this._resumeAfterJoin = () => this.buildAndStart();
+      return;
+    }
+    this._resumeAfterJoin = null;
     const subjectId = Number(this.data.subjectId);
     const unitId = normalizePositiveInt(this.data.unitId);
     const practiceModule = this.data.practiceModule;

@@ -39,20 +39,5 @@ App({
   onShow() {
     const token = wx.getStorageSync("student_token") || "";
     this.globalData.token = token;
-    const pages = getCurrentPages();
-    if (!pages.length) return;
-    const cur = pages[pages.length - 1];
-    const route = cur && (cur.route || cur.__route__ || "");
-    const onLoginPage = route === "pages/login/index";
-    if (!token && !onLoginPage) {
-      if (this._authRelaunching) return;
-      this._authRelaunching = true;
-      wx.reLaunch({
-        url: "/pages/login/index",
-        complete: () => {
-          this._authRelaunching = false;
-        },
-      });
-    }
   },
 });

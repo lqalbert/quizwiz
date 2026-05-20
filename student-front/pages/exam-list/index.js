@@ -1,5 +1,4 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { formatBeijingRange } = require("../../utils/beijingTime.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
 
@@ -7,6 +6,7 @@ Page({
   data: {
     loading: true,
     err: "",
+    needLoginHint: false,
     exams: [],
   },
 
@@ -14,16 +14,24 @@ Page({
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 });
     }
-    if (redirectIfNeedJoinClass()) return;
     this.loadExams();
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   async loadExams() {
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      this.setData({
+        loading: false,
+        err: "请先登录后查看考试列表",
+        needLoginHint: true,
+        exams: [],
+      });
       return;
     }
-    this.setData({ loading: true, err: "" });
+    this.setData({ loading: true, err: "", needLoginHint: false });
     try {
       const res = await request({ path: "/api/student/exams", method: "GET" });
       const raw = sortExamsNewestFirst((res && res.data) || []);

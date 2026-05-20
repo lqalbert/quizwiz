@@ -1,16 +1,7 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
-
-function ensureToken() {
-  const token = wx.getStorageSync("student_token");
-  if (!token) {
-    wx.reLaunch({ url: "/pages/login/index" });
-    return false;
-  }
-  return true;
-}
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -47,15 +38,12 @@ Page({
   },
 
   onLoad() {
-    if (!ensureToken()) return;
-    if (redirectIfNeedJoinClass()) return;
     wx.setNavigationBarTitle({ title: "今日待复习" });
     this.setData({ beijingToday: beijingCalendarDateKey() });
   },
 
   onShow() {
-    if (!ensureToken()) return;
-    if (redirectIfNeedJoinClass()) return;
+    if (!requireAuthNavigate()) return;
     this.loadList();
   },
 

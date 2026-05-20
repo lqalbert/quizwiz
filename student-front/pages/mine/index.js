@@ -58,7 +58,7 @@ Page({
   },
 
   goLogin() {
-    wx.reLaunch({ url: "/pages/login/index" });
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   applyStudentHeader(st) {

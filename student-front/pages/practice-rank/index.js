@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -25,7 +25,7 @@ Page({
   },
 
   onLoad(options) {
-    if (redirectIfNeedJoinClass()) return;
+    if (!requireAuthNavigate()) return;
     const p = String((options && options.period) || "today").toLowerCase();
     const period = ["today", "week", "month", "all"].includes(p) ? p : "today";
     const periodLabel = PERIOD_LABEL[period] || "今日";

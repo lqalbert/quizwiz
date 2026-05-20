@@ -1,5 +1,4 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
 const { submitJoinByInvite, syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
 const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
@@ -48,25 +47,19 @@ Page({
 
   onLoad() {
     this.setData({ dateText: beijingCalendarDateKey(new Date()) });
-    if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
-    }
   },
 
   onShow() {
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 });
     }
-    if (redirectIfNeedJoinClass()) return;
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
       void (async () => {
-        const gate = await this.refreshJoinGate();
-        if (!gate.needJoin) {
-          this.loadHomeSummary();
-          this.loadStudentExams();
-        }
+        await this.refreshJoinGate();
+        this.loadHomeSummary();
+        this.loadStudentExams();
         this.updateHomeGuideVisibility();
       })();
     } else {
@@ -264,9 +257,13 @@ Page({
         },
       );
     } catch (e) {
+      let statsError = e.message || "加载失败";
+      if (e.statusCode === 403 && e.apiCode === "NEED_JOIN_CLASS") {
+        statsError = "加入班级后可查看刷题与考试统计（浏览不受影响）";
+      }
       this.setData({
         statsLoading: false,
-        statsError: e.message || "加载失败",
+        statsError,
         totals: null,
         practice_periods: null,
         practicePanel: {},
@@ -288,7 +285,7 @@ Page({
   },
 
   goLogin() {
-    wx.reLaunch({ url: "/pages/login/index" });
+    wx.navigateTo({ url: "/pages/login/index" });
   },
 
   noop() {},
@@ -313,7 +310,7 @@ Page({
           getApp().globalData.token = "";
         } catch (_) {}
         this.setData({ loggedIn: false, joinGateVisible: false });
-        wx.reLaunch({ url: "/pages/login/index" });
+        wx.navigateTo({ url: "/pages/login/index" });
         return { needJoin: false, pendingManual: false };
       }
       const need = wx.getStorageSync("need_join_class") === "1";
@@ -386,7 +383,7 @@ Page({
 
   goRecordDone() {
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      this.goLogin();
       return;
     }
     wx.navigateTo({ url: "/pages/record-done/index" });
@@ -394,7 +391,7 @@ Page({
 
   goRecordWrong() {
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      this.goLogin();
       return;
     }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
@@ -403,7 +400,7 @@ Page({
   /** 今日收获卡片：待复习 → 待复习列表 */
   goReviewToday() {
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      this.goLogin();
       return;
     }
     wx.navigateTo({ url: "/pages/review-today/index" });
@@ -412,7 +409,7 @@ Page({
   /** 「今日」Tab：错题数 = 待复习口径，进入待复习列表；其它 Tab 仍进完整错题本 */
   goWrongOrReviewToday() {
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      this.goLogin();
       return;
     }
     if (this.data.practiceTab === "today") {

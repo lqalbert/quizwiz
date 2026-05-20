@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const examLocalCache = require("../../utils/examLocalCache.js");
 
@@ -34,7 +34,7 @@ Page({
   },
 
   onLoad(options) {
-    if (redirectIfNeedJoinClass()) return;
+    if (!requireAuthNavigate()) return;
     const id = Number(options.id || 0);
     if (!Number.isInteger(id) || id <= 0) {
       this.setData({ loadErr: "考试参数无效" });

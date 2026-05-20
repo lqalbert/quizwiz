@@ -51,7 +51,12 @@ Page({
       }
       setNeedJoinClass(Boolean(r.data && r.data.need_join_class));
       wx.hideLoading();
-      wx.switchTab({ url: "/pages/home/index" });
+      const pages = getCurrentPages();
+      if (pages.length > 1) {
+        wx.navigateBack();
+      } else {
+        wx.switchTab({ url: "/pages/home/index" });
+      }
     } catch (err) {
       wx.hideLoading();
       wx.showToast({ title: (err && err.message) || "登录失败，请重试", icon: "none" });

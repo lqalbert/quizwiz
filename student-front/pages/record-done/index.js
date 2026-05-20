@@ -1,18 +1,9 @@
 const { request } = require("../../utils/request.js");
-const { redirectIfNeedJoinClass } = require("../../utils/joinGate.js");
+const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
 const LIST_PAGE_SIZE = 25;
-
-function ensureToken() {
-  const token = wx.getStorageSync("student_token");
-  if (!token) {
-    wx.reLaunch({ url: "/pages/login/index" });
-    return false;
-  }
-  return true;
-}
 
 function normalizePositiveInt(v) {
   const n = Number(v);
@@ -35,8 +26,7 @@ Page({
   },
 
   onLoad(options) {
-    if (!ensureToken()) return;
-    if (redirectIfNeedJoinClass()) return;
+    if (!requireAuthNavigate()) return;
     const restore = options && String(options.restore || "") === "1";
     if (restore) {
       let r = null;
@@ -75,8 +65,7 @@ Page({
   },
 
   onShow() {
-    if (!ensureToken()) return;
-    if (redirectIfNeedJoinClass()) return;
+    if (!requireAuthNavigate()) return;
     const subjects = this.data.subjects || [];
     if (this.data.step === "catalog" && subjects.length === 0) {
       this.bootstrap();
@@ -105,7 +94,7 @@ Page({
         return;
       }
       if (e.statusCode === 401 || String(e.message || "").includes("登录")) {
-        wx.reLaunch({ url: "/pages/login/index" });
+        requireAuthNavigate();
         return;
       }
       wx.showToast({ title: e.message || "加载科目失败", icon: "none" });
@@ -202,7 +191,7 @@ Page({
         return;
       }
       if (e.statusCode === 401 || String(e.message || "").includes("登录")) {
-        wx.reLaunch({ url: "/pages/login/index" });
+        requireAuthNavigate();
         return;
       }
       wx.showToast({ title: e.message || "加载失败", icon: "none" });
@@ -225,7 +214,7 @@ Page({
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
     if (!wx.getStorageSync("student_token")) {
-      wx.reLaunch({ url: "/pages/login/index" });
+      requireAuthNavigate();
       return;
     }
     try {

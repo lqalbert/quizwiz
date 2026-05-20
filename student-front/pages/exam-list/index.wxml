@@ -9,7 +9,8 @@
   <view wx:if="{{loading}}" class="exam-list-loading muted">加载中…</view>
   <view wx:elif="{{err}}" class="ios-card exam-list-err">
     <text class="muted">{{err}}</text>
-    <view class="link-tint exam-list-retry tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="loadExams">重试</view>
+    <view wx:if="{{needLoginHint}}" class="btn-primary exam-list-login-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
+    <view wx:else class="link-tint exam-list-retry tap-link--row" hover-class="link-tint-hover" hover-stay-time="70" bindtap="loadExams">重试</view>
   </view>
   <view wx:elif="{{!exams.length}}" class="ios-card exam-list-empty">
     <text class="muted">暂无可见考试（需已加入班级且老师已关联考试）</text>
