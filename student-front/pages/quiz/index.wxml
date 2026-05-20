@@ -1,26 +1,21 @@
 <wxs src="../../wxs/tags.wxs" module="tg" />
 
 <view class="page-wrap quiz-root">
-  <view wx:if="{{joinPanelVisible}}" class="ios-card quiz-join-card">
-    <block wx:if="{{joinPanelMode === 'pending'}}">
-      <text class="join-gate-title">入班申请审核中</text>
-      <text class="join-gate-lead muted">通过后即可开始刷题；可先刷新状态。</text>
-      <view class="btn-primary join-gate-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="onRefreshJoinPending">刷新审核状态</view>
-    </block>
-    <block wx:else>
-      <text class="join-gate-title">开始刷题前请入班</text>
-      <text class="join-gate-lead muted">填写真实姓名与班级邀请码（与学校登记一致）。</text>
-      <text class="join-gate-label">真实姓名</text>
-      <view class="ios-card join-gate-field-card">
-        <input class="join-gate-input" placeholder="例如：张三" placeholder-class="ph" maxlength="64" value="{{joinRealNameInput}}" bindinput="onJoinRealNameInput" />
-      </view>
-      <text class="join-gate-label">班级邀请码</text>
-      <view class="ios-card join-gate-field-card">
-        <input class="join-gate-input" placeholder="向班主任获取" placeholder-class="ph" maxlength="32" value="{{joinInviteInput}}" bindinput="onJoinInviteInput" />
-      </view>
-      <button class="btn-primary join-gate-btn" hover-class="btn-primary-hover" hover-stay-time="70" loading="{{joinSubmitting}}" disabled="{{joinSubmitting}}" bindtap="onSubmitJoinClass">提交并加入班级</button>
-    </block>
-  </view>
+  <join-class-modal
+    visible="{{joinPanelVisible}}"
+    mode="{{joinPanelMode}}"
+    invite-input="{{joinInviteInput}}"
+    real-name-input="{{joinRealNameInput}}"
+    submitting="{{joinSubmitting}}"
+    closable="{{true}}"
+    title-form="开始刷题前请入班"
+    lead-form="请填写真实姓名与班级邀请码（与学校登记一致）。"
+    bind:close="onCloseJoinModal"
+    bind:inviteinput="onJoinInviteInput"
+    bind:realnameinput="onJoinRealNameInput"
+    bind:submit="onSubmitJoinClass"
+    bind:refresh="onRefreshJoinPending"
+  />
 
   <block wx:if="{{loading && step === 'play'}}">
     <view class="loading-pill muted">加载题目…</view>
@@ -175,52 +170,53 @@
 
   <!-- 知识小节 = 知识点列表 -->
   <block wx:elif="{{step === 'subsections'}}">
-    <view class="nav-row nav-back-row" hover-class="nav-back-row-hover" hover-stay-time="70" bindtap="backFromSubsections">
-      <text class="nav-back">‹</text>
-      <text class="nav-back-hint">返回上一级</text>
-    </view>
-    <view class="page-hero page-hero--compact">
-      <view class="page-hero-accent"></view>
-      <view class="page-hero-body">
-        <text class="page-hero-title page-hero-title--unit">{{unitName}}</text>
-        <text class="page-hero-meta muted">共 {{topicQuestionCount}} 题</text>
+    <view class="quiz-substep">
+      <view class="nav-row nav-back-row" hover-class="nav-back-row-hover" hover-stay-time="70" bindtap="backFromSubsections">
+        <text class="nav-back">‹</text>
+        <text class="nav-back-hint">返回上一级</text>
       </view>
-    </view>
-    <scroll-view scroll-y class="subsection-scroll" enhanced="{{true}}" show-scrollbar="{{false}}">
-      <view
-        wx:for="{{subsectionRows}}"
-        wx:key="id"
-        class="sub-row {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-row-on' : ''}}"
-        hover-class="{{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-row-on-hover' : 'sub-row-hover'}}"
-        hover-stay-time="70"
-        bindtap="onToggleSectionTag"
-        data-id="{{item.id}}"
-        data-name="{{item.name}}"
-      >
-        <view class="sub-cb {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-cb-on' : ''}}">
-          <text wx:if="{{tg.includesId(selectedSectionTagIds, item.id)}}" class="sub-cb-mark">✓</text>
-        </view>
-        <view class="sub-main">
-          <text class="sub-title">{{item.name}}</text>
-          <text class="sub-progress muted">{{item.progressText}}</text>
+      <view class="page-hero page-hero--compact">
+        <view class="page-hero-accent"></view>
+        <view class="page-hero-body">
+          <text class="page-hero-title page-hero-title--unit">{{unitName}}</text>
+          <text class="page-hero-meta muted">共 {{topicQuestionCount}} 题</text>
         </view>
       </view>
-      <view wx:if="{{!subsectionRows.length}}" class="point-row empty-right">
-        <text class="muted">暂无知识小节</text>
-      </view>
-    </scroll-view>
-    <text class="ui-callout">勾选后点「立即刷题」；顺序刷题时可在做题页点「跳转」到指定题号。</text>
-    <view class="sub-footer">
-      <view class="sub-footer-left">
-        <text class="sub-footer-title">知识小节</text>
-        <text class="sub-footer-sub muted">可多选，再点一次取消勾选</text>
-      </view>
-      <view class="sub-footer-btns">
-        <view class="ui-row-btn ui-row-btn--ghost ui-row-btn--back" hover-class="ui-row-btn--ghost-hover" hover-stay-time="70" bindtap="backFromSubsections">
-          <text class="ui-row-btn-chevron">‹</text>
-          <text>返回上一级</text>
+      <scroll-view scroll-y class="subsection-scroll" enhanced="{{true}}" show-scrollbar="{{true}}">
+        <view
+          wx:for="{{subsectionRows}}"
+          wx:key="id"
+          class="sub-row {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-row-on' : ''}}"
+          hover-class="{{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-row-on-hover' : 'sub-row-hover'}}"
+          hover-stay-time="70"
+          bindtap="onToggleSectionTag"
+          data-id="{{item.id}}"
+          data-name="{{item.name}}"
+        >
+          <view class="sub-cb {{tg.includesId(selectedSectionTagIds, item.id) ? 'sub-cb-on' : ''}}">
+            <text wx:if="{{tg.includesId(selectedSectionTagIds, item.id)}}" class="sub-cb-mark">✓</text>
+          </view>
+          <view class="sub-main">
+            <text class="sub-title">{{item.name}}</text>
+            <text class="sub-progress muted">{{item.progressText}}</text>
+          </view>
         </view>
-        <view class="ui-row-btn ui-row-btn--primary" hover-class="ui-row-btn--primary-hover" hover-stay-time="70" bindtap="startSectionPracticeNow">立即刷题</view>
+        <view wx:if="{{!subsectionRows.length}}" class="point-row empty-right">
+          <text class="muted">暂无知识小节</text>
+        </view>
+      </scroll-view>
+      <view class="sub-footer">
+        <view class="sub-footer-left">
+          <text class="sub-footer-title">知识小节</text>
+          <text class="sub-footer-sub muted">可多选，再点一次取消勾选</text>
+        </view>
+        <view class="sub-footer-btns">
+          <view class="ui-row-btn ui-row-btn--ghost ui-row-btn--back" hover-class="ui-row-btn--ghost-hover" hover-stay-time="70" bindtap="backFromSubsections">
+            <text class="ui-row-btn-chevron">‹</text>
+            <text>返回上一级</text>
+          </view>
+          <view class="ui-row-btn ui-row-btn--primary" hover-class="ui-row-btn--primary-hover" hover-stay-time="70" bindtap="startSectionPracticeNow">立即刷题</view>
+        </view>
       </view>
     </view>
   </block>
@@ -239,25 +235,27 @@
           <text class="page-hero-lead muted">填写各知识点抽题数；0 表示不抽。每点不超过本题库题量，单次每点最多 50 题。</text>
         </view>
       </view>
-      <scroll-view scroll-y class="mock-scroll" enhanced="{{true}}" show-scrollbar="{{false}}">
-        <view wx:for="{{mockRows}}" wx:key="name" class="mock-card">
-          <text class="mock-card-title">{{item.displayLabel}}</text>
-          <text class="mock-card-bank muted">本题库该点共 {{item.bankCount}} 题 · 本次最多可填 {{item.maxCount}} 题</text>
-          <view class="mock-field">
-            <text class="mock-field-caption">抽题数量</text>
-            <input
-              class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
-              type="number"
-              placeholder="{{item.countPlaceholder}}"
-              placeholder-class="mock-ph"
-              value="{{item.countInput}}"
-              disabled="{{item.maxCount <= 0}}"
-              data-name="{{item.name}}"
-              data-max="{{item.maxCount}}"
-              bindinput="onMockCountInput"
-              bindblur="onMockCountBlur"
-              adjust-position="{{true}}"
-            />
+      <scroll-view scroll-y class="mock-scroll" enhanced="{{true}}" show-scrollbar="{{true}}">
+        <view class="mock-scroll-inner">
+          <view wx:for="{{mockRows}}" wx:key="name" class="mock-card">
+            <text class="mock-card-title">{{item.displayLabel}}</text>
+            <text class="mock-card-bank muted">本题库该点共 {{item.bankCount}} 题 · 本次最多可填 {{item.maxCount}} 题</text>
+            <view class="mock-field">
+              <text class="mock-field-caption">抽题数量</text>
+              <input
+                class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
+                type="number"
+                placeholder="{{item.countPlaceholder}}"
+                placeholder-class="mock-ph"
+                value="{{item.countInput}}"
+                disabled="{{item.maxCount <= 0}}"
+                data-name="{{item.name}}"
+                data-max="{{item.maxCount}}"
+                bindinput="onMockCountInput"
+                bindblur="onMockCountBlur"
+                adjust-position="{{true}}"
+              />
+            </view>
           </view>
         </view>
       </scroll-view>

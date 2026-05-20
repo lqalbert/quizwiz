@@ -1,0 +1,85 @@
+<view
+  wx:if="{{visible}}"
+  class="join-modal-mask"
+  catchtouchmove="noop"
+  bindtap="onMaskTap"
+>
+  <view class="join-modal-panel" catchtap="noop">
+    <view class="join-modal-accent" aria-hidden="true"></view>
+
+    <view class="join-modal-head">
+      <view class="join-modal-head-main">
+        <view class="join-modal-icon {{mode === 'pending' ? 'join-modal-icon--pending' : ''}}">
+          <text class="join-modal-icon-text">{{mode === 'pending' ? '审' : '班'}}</text>
+        </view>
+        <view class="join-modal-titles">
+          <text class="join-modal-eyebrow">{{mode === 'pending' ? '审核中' : '入班'}}</text>
+          <text class="join-modal-title">{{mode === 'pending' ? titlePending : titleForm}}</text>
+        </view>
+      </view>
+      <view
+        wx:if="{{closable}}"
+        class="join-modal-close"
+        hover-class="join-modal-close-hover"
+        hover-stay-time="70"
+        bindtap="onCloseTap"
+        aria-role="button"
+        aria-label="关闭"
+      >
+        <text class="join-modal-close-icon">×</text>
+      </view>
+    </view>
+
+    <block wx:if="{{mode === 'pending'}}">
+      <view class="join-modal-body">
+        <text class="join-modal-lead">{{leadPending}}</text>
+      </view>
+      <view
+        class="join-modal-submit"
+        hover-class="join-modal-submit-hover"
+        hover-stay-time="70"
+        bindtap="onRefreshTap"
+      >刷新审核状态</view>
+    </block>
+
+    <block wx:else>
+      <view class="join-modal-body">
+        <text class="join-modal-lead">{{leadForm}}</text>
+        <view class="join-modal-form">
+          <view class="join-modal-field">
+            <text class="join-modal-label">真实姓名</text>
+            <input
+              class="join-modal-input"
+              placeholder="与学校登记一致，如：张三"
+              placeholder-class="join-modal-ph"
+              maxlength="64"
+              value="{{realNameInput}}"
+              bindinput="onRealNameInput"
+            />
+          </view>
+          <view class="join-modal-form-divider"></view>
+          <view class="join-modal-field">
+            <text class="join-modal-label">班级邀请码</text>
+            <input
+              class="join-modal-input join-modal-input--code"
+              placeholder="向班主任获取"
+              placeholder-class="join-modal-ph"
+              maxlength="32"
+              value="{{inviteInput}}"
+              bindinput="onInviteInput"
+            />
+          </view>
+        </view>
+        <text class="join-modal-foot">提交后老师可在后台按真实姓名识别你</text>
+      </view>
+      <button
+        class="join-modal-submit join-modal-submit--btn"
+        hover-class="join-modal-submit-hover"
+        hover-stay-time="70"
+        loading="{{submitting}}"
+        disabled="{{submitting}}"
+        bindtap="onSubmitTap"
+      >提交并加入班级</button>
+    </block>
+  </view>
+</view>

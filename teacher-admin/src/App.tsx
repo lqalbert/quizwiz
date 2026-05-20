@@ -5669,11 +5669,17 @@ function AnalyticsPage() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `加载科目失败(${response.status})`)
-      const all = (Array.isArray(payload?.data) ? payload.data : []).map((item: Record<string, unknown>) => ({
-        label: String(item.name || ''),
-        value: Number(item.id),
-      }))
-      const filtered = filterSubjectsByRole(authUser?.roles, mySubjectIds, all)
+      const all: Array<{ label: string; value: number }> = (Array.isArray(payload?.data) ? payload.data : []).map(
+        (item: Record<string, unknown>) => ({
+          label: String(item.name || ''),
+          value: Number(item.id),
+        }),
+      )
+      const filtered: Array<{ label: string; value: number }> = filterSubjectsByRole(
+        authUser?.roles,
+        mySubjectIds,
+        all,
+      )
       setSubjectOptions(filtered)
       if (subjectTeacherOnly && filtered.length > 0) {
         const sid = filtered[0].value

@@ -4,52 +4,6 @@
   box-sizing: border-box;
 }
 
-.quiz-join-card {
-  margin-bottom: 20rpx;
-  padding: 28rpx 24rpx;
-}
-
-.quiz-join-card .join-gate-title {
-  display: block;
-  font-size: 34rpx;
-  font-weight: 700;
-}
-
-.quiz-join-card .join-gate-lead {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 26rpx;
-  line-height: 1.45;
-  margin-bottom: 20rpx;
-}
-
-.quiz-join-card .join-gate-label {
-  display: block;
-  font-size: 26rpx;
-  color: var(--ios-secondary);
-  margin-bottom: 8rpx;
-  margin-top: 8rpx;
-}
-
-.quiz-join-card .join-gate-field-card {
-  padding: 20rpx 24rpx;
-  margin-bottom: 8rpx;
-}
-
-.quiz-join-card .join-gate-input {
-  width: 100%;
-  font-size: 30rpx;
-}
-
-.quiz-join-card .join-gate-btn {
-  margin-top: 24rpx;
-  width: 100%;
-}
-
-.quiz-join-card .join-gate-btn::after {
-  border: none;
-}
-
 .quiz-root .nav-row {
   margin-bottom: 12rpx;
 }
@@ -85,32 +39,48 @@
   margin-top: 36rpx;
 }
 
-/* 模拟分配题数：与知识小节一致，底栏固定，避免 scroll-view 被撑高导致「下一步」悬在中部 */
-.mock-step {
-  position: relative;
+/* 模拟分配题数 / 知识小节：flex 定高 + scroll-view height:0，否则无法纵向滑动 */
+.mock-step,
+.quiz-substep {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 88rpx - env(safe-area-inset-top));
+  max-height: calc(100vh - 88rpx - env(safe-area-inset-top));
+  overflow: hidden;
   box-sizing: border-box;
 }
 
-.mock-scroll {
-  /* 与 subsection 同思路：为顶栏+固定底栏留白；不用 52vh 以免 scroll-view 被撑满半屏、内容少时大块空白 */
-  max-height: calc(100vh - 320rpx);
+.mock-scroll,
+.subsection-scroll {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  width: 100%;
   margin-top: 8rpx;
-  padding-bottom: calc(120rpx + constant(safe-area-inset-bottom));
-  padding-bottom: calc(120rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
+}
+
+.mock-scroll-inner {
+  /* 底部固定「下一步」栏占位，避免最后一卡被挡住 */
+  padding-bottom: calc(160rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.subsection-scroll {
+  padding-bottom: calc(200rpx + env(safe-area-inset-bottom));
 }
 
 .mock-footer {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
-  padding: 20rpx 28rpx calc(20rpx + constant(safe-area-inset-bottom));
-  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  bottom: calc(100rpx + env(safe-area-inset-bottom));
+  padding: 20rpx 28rpx 20rpx;
   background: rgba(255, 255, 255, 0.96);
-  border-top: 1rpx solid #eee;
+  border-top: 1rpx solid var(--ios-separator, rgba(60, 60, 67, 0.12));
   z-index: 20;
   box-sizing: border-box;
+  box-shadow: 0 -4rpx 24rpx rgba(0, 0, 0, 0.06);
 }
 
 .mock-footer-btn {
@@ -819,15 +789,7 @@
   justify-content: center;
 }
 
-.subsection-scroll {
-  max-height: calc(100vh - 300rpx);
-  min-height: 280rpx;
-  margin-bottom: 0;
-  /* 与固定底栏高度对齐，略大于 sub-footer 避免挡内容，避免过大垫高 */
-  padding-bottom: calc(96rpx + constant(safe-area-inset-bottom));
-  padding-bottom: calc(96rpx + env(safe-area-inset-bottom));
-  box-sizing: border-box;
-}
+/* subsection-scroll 高度规则见上方 .mock-scroll 共用 */
 
 .sub-row {
   display: flex;
@@ -902,15 +864,17 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
-  padding: 20rpx 28rpx calc(20rpx + env(safe-area-inset-bottom));
+  bottom: calc(100rpx + env(safe-area-inset-bottom));
+  padding: 20rpx 28rpx 20rpx;
   background: rgba(255, 255, 255, 0.96);
-  border-top: 1rpx solid #eee;
+  border-top: 1rpx solid var(--ios-separator, rgba(60, 60, 67, 0.12));
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
   z-index: 20;
+  box-sizing: border-box;
+  box-shadow: 0 -4rpx 24rpx rgba(0, 0, 0, 0.06);
 }
 
 .sub-footer-left {

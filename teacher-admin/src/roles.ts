@@ -40,11 +40,11 @@ export function isSubjectTeacherOnly(roles: string[] | undefined) {
   )
 }
 
-export function filterSubjectsByRole<T extends { value: number }>(
+export function filterSubjectsByRole<T extends { label: string; value: number }>(
   roles: string[] | undefined,
   subjectIds: number[] | undefined,
   options: T[],
-) {
+): T[] {
   if (!isSubjectTeacherOnly(roles)) return options
   const allowed = new Set((subjectIds || []).map((id) => Number(id)).filter((id) => id > 0))
   if (allowed.size === 0) return []

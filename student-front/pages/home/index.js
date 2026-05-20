@@ -40,6 +40,7 @@ Page({
     /** 未入班：首页全屏入班引导（form=填表 pending=已提交待审核） */
     joinGateVisible: false,
     joinGateMode: "form",
+    needJoinReminder: false,
     joinInviteInput: "",
     joinRealNameInput: "",
     joinSubmitting: false,
@@ -290,9 +291,17 @@ Page({
 
   noop() {},
 
+  onCloseJoinModal() {
+    this.setData({ joinGateVisible: false });
+  },
+
+  openJoinModal() {
+    this.setData({ joinGateVisible: true });
+  },
+
   async refreshJoinGate() {
     if (!wx.getStorageSync("student_token")) {
-      this.setData({ joinGateVisible: false, joinGateMode: "form" });
+      this.setData({ joinGateVisible: false, joinGateMode: "form", needJoinReminder: false });
       return { needJoin: false, pendingManual: false };
     }
     try {
@@ -300,6 +309,7 @@ Page({
       this.setData({
         joinGateVisible: needJoin,
         joinGateMode: pendingManual ? "pending" : "form",
+        needJoinReminder: needJoin,
       });
       return { needJoin, pendingManual };
     } catch (e) {
@@ -309,7 +319,7 @@ Page({
         try {
           getApp().globalData.token = "";
         } catch (_) {}
-        this.setData({ loggedIn: false, joinGateVisible: false });
+        this.setData({ loggedIn: false, joinGateVisible: false, needJoinReminder: false });
         wx.navigateTo({ url: "/pages/login/index" });
         return { needJoin: false, pendingManual: false };
       }
@@ -318,17 +328,20 @@ Page({
       this.setData({
         joinGateVisible: need,
         joinGateMode: pendingManual ? "pending" : "form",
+        needJoinReminder: need,
       });
       return { needJoin: need, pendingManual };
     }
   },
 
   onJoinInviteInput(e) {
-    this.setData({ joinInviteInput: e.detail.value });
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinInviteInput: v });
   },
 
   onJoinRealNameInput(e) {
-    this.setData({ joinRealNameInput: e.detail.value });
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinRealNameInput: v });
   },
 
   async onSubmitJoinClass() {
@@ -349,6 +362,7 @@ Page({
       this.setData({
         joinGateVisible: false,
         joinGateMode: "form",
+        needJoinReminder: false,
         joinInviteInput: "",
         joinRealNameInput: "",
         joinSubmitting: false,
@@ -368,6 +382,7 @@ Page({
       await this.refreshJoinGate();
       wx.hideLoading();
       if (!this.data.joinGateVisible) {
+        this.setData({ needJoinReminder: false });
         wx.showToast({ title: "已通过审核，可以开始学习", icon: "success" });
         this.loadHomeSummary();
         this.loadStudentExams();

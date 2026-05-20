@@ -132,12 +132,18 @@ Page({
     syncNavTitle();
   },
 
+  onCloseJoinModal() {
+    this.setData({ joinPanelVisible: false });
+  },
+
   onJoinInviteInput(e) {
-    this.setData({ joinInviteInput: e.detail.value });
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinInviteInput: v });
   },
 
   onJoinRealNameInput(e) {
-    this.setData({ joinRealNameInput: e.detail.value });
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinRealNameInput: v });
   },
 
   async onSubmitJoinClass() {

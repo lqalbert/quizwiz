@@ -80,7 +80,6 @@ async function ensureReadyForPractice(pageCtx) {
       joinPanelVisible: true,
       joinPanelMode: pendingManual ? "pending" : "form",
     });
-    wx.showToast({ title: "请先加入班级并填写真实姓名", icon: "none" });
     return false;
   }
   return new Promise((resolve) => {
