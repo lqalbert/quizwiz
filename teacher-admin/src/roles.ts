@@ -40,11 +40,14 @@ export function isSubjectTeacherOnly(roles: string[] | undefined) {
   )
 }
 
-export function filterSubjectsByRole<T extends { label: string; value: number }>(
+export type SubjectSelectOption = { label: string; value: number }
+
+/** 科任教师仅保留任课科目；其它角色原样返回 */
+export function filterSubjectsByRole(
   roles: string[] | undefined,
   subjectIds: number[] | undefined,
-  options: T[],
-): T[] {
+  options: SubjectSelectOption[],
+): SubjectSelectOption[] {
   if (!isSubjectTeacherOnly(roles)) return options
   const allowed = new Set((subjectIds || []).map((id) => Number(id)).filter((id) => id > 0))
   if (allowed.size === 0) return []
