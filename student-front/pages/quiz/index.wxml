@@ -1,22 +1,6 @@
 <wxs src="../../wxs/tags.wxs" module="tg" />
 
 <view class="page-wrap quiz-root">
-  <join-class-modal
-    visible="{{joinPanelVisible}}"
-    mode="{{joinPanelMode}}"
-    invite-input="{{joinInviteInput}}"
-    real-name-input="{{joinRealNameInput}}"
-    submitting="{{joinSubmitting}}"
-    closable="{{true}}"
-    title-form="开始刷题前请入班"
-    lead-form="请填写真实姓名与班级邀请码（与学校登记一致）。"
-    bind:close="onCloseJoinModal"
-    bind:inviteinput="onJoinInviteInput"
-    bind:realnameinput="onJoinRealNameInput"
-    bind:submit="onSubmitJoinClass"
-    bind:refresh="onRefreshJoinPending"
-  />
-
   <block wx:if="{{loading && step === 'play'}}">
     <view class="loading-pill muted">加载题目…</view>
   </block>

@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { submitJoinByInvite, syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
+const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
 const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
@@ -37,13 +37,7 @@ Page({
     /** 今日收获：连续打卡与今日统计（由 home-summary 接口统计） */
     todaySnapshot: null,
     checkinStreak: 0,
-    /** 未入班：首页全屏入班引导（form=填表 pending=已提交待审核） */
-    joinGateVisible: false,
-    joinGateMode: "form",
-    needJoinReminder: false,
-    joinInviteInput: "",
-    joinRealNameInput: "",
-    joinSubmitting: false,
+    needJoinClass: false,
   },
 
   onLoad() {
@@ -58,19 +52,14 @@ Page({
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
       void (async () => {
-        await this.refreshJoinGate();
+        await this.syncNeedJoinStatus();
         this.loadHomeSummary();
         this.loadStudentExams();
         this.updateHomeGuideVisibility();
       })();
     } else {
       this.setData({
-        joinGateVisible: false,
-        joinGateMode: "form",
-        joinInviteInput: "",
-        joinRealNameInput: "",
-      });
-      this.setData({
+        needJoinClass: false,
         examTasks: [],
         examOverview: null,
         examListError: "",
@@ -83,6 +72,28 @@ Page({
         homeGuideVisible: false,
         todaySnapshot: null,
       });
+    }
+  },
+
+  async syncNeedJoinStatus() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ needJoinClass: false });
+      return;
+    }
+    try {
+      const { needJoin } = await syncNeedJoinClassFromServer();
+      this.setData({ needJoinClass: needJoin });
+    } catch (e) {
+      if (e && e.statusCode === 401) {
+        wx.removeStorageSync("student_token");
+        wx.removeStorageSync("need_join_class");
+        try {
+          getApp().globalData.token = "";
+        } catch (_) {}
+        this.setData({ loggedIn: false, needJoinClass: false });
+        return;
+      }
+      this.setData({ needJoinClass: wx.getStorageSync("need_join_class") === "1" });
     }
   },
 
@@ -158,7 +169,7 @@ Page({
         examTasks: [],
         examOverview: null,
         examListLoading: false,
-        examListError: e.message || "考试列表加载失败",
+        examListError: this.data.needJoinClass ? "未加入班级暂无数据" : e.message || "考试列表加载失败",
       });
     }
   },
@@ -196,7 +207,7 @@ Page({
     let rank_main = "—";
     let rank_sub = "";
     if (!inClass) {
-      rank_sub = "加入班级后参与排名";
+      rank_sub = "未加入班级暂无数据";
     } else if (!p.had_practice) {
       rank_sub = `同班 ${p.class_peers} 人 · 本周期未练`;
     } else if (p.class_rank != null && p.rank_in_denominator > 0) {
@@ -260,7 +271,7 @@ Page({
     } catch (e) {
       let statsError = e.message || "加载失败";
       if (e.statusCode === 403 && e.apiCode === "NEED_JOIN_CLASS") {
-        statsError = "加入班级后可查看刷题与考试统计（浏览不受影响）";
+        statsError = "";
       }
       this.setData({
         statsLoading: false,
@@ -289,144 +300,19 @@ Page({
     wx.navigateTo({ url: "/pages/login/index" });
   },
 
-  noop() {},
-
-  onCloseJoinModal() {
-    this.setData({ joinGateVisible: false });
-  },
-
-  openJoinModal() {
-    this.setData({ joinGateVisible: true });
-  },
-
-  async refreshJoinGate() {
-    if (!wx.getStorageSync("student_token")) {
-      this.setData({ joinGateVisible: false, joinGateMode: "form", needJoinReminder: false });
-      return { needJoin: false, pendingManual: false };
-    }
-    try {
-      const { needJoin, pendingManual } = await syncNeedJoinClassFromServer();
-      this.setData({
-        joinGateVisible: needJoin,
-        joinGateMode: pendingManual ? "pending" : "form",
-        needJoinReminder: needJoin,
-      });
-      return { needJoin, pendingManual };
-    } catch (e) {
-      if (e && e.statusCode === 401) {
-        wx.removeStorageSync("student_token");
-        wx.removeStorageSync("need_join_class");
-        try {
-          getApp().globalData.token = "";
-        } catch (_) {}
-        this.setData({ loggedIn: false, joinGateVisible: false, needJoinReminder: false });
-        wx.navigateTo({ url: "/pages/login/index" });
-        return { needJoin: false, pendingManual: false };
-      }
-      const need = wx.getStorageSync("need_join_class") === "1";
-      const pendingManual = need && wx.getStorageSync("join_pending_manual") === "1";
-      this.setData({
-        joinGateVisible: need,
-        joinGateMode: pendingManual ? "pending" : "form",
-        needJoinReminder: need,
-      });
-      return { needJoin: need, pendingManual };
-    }
-  },
-
-  onJoinInviteInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinInviteInput: v });
-  },
-
-  onJoinRealNameInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinRealNameInput: v });
-  },
-
-  async onSubmitJoinClass() {
-    if (this.data.joinSubmitting || this.data.joinGateMode !== "form") return;
-    const invite = String(this.data.joinInviteInput || "").trim();
-    const realName = String(this.data.joinRealNameInput || "").trim();
-    this.setData({ joinSubmitting: true });
-    wx.showLoading({ title: "提交中", mask: true });
-    try {
-      const result = await submitJoinByInvite({ inviteCode: invite, realName });
-      wx.hideLoading();
-      if (result.mode === "manual") {
-        this.setData({ joinGateMode: "pending", joinSubmitting: false });
-        wx.showToast({ title: result.message, icon: "none", duration: 2800 });
-        return;
-      }
-      wx.showToast({ title: result.message, icon: "success" });
-      this.setData({
-        joinGateVisible: false,
-        joinGateMode: "form",
-        needJoinReminder: false,
-        joinInviteInput: "",
-        joinRealNameInput: "",
-        joinSubmitting: false,
-      });
-      this.loadHomeSummary();
-      this.loadStudentExams();
-    } catch (err) {
-      wx.hideLoading();
-      this.setData({ joinSubmitting: false });
-      wx.showToast({ title: (err && err.message) || "加入失败", icon: "none" });
-    }
-  },
-
-  async onRefreshJoinPending() {
-    wx.showLoading({ title: "查询中", mask: true });
-    try {
-      await this.refreshJoinGate();
-      wx.hideLoading();
-      if (!this.data.joinGateVisible) {
-        this.setData({ needJoinReminder: false });
-        wx.showToast({ title: "已通过审核，可以开始学习", icon: "success" });
-        this.loadHomeSummary();
-        this.loadStudentExams();
-        return;
-      }
-      if (this.data.joinGateMode === "pending") {
-        wx.showToast({ title: "仍在审核中，请稍后再试", icon: "none" });
-      }
-    } catch (_) {
-      wx.hideLoading();
-    }
-  },
-
   goRecordDone() {
-    if (!wx.getStorageSync("student_token")) {
-      this.goLogin();
-      return;
-    }
     wx.navigateTo({ url: "/pages/record-done/index" });
   },
 
   goRecordWrong() {
-    if (!wx.getStorageSync("student_token")) {
-      this.goLogin();
-      return;
-    }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
   },
 
-  /** 今日收获卡片：待复习 → 待复习列表 */
   goReviewToday() {
-    if (!wx.getStorageSync("student_token")) {
-      this.goLogin();
-      return;
-    }
     wx.navigateTo({ url: "/pages/review-today/index" });
   },
 
-  /** 「今日」Tab：错题数 = 待复习口径，进入待复习列表；其它 Tab 仍进完整错题本 */
   goWrongOrReviewToday() {
-    if (!wx.getStorageSync("student_token")) {
-      this.goLogin();
-      return;
-    }
     if (this.data.practiceTab === "today") {
       wx.navigateTo({ url: "/pages/review-today/index" });
       return;

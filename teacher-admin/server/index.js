@@ -3276,7 +3276,7 @@ app.post('/api/student/practice/exam-submit', studentAuthRequired, studentClassM
 })
 
 /** 学生可见的班级考试列表 */
-app.get('/api/student/exams', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/exams', studentAuthRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
     const { rows } = await pool.query(
@@ -3814,7 +3814,7 @@ app.post('/api/student/exams/:examId/submit', studentAuthRequired, studentClassM
   }
 })
 
-app.get('/api/student/stats/wrong-book', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
@@ -3898,7 +3898,7 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, studentClassMember
 })
 
 /** 将题目移出错题本：wrong_count 置 0（仍保留 attempts 等已做记录） */
-app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req, res) => {
   const body = req.body || {}
   const rawIds = Array.isArray(body.question_ids) ? body.question_ids : []
   const questionIds = []
@@ -3937,7 +3937,7 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, studentCla
 })
 
 /** 今日待复习错题列表（与首页「今日」错题数同一口径） */
-app.get('/api/student/stats/review-due-today', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
     const dR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
@@ -3981,7 +3981,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, studentClass
   }
 })
 
-app.get('/api/student/stats/done-questions', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
   const offset = (page - 1) * pageSize
@@ -4300,7 +4300,7 @@ const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, pe
 }
 
 /** 首页：刷题/考试相关汇总 */
-app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
     const totalsR = await pool.query(
@@ -4400,7 +4400,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, studentClassMemb
 })
 
 /** 本周期班级刷题排名列表（含姓名），period=today|week|month|all */
-app.get('/api/student/stats/practice-class-rank', studentAuthRequired, studentClassMembershipRequired, async (req, res) => {
+app.get('/api/student/stats/practice-class-rank', studentAuthRequired, async (req, res) => {
   const period = String(req.query.period || 'today').toLowerCase()
   if (!['today', 'week', 'month', 'all'].includes(period)) {
     return res.status(400).json({ message: 'period 仅支持 today、week、month、all' })

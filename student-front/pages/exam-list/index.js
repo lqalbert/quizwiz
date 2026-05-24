@@ -7,6 +7,7 @@ Page({
     loading: true,
     err: "",
     needLoginHint: false,
+    needJoinHint: false,
     exams: [],
   },
 
@@ -25,16 +26,26 @@ Page({
     if (!wx.getStorageSync("student_token")) {
       this.setData({
         loading: false,
-        err: "请先登录后查看考试列表",
+        err: "登录后查看班级考试；当前可浏览本页",
         needLoginHint: true,
+        needJoinHint: false,
         exams: [],
       });
       return;
     }
-    this.setData({ loading: true, err: "", needLoginHint: false });
+    this.setData({ loading: true, err: "", needLoginHint: false, needJoinHint: false });
     try {
       const res = await request({ path: "/api/student/exams", method: "GET" });
       const raw = sortExamsNewestFirst((res && res.data) || []);
+      if (raw.length === 0 && wx.getStorageSync("need_join_class") === "1") {
+        this.setData({
+          exams: [],
+          loading: false,
+          err: "未加入班级暂无数据",
+          needJoinHint: true,
+        });
+        return;
+      }
       const exams = raw.map((item) => {
         let phaseLabel = "未开始";
         if (item.phase === "ongoing") phaseLabel = "进行中";

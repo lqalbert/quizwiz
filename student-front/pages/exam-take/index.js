@@ -34,7 +34,6 @@ Page({
   },
 
   onLoad(options) {
-    if (!requireAuthNavigate()) return;
     const id = Number(options.id || 0);
     if (!Number.isInteger(id) || id <= 0) {
       this.setData({ loadErr: "考试参数无效" });
@@ -257,6 +256,10 @@ Page({
   async loadSession() {
     const examId = this.data.examId;
     if (!examId) return;
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ loadErr: "请先登录后参加考试" });
+      return;
+    }
     try {
       const res = await request({ path: `/api/student/exams/${examId}/session`, method: "GET" });
       const d = (res && res.data) || {};

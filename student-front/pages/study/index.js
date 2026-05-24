@@ -263,9 +263,9 @@ Page({
       this.getTabBar().setData({ selected: 2 });
     }
     const token = wx.getStorageSync("student_token");
+    this.setData({ loggedIn: Boolean(token) });
     if (!token) {
       this.setData({
-        loggedIn: false,
         classes: [],
         classId: null,
         currentClassLabel: "",
@@ -276,7 +276,6 @@ Page({
       });
       return;
     }
-    this.setData({ loggedIn: true });
     if (this.data.classId && Array.isArray(this.data.sections) && this.data.sections.length > 0) {
       this.refreshSectionsLocalFlags();
     }
@@ -319,7 +318,7 @@ Page({
           sections: [],
           resourcesEmpty: true,
           resourcesLoading: false,
-          loadError: "",
+          loadError: "未加入班级暂无数据",
         });
         wx.hideLoading();
         return;

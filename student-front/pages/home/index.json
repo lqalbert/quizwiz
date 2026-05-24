@@ -1,8 +1,5 @@
 {
   "navigationBarTitleText": "首页",
   "navigationBarBackgroundColor": "#f2f2f7",
-  "usingComponents": {
-    "join-class-modal": "/components/join-class-modal/index"
-  }
+  "usingComponents": {}
 }
-

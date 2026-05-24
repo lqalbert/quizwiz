@@ -1,7 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
-const { ensureReadyForPractice, submitJoinOnPage } = require("../../utils/practiceGate.js");
-const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
+const { ensureReadyForPractice, isNeedJoinClassError, promptJoinClassOnMine } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
@@ -63,11 +62,6 @@ Page({
     practiceResumeHint: null,
     wrapUpRight: 0,
     wrapUpWrong: 0,
-    joinPanelVisible: false,
-    joinPanelMode: "form",
-    joinInviteInput: "",
-    joinRealNameInput: "",
-    joinSubmitting: false,
   },
 
   onShow() {
@@ -132,52 +126,6 @@ Page({
     syncNavTitle();
   },
 
-  onCloseJoinModal() {
-    this.setData({ joinPanelVisible: false });
-  },
-
-  onJoinInviteInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinInviteInput: v });
-  },
-
-  onJoinRealNameInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinRealNameInput: v });
-  },
-
-  async onSubmitJoinClass() {
-    if (this.data.joinSubmitting) return;
-    const ok = await submitJoinOnPage(this);
-    if (ok && this._resumeAfterJoin) {
-      const fn = this._resumeAfterJoin;
-      this._resumeAfterJoin = null;
-      await fn();
-    }
-  },
-
-  async onRefreshJoinPending() {
-    wx.showLoading({ title: "查询中", mask: true });
-    try {
-      const st = await syncNeedJoinClassFromServer();
-      wx.hideLoading();
-      if (!st.needJoin) {
-        this.setData({ joinPanelVisible: false, joinPanelMode: "form" });
-        wx.showToast({ title: "已通过审核", icon: "success" });
-        if (this._resumeAfterJoin) {
-          const fn = this._resumeAfterJoin;
-          this._resumeAfterJoin = null;
-          await fn();
-        }
-        return;
-      }
-      this.setData({ joinPanelMode: st.pendingManual ? "pending" : "form" });
-      wx.showToast({ title: "仍在审核中", icon: "none" });
-    } catch (_) {
-      wx.hideLoading();
-    }
-  },
-
   async bootstrap() {
     this.setData({ catalogLoadError: "", catalogLoaded: false });
     try {
@@ -222,12 +170,7 @@ Page({
   },
 
   async resumePracticeDraft() {
-    const ready = await ensureReadyForPractice(this);
-    if (!ready) {
-      this._resumeAfterJoin = () => this.resumePracticeDraft();
-      return;
-    }
-    this._resumeAfterJoin = null;
+    if (!(await ensureReadyForPractice())) return;
     const draft = loadPracticeDraft();
     if (!draft) {
       this.setData({ practiceResumeHint: null });
@@ -292,12 +235,7 @@ Page({
   },
 
   async startFromWrongBook(questionIds, feedbackMode, sessionOrigin = "") {
-    const ready = await ensureReadyForPractice(this);
-    if (!ready) {
-      this._resumeAfterJoin = () => this.startFromWrongBook(questionIds, feedbackMode, sessionOrigin);
-      return;
-    }
-    this._resumeAfterJoin = null;
+    if (!(await ensureReadyForPractice())) return;
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
     const origin =
@@ -356,6 +294,10 @@ Page({
       })
       .catch((e) => {
         wx.hideLoading();
+        if (isNeedJoinClassError(e)) {
+          void promptJoinClassOnMine();
+          return;
+        }
         wx.showModal({
           title: "无法开始练习",
           content: e.message || "请检查网络后重试",
@@ -635,12 +577,7 @@ Page({
   },
 
   async buildAndStart() {
-    const ready = await ensureReadyForPractice(this);
-    if (!ready) {
-      this._resumeAfterJoin = () => this.buildAndStart();
-      return;
-    }
-    this._resumeAfterJoin = null;
+    if (!(await ensureReadyForPractice())) return;
     const subjectId = Number(this.data.subjectId);
     const unitId = normalizePositiveInt(this.data.unitId);
     const practiceModule = this.data.practiceModule;
@@ -721,6 +658,10 @@ Page({
       );
     } catch (e) {
       wx.hideLoading();
+      if (isNeedJoinClassError(e)) {
+        void promptJoinClassOnMine();
+        return;
+      }
       wx.showModal({
         title: "组卷失败",
         content: e.message || "请检查网络后重试",

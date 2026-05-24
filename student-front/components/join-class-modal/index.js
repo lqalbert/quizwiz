@@ -18,8 +18,29 @@ Component({
     },
   },
 
+  data: {
+    realNameFocus: false,
+    inviteFocus: false,
+  },
+
   methods: {
     noop() {},
+
+    onRealNameFocus() {
+      this.setData({ realNameFocus: true });
+    },
+
+    onRealNameBlur() {
+      this.setData({ realNameFocus: false });
+    },
+
+    onInviteFocus() {
+      this.setData({ inviteFocus: true });
+    },
+
+    onInviteBlur() {
+      this.setData({ inviteFocus: false });
+    },
 
     onMaskTap() {
       if (this.properties.closable) this.triggerEvent("close");

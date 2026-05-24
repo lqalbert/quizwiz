@@ -9,8 +9,8 @@
   </view>
 
   <view wx:if="{{!loggedIn}}" class="ios-card pad-card study-guest-card">
-    <text class="study-guest-title">登录并加入班级后可查看资料</text>
-    <text class="muted study-guest-desc">当前可自由浏览首页与刷题目录；班级资料、下载与考试需完成入班。</text>
+    <text class="study-guest-title">浏览模式</text>
+    <text class="muted study-guest-desc">登录并加入班级后可查看与下载班级资料；可先浏览本页与其它功能。</text>
     <view class="btn-primary study-guest-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
   </view>
 
@@ -19,7 +19,8 @@
   </view>
 
   <view wx:elif="{{classes.length === 0}}" class="ios-card pad-card">
-    <text class="muted">请先加入班级后查看资料（可在首页或刷题页填写邀请码与真实姓名）</text>
+    <text class="muted">未加入班级暂无数据</text>
+    <text class="muted study-guest-desc">请登录后在「我的 → 加入班级」填写真实姓名与邀请码</text>
   </view>
 
   <block wx:else>

@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
-const { requireAuthNavigate } = require("../../utils/practiceGate.js");
+const { ensureReadyForPractice } = require("../../utils/practiceGate.js");
+const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
@@ -26,7 +27,6 @@ Page({
   },
 
   onLoad(options) {
-    if (!requireAuthNavigate()) return;
     const restore = options && String(options.restore || "") === "1";
     if (restore) {
       let r = null;
@@ -65,7 +65,6 @@ Page({
   },
 
   onShow() {
-    if (!requireAuthNavigate()) return;
     const subjects = this.data.subjects || [];
     if (this.data.step === "catalog" && subjects.length === 0) {
       this.bootstrap();
@@ -77,7 +76,8 @@ Page({
 
   async bootstrap() {
     try {
-      const res = await request({ path: "/api/student/subjects", method: "GET" });
+      const paths = catalogPaths();
+      const res = await request({ path: paths.subjects, method: "GET", auth: catalogUsesStudentApi() });
       const raw = res.data || [];
       const subjects = raw
         .map((s) => ({ ...s, id: normalizePositiveInt(s.id) }))
@@ -105,9 +105,11 @@ Page({
     const sid = Number(subjectId);
     if (!sid) return;
     try {
+      const paths = catalogPaths();
       const res = await request({
-        path: `/api/student/catalog/knowledge-units?subject_id=${sid}`,
+        path: paths.knowledgeUnits(sid),
         method: "GET",
+        auth: catalogUsesStudentApi(),
       });
       const units = (res.data || [])
         .map((u) => ({ ...u, id: normalizePositiveInt(u.id) }))
@@ -151,6 +153,16 @@ Page({
     const sid = this.data.subjectId;
     const uid = this.data.unitId;
     if (!sid || !uid) return;
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({
+        list: [],
+        listLoading: false,
+        listLoadingMore: false,
+        hasMore: false,
+        pagination: { total: 0, page: 1, pageSize: LIST_PAGE_SIZE },
+      });
+      return;
+    }
     const append = !reset;
     if (append && (this.data.listLoadingMore || !this.data.hasMore)) return;
 
@@ -214,10 +226,7 @@ Page({
   startRetryWithMode(questionIds, feedbackMode) {
     const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
     if (!ids.length) return;
-    if (!wx.getStorageSync("student_token")) {
-      requireAuthNavigate();
-      return;
-    }
+    if (!(await ensureReadyForPractice())) return;
     try {
       const app = getApp();
       app.globalData.pendingPractice = {

@@ -1,5 +1,4 @@
 const { request } = require("../../utils/request.js");
-const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -25,7 +24,6 @@ Page({
   },
 
   onLoad(options) {
-    if (!requireAuthNavigate()) return;
     const p = String((options && options.period) || "today").toLowerCase();
     const period = ["today", "week", "month", "all"].includes(p) ? p : "today";
     const periodLabel = PERIOD_LABEL[period] || "今日";
@@ -35,6 +33,10 @@ Page({
   },
 
   async loadRank() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ loading: false, err: "登录后查看班级排名", rows: [] });
+      return;
+    }
     this.setData({ loading: true, err: "" });
     try {
       const res = await request({
@@ -43,6 +45,10 @@ Page({
       });
       const d = unwrapPayload(res);
       const rows = (d && d.rows) || [];
+      if (!rows.length && wx.getStorageSync("need_join_class") === "1") {
+        this.setData({ rows: [], loading: false, err: "未加入班级暂无数据" });
+        return;
+      }
       this.setData({ rows, loading: false });
     } catch (e) {
       this.setData({

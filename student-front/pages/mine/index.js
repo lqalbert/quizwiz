@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
+const { submitJoinByInvite, syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -22,11 +23,17 @@ Page({
     classes: [],
     leavePendingCount: 0,
     needJoinClass: false,
+    joinModalVisible: false,
+    joinModalMode: "form",
+    joinInviteInput: "",
+    joinRealNameInput: "",
+    joinSubmitting: false,
     nameEditVisible: false,
     nameDraft: "",
     nickEditVisible: false,
     nickDraft: "",
     menus: [
+      { title: "加入班级", action: "join_class" },
       { title: "退出班级", action: "leave_class" },
       { title: "错题本", extra: "", path: "/pages/record-wrong/index" },
       { title: "已做题", extra: "", path: "/pages/record-done/index" },
@@ -219,6 +226,10 @@ Page({
 
   onMenu(e) {
     const action = e.currentTarget.dataset.action;
+    if (action === "join_class") {
+      this.openJoinModal();
+      return;
+    }
     if (action === "leave_class") {
       this.openLeaveClassFromMenu();
       return;
@@ -233,8 +244,7 @@ Page({
     if (!this.data.loggedIn) {
       wx.showModal({
         title: "退出班级",
-        content:
-          "请先登录。加入班级请在登录页完成；退出班级须教师审核通过后方可生效；通过后凡曾关联该班的考试答卷会删除（与是否仍在别班无关），个人刷题记录保留。",
+        content: "请先登录。加入班级请在本页点击「加入班级」。",
         showCancel: false,
         confirmText: "我知道了",
       });
@@ -244,7 +254,7 @@ Page({
     if (!classes.length) {
       wx.showModal({
         title: "退出班级",
-        content: "你尚未加入班级。入班请在登录页完成。",
+        content: "你尚未加入班级。请点击「加入班级」填写真实姓名与邀请码。",
         showCancel: false,
         confirmText: "我知道了",
       });
@@ -318,6 +328,88 @@ Page({
   },
 
   onPlaceholder() {},
+
+  openJoinModal() {
+    if (!this.data.loggedIn) {
+      wx.showModal({
+        title: "需要登录",
+        content: "加入班级前请先登录。",
+        confirmText: "去登录",
+        success: (r) => {
+          if (r.confirm) this.goLogin();
+        },
+      });
+      return;
+    }
+    const pendingManual = this.data.needJoinClass && wx.getStorageSync("join_pending_manual") === "1";
+    this.setData({
+      joinModalVisible: true,
+      joinModalMode: pendingManual ? "pending" : "form",
+    });
+  },
+
+  onCloseJoinModal() {
+    this.setData({ joinModalVisible: false });
+  },
+
+  onJoinInviteInput(e) {
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinInviteInput: v });
+  },
+
+  onJoinRealNameInput(e) {
+    const v = e.detail && e.detail.value != null ? e.detail.value : "";
+    this.setData({ joinRealNameInput: v });
+  },
+
+  async onSubmitJoinClass() {
+    if (this.data.joinSubmitting || this.data.joinModalMode !== "form") return;
+    this.setData({ joinSubmitting: true });
+    wx.showLoading({ title: "提交中", mask: true });
+    try {
+      const result = await submitJoinByInvite({
+        inviteCode: this.data.joinInviteInput,
+        realName: this.data.joinRealNameInput,
+      });
+      wx.hideLoading();
+      if (result.mode === "manual") {
+        this.setData({ joinModalMode: "pending", joinSubmitting: false });
+        wx.showToast({ title: result.message, icon: "none", duration: 2800 });
+        return;
+      }
+      wx.showToast({ title: result.message, icon: "success" });
+      this.setData({
+        joinModalVisible: false,
+        joinModalMode: "form",
+        joinInviteInput: "",
+        joinRealNameInput: "",
+        joinSubmitting: false,
+      });
+      await this.loadProfile();
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ joinSubmitting: false });
+      wx.showToast({ title: (err && err.message) || "加入失败", icon: "none" });
+    }
+  },
+
+  async onRefreshJoinPending() {
+    wx.showLoading({ title: "查询中", mask: true });
+    try {
+      const st = await syncNeedJoinClassFromServer();
+      await this.loadProfile();
+      wx.hideLoading();
+      if (!st.needJoin) {
+        this.setData({ joinModalVisible: false, joinModalMode: "form" });
+        wx.showToast({ title: "已通过审核", icon: "success" });
+        return;
+      }
+      this.setData({ joinModalMode: st.pendingManual ? "pending" : "form" });
+      wx.showToast({ title: "仍在审核中", icon: "none" });
+    } catch (_) {
+      wx.hideLoading();
+    }
+  },
 
   logout() {
     wx.showModal({

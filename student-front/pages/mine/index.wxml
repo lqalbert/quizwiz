@@ -1,7 +1,24 @@
 <view class="page-wrap mine-page">
+  <join-class-modal
+    visible="{{joinModalVisible}}"
+    mode="{{joinModalMode}}"
+    invite-input="{{joinInviteInput}}"
+    real-name-input="{{joinRealNameInput}}"
+    submitting="{{joinSubmitting}}"
+    closable="{{true}}"
+    title-form="加入班级"
+    lead-form="请填写与学校登记一致的真实姓名及班级邀请码，便于老师在后台识别你。"
+    bind:close="onCloseJoinModal"
+    bind:inviteinput="onJoinInviteInput"
+    bind:realnameinput="onJoinRealNameInput"
+    bind:submit="onSubmitJoinClass"
+    bind:refresh="onRefreshJoinPending"
+  />
+
   <block wx:if="{{!loggedIn}}">
     <view class="ios-card profile-card">
-      <text class="guest-title">登录后查看班级与练习记录</text>
+      <text class="guest-title">浏览模式</text>
+      <text class="guest-desc muted">可浏览各功能页面；登录后同步个人数据，入班请在本页「加入班级」</text>
       <view class="btn-primary guest-login" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
     </view>
   </block>
@@ -20,14 +37,14 @@
             <text class="name">{{wxNickname}}</text>
             <text class="name-edit-hint muted">修改</text>
           </view>
-          <text class="subline muted" wx:if="{{showWxProfileHint}}">点头像选微信头像；点昵称可修改（使用微信昵称输入框）</text>
-          <text class="subline muted" wx:if="{{needJoinClass}}">请前往首页填写真实姓名与班级邀请码</text>
+          <text class="subline muted" wx:if="{{showWxProfileHint}}">点头像选微信头像；点昵称可修改</text>
+          <text class="subline muted" wx:if="{{needJoinClass}}">尚未加入班级，班级相关数据暂无</text>
         </view>
       </view>
     </view>
 
     <view wx:if="{{leavePendingCount > 0}}" class="ios-card leave-pending-tip">
-      <text class="leave-pending-tip-text">你有 {{leavePendingCount}} 条退出班级申请正在等待教师审核；通过前仍在原班级，功能可正常使用。</text>
+      <text class="leave-pending-tip-text">你有 {{leavePendingCount}} 条退出班级申请正在等待教师审核。</text>
     </view>
 
     <text class="section-label">我的班级</text>
@@ -39,11 +56,8 @@
         <text wx:if="{{item.leave_pending}}" class="leave-pending-label muted">退出审核中</text>
       </view>
     </view>
-    <view class="ios-card empty-class-card" wx:elif="{{needJoinClass}}">
-      <text class="empty-class muted">加入班级后，将在此显示你的班级（请在首页填写邀请码与姓名）</text>
-    </view>
     <view class="ios-card empty-class-card" wx:else>
-      <text class="empty-class muted">暂无班级（请在首页填写邀请码与姓名）</text>
+      <text class="empty-class muted">未加入班级暂无数据</text>
     </view>
 
     <text class="section-label">资料</text>
@@ -62,6 +76,7 @@
   <view class="ios-card">
     <block wx:for="{{menus}}" wx:key="title">
       <view
+        wx:if="{{item.action !== 'join_class' || loggedIn}}"
         class="ios-cell"
         hover-class="ios-cell-hover"
         hover-stay-time="70"
@@ -79,42 +94,12 @@
     </block>
   </view>
 
-  <block wx:if="{{mineShowOther}}">
-    <text class="section-label">其他</text>
-    <view class="ios-card">
-      <view class="ios-cell" hover-class="ios-cell-hover" hover-stay-time="70" bindtap="onPlaceholder" data-title="通知">
-        <text class="ios-cell-title plain">通知</text>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-      <view class="ios-cell" hover-class="ios-cell-hover" hover-stay-time="70" bindtap="onPlaceholder" data-title="关于">
-        <text class="ios-cell-title plain">关于</text>
-        <text class="ios-cell-chevron">›</text>
-      </view>
-    </view>
-  </block>
-
   <button wx:if="{{loggedIn}}" class="logout-btn" hover-class="logout-btn-hover" hover-stay-time="70" bindtap="logout">退出登录</button>
 
-  <view
-    wx:if="{{loggedIn && nickEditVisible}}"
-    class="name-edit-mask"
-    catchtouchmove="noop"
-    bindtap="cancelNickEdit"
-  >
+  <view wx:if="{{loggedIn && nickEditVisible}}" class="name-edit-mask" catchtouchmove="noop" bindtap="cancelNickEdit">
     <view class="name-edit-dialog" catchtap="noop">
       <text class="name-edit-dialog-title">修改昵称</text>
-      <text class="name-edit-hint muted">请使用微信提供的昵称（点击下方输入框）</text>
-      <input
-        class="name-edit-input"
-        type="nickname"
-        value="{{nickDraft}}"
-        maxlength="32"
-        placeholder="微信昵称"
-        placeholder-class="ph"
-        adjust-position="{{true}}"
-        confirm-type="done"
-        bindinput="onNickDraftInput"
-      />
+      <input class="name-edit-input" type="nickname" value="{{nickDraft}}" maxlength="32" placeholder="微信昵称" placeholder-class="ph" bindinput="onNickDraftInput" />
       <view class="ui-modal-actions">
         <view class="ui-modal-btn ui-modal-btn--cancel" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="cancelNickEdit">取消</view>
         <view class="ui-modal-btn ui-modal-btn--ok" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="saveNickEdit">保存</view>
@@ -122,27 +107,10 @@
     </view>
   </view>
 
-  <!-- 姓名编辑：固定遮罩 + 居中弹层，避免内嵌卡片 + overflow 导致输入框畸形 -->
-  <view
-    wx:if="{{loggedIn && nameEditVisible}}"
-    class="name-edit-mask"
-    catchtouchmove="noop"
-    bindtap="cancelNameEdit"
-  >
+  <view wx:if="{{loggedIn && nameEditVisible}}" class="name-edit-mask" catchtouchmove="noop" bindtap="cancelNameEdit">
     <view class="name-edit-dialog" catchtap="noop">
       <text class="name-edit-dialog-title">修改真实姓名</text>
-      <text class="name-edit-hint muted">老师端将按此姓名展示</text>
-      <input
-        class="name-edit-input"
-        type="text"
-        value="{{nameDraft}}"
-        maxlength="64"
-        placeholder="请输入真实姓名"
-        placeholder-class="ph"
-        adjust-position="{{true}}"
-        confirm-type="done"
-        bindinput="onNameDraftInput"
-      />
+      <input class="name-edit-input" type="text" value="{{nameDraft}}" maxlength="64" placeholder="请输入真实姓名" placeholder-class="ph" bindinput="onNameDraftInput" />
       <view class="ui-modal-actions">
         <view class="ui-modal-btn ui-modal-btn--cancel" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="cancelNameEdit">取消</view>
         <view class="ui-modal-btn ui-modal-btn--ok" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="saveNameEdit">保存</view>

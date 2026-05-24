@@ -1,5 +1,4 @@
 const { request } = require("../../utils/request.js");
-const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 
@@ -43,11 +42,14 @@ Page({
   },
 
   onShow() {
-    if (!requireAuthNavigate()) return;
     this.loadList();
   },
 
   async loadList() {
+    if (!wx.getStorageSync("student_token")) {
+      this.setData({ loading: false, err: "登录后查看待复习错题", count: 0, questions: [] });
+      return;
+    }
     this.setData({ loading: true, err: "" });
     try {
       const res = await request({ path: "/api/student/stats/review-due-today", method: "GET" });
