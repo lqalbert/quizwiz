@@ -299,13 +299,26 @@ Page({
     this.applyPracticeTab();
   },
 
+  async syncReviewDueCountFromListApi(practice_periods) {
+    if (!practice_periods || !practice_periods.today) return practice_periods;
+    try {
+      const res = await request({ path: "/api/student/stats/review-due-today", method: "GET" });
+      const d = unwrapStudentPayload(res);
+      if (d && d.count != null) {
+        practice_periods.today.review_due_count = Number(d.count) || 0;
+      }
+    } catch (_) {}
+    return practice_periods;
+  },
+
   async loadHomeSummary() {
     this.setData({ statsLoading: true, statsError: "" });
     try {
       const res = await request({ path: "/api/student/stats/home-summary", method: "GET" });
       const d = unwrapStudentPayload(res);
       const totals = d.totals || null;
-      const practice_periods = d.practice_periods != null ? d.practice_periods : null;
+      let practice_periods = d.practice_periods != null ? d.practice_periods : null;
+      practice_periods = await this.syncReviewDueCountFromListApi(practice_periods);
       const today = practice_periods && practice_periods.today;
       const checkinStreak = Math.max(0, Number(d.checkin_streak) || 0);
       const checkedInToday = Boolean(d.checked_in_today);
@@ -406,7 +419,7 @@ Page({
     if (this.data.practiceTab !== "today") return;
     const today = this.data.practice_periods && this.data.practice_periods.today;
     const n = Number(
-      (today && today.review_due_count != null ? today.review_due_count : this.data.practicePanel.wrong_count) || 0,
+      (today && today.review_due_count != null ? today.review_due_count : 0) || 0,
     );
     if (n <= 0) return;
     const key = `review_due_tip_${this.data.dateText}`;

@@ -1,6 +1,7 @@
-/* 刷题 tab：顶留白收紧；底边为 0（Tab 栏已占安全区），避免继承全局 200rpx 底留白 */
+/* 刷题 tab：顶留白与其它 Tab 一致；底边为 0（Tab 栏已占安全区），左右沿用全局 32rpx */
 .page-wrap.quiz-root {
-  padding: 4rpx 24rpx 0;
+  padding-top: 8rpx;
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 
@@ -84,40 +85,10 @@
   text-align: center;
 }
 
-.resume-hint {
-  padding: 24rpx 28rpx;
-  margin-bottom: 16rpx;
-}
-
-.resume-hint-title {
+.catalog-boot-hint {
   display: block;
-  font-size: 30rpx;
-  font-weight: 600;
-  margin-bottom: 8rpx;
-}
-
-.resume-hint-meta {
-  display: block;
-  font-size: 24rpx;
-  line-height: 1.4;
-  margin-bottom: 20rpx;
-}
-
-.resume-hint-row {
-  display: flex;
-  flex-direction: row;
-  gap: 20rpx;
-  align-items: center;
-}
-
-.resume-hint-btn {
-  flex: 1;
-  text-align: center;
-  box-sizing: border-box;
-}
-
-.resume-hint-btn--go {
-  margin-top: 0;
+  padding: 16rpx 8rpx 8rpx;
+  font-size: 26rpx;
 }
 
 .catalog-err,
@@ -144,12 +115,6 @@
   font-size: 24rpx;
   margin-top: 12rpx;
   margin-bottom: 8rpx;
-}
-
-.catalog-boot-hint {
-  display: block;
-  padding: 16rpx 8rpx 8rpx;
-  font-size: 26rpx;
 }
 
 .play-load-err {

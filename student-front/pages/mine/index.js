@@ -1,7 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
-const { OPEN_LEAVE_CLASS_KEY } = require("../../utils/joinClass.js");
+const { startLeaveClassFlow } = require("../../utils/leaveClass.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -59,19 +59,7 @@ Page({
       });
       return;
     }
-    void this.loadProfile().then(() => this.consumeOpenLeaveClassFlag());
-  },
-
-  consumeOpenLeaveClassFlag() {
-    try {
-      if (wx.getStorageSync(OPEN_LEAVE_CLASS_KEY) !== "1") return;
-      wx.removeStorageSync(OPEN_LEAVE_CLASS_KEY);
-    } catch (_) {
-      return;
-    }
-    if (!this.data.loggedIn) return;
-    if (!(this.data.classes || []).length) return;
-    this.openLeaveClassFromMenu();
+    void this.loadProfile();
   },
 
   goLogin() {
@@ -270,70 +258,8 @@ Page({
       });
       return;
     }
-    if (classes.length === 1) {
-      this.promptLeaveClassConfirm(classes[0]);
-      return;
-    }
-    this.showLeaveClassActionSheet(classes, 0);
-  },
-
-  showLeaveClassActionSheet(classes, offset) {
-    const PAGE = 5;
-    const page = classes.slice(offset, offset + PAGE);
-    const more = offset + PAGE < classes.length;
-    const itemList = page.map((c) => {
-      const n = String(c.name || "").trim() || "未命名班级";
-      return c.leave_pending ? `${n}（审核中）` : n;
-    });
-    if (more) itemList.push("下一页…");
-    wx.showActionSheet({
-      itemList,
-      success: (res) => {
-        const idx = res.tapIndex;
-        if (more && idx === itemList.length - 1) {
-          this.showLeaveClassActionSheet(classes, offset + PAGE);
-          return;
-        }
-        const cls = page[idx];
-        if (!cls) return;
-        this.promptLeaveClassConfirm(cls);
-      },
-      fail: (err) => {
-        const msg = err && err.errMsg ? String(err.errMsg) : "";
-        if (msg.includes("cancel")) return;
-        wx.showToast({ title: msg || "无法打开选择", icon: "none" });
-      },
-    });
-  },
-
-  promptLeaveClassConfirm(cls) {
-    if (!cls || !cls.id) return;
-    if (cls.leave_pending) {
-      wx.showToast({ title: "该班级退出申请已在审核中", icon: "none" });
-      return;
-    }
-    wx.showModal({
-      title: "退出班级",
-      content: `班级「${String(cls.name || "").trim() || "未命名"}」\n\n须教师审核通过后方可退出；审核通过前你仍在原班级。\n\n退出后，凡曾关联该班的考试，你的答卷会被删除（即使你还在其它班级）；个人刷题记录会保留。\n\n是否提交退出申请？`,
-      confirmText: "提交申请",
-      cancelText: "取消",
-      success: async (r) => {
-        if (!r.confirm) return;
-        wx.showLoading({ title: "提交中" });
-        try {
-          await request({
-            path: "/api/student/leave-class-request",
-            method: "POST",
-            data: { class_id: cls.id },
-          });
-          wx.hideLoading();
-          wx.showToast({ title: "已提交，请等待教师审核", icon: "none" });
-          await this.loadProfile();
-        } catch (err) {
-          wx.hideLoading();
-          wx.showToast({ title: (err && err.message) || "提交失败", icon: "none" });
-        }
-      },
+    startLeaveClassFlow(classes, {
+      onSuccess: () => this.loadProfile(),
     });
   },
 

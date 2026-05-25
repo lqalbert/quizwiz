@@ -2,8 +2,8 @@
   <view class="page-hero page-hero--motto home-hero">
     <image class="motto-banner-bg" src="/assets/motto/motto-home.jpg" mode="aspectFill" />
     <view class="motto-card-inner">
-      <text class="motto-main">勤能补拙</text>
-      <text class="motto-sub">学可医愚</text>
+      <text class="motto-main">少年负壮气</text>
+      <text class="motto-sub">奋烈自有时</text>
     </view>
   </view>
 

@@ -20,7 +20,7 @@ function buildTodaySnapshot(opt) {
   const reviewDue =
     t.review_due_count != null && t.review_due_count !== ""
       ? Number(t.review_due_count)
-      : Number(t.wrong_count || 0);
+      : 0;
   const accuracy = Number(t.accuracy_pct || 0);
   const streak = Math.max(0, parseInt(String((opt && opt.checkinStreak) ?? 0), 10) || 0);
   const checkedInToday = Boolean(opt && opt.checkedInToday);

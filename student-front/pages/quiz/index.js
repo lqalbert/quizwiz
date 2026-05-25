@@ -4,7 +4,7 @@ const { ensureReadyForPractice, isNeedJoinClassError, promptJoinClass } = requir
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
-const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
+const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft, OPEN_RESUME_DRAFT_KEY } = require("../../utils/practiceDraft.js");
 const { showPostSessionDailyFeedback } = require("../../utils/dailyFeedback.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 
@@ -62,7 +62,6 @@ Page({
     playLoadError: "",
     catalogLoadError: "",
     catalogLoaded: false,
-    practiceResumeHint: null,
     wrapUpRight: 0,
     wrapUpWrong: 0,
   },
@@ -82,13 +81,17 @@ Page({
         return;
       }
     } catch (_) {}
+    try {
+      if (wx.getStorageSync(OPEN_RESUME_DRAFT_KEY) === "1") {
+        wx.removeStorageSync(OPEN_RESUME_DRAFT_KEY);
+        void this.resumePracticeDraft();
+        return;
+      }
+    } catch (_) {}
     const subjects = this.data.subjects || [];
     const atWizardEntry = this.data.step === "catalog";
     if (atWizardEntry && subjects.length === 0) {
       this.bootstrap();
-    }
-    if (atWizardEntry) {
-      this.checkPracticeResumeBanner();
     }
     if (this.data.step === "subsections") {
       this.refreshSubsectionRows();
@@ -155,30 +158,10 @@ Page({
     this.bootstrap();
   },
 
-  checkPracticeResumeBanner() {
-    const draft = loadPracticeDraft();
-    if (!draft) {
-      if (this.data.practiceResumeHint) this.setData({ practiceResumeHint: null });
-      return;
-    }
-    const total = draft.questionIds.length;
-    const cur = Math.min(Number(draft.currentIndex) + 1, total);
-    const o = String(draft.sessionOrigin || "");
-    let label = "练习";
-    if (o === "review_today") label = "今日待复习";
-    else if (o === "wrong_book") label = "错题练习";
-    this.setData({
-      practiceResumeHint: { current: cur, total, label },
-    });
-  },
-
   async resumePracticeDraft() {
     if (!(await ensureReadyForPractice())) return;
     const draft = loadPracticeDraft();
-    if (!draft) {
-      this.setData({ practiceResumeHint: null });
-      return;
-    }
+    if (!draft) return;
     clearPracticeDraft();
     this.setData(
       {
@@ -194,7 +177,6 @@ Page({
         unitName: String(draft.unitName || ""),
         sessionRight: Number(draft.sessionRight) || 0,
         sessionWrong: Number(draft.sessionWrong) || 0,
-        practiceResumeHint: null,
         submitted: false,
         checkResult: null,
         selectedAnswer: "",
@@ -210,12 +192,6 @@ Page({
         this.loadCurrentQuestion();
       },
     );
-  },
-
-  discardPracticeDraft() {
-    clearPracticeDraft();
-    this.setData({ practiceResumeHint: null });
-    wx.showToast({ title: "已放弃草稿", icon: "none" });
   },
 
   async loadKnowledgeUnits(subjectId) {
@@ -702,18 +678,7 @@ Page({
     this.restartWizard();
   },
 
-  restartWizard() {
-    clearPracticeDraft();
-    let returnTarget = null;
-    try {
-      const app = getApp();
-      const pr = app && app.globalData && app.globalData.practiceReturnPage;
-      if (pr && (pr.type === "record-done" || pr.type === "record-wrong" || pr.type === "review_today")) {
-        returnTarget = pr;
-        app.globalData.practiceReturnPage = null;
-      }
-    } catch (_) {}
-
+  applyCatalogReset(reloadCatalog = true) {
     const sid = this.data.subjectId;
     this.setData({
       step: "catalog",
@@ -746,14 +711,57 @@ Page({
       wrapUpWrong: 0,
     });
     syncNavTitle();
+    if (!reloadCatalog) return;
+    if (sid) {
+      this.loadKnowledgeUnits(sid);
+    } else {
+      this.bootstrap();
+    }
+  },
+
+  /** 从待复习/错题本等子页进入练习后，返回时先跳转再重置，避免先闪目录页再跳转 */
+  leavePracticeToPage(url) {
+    const targetRoute = String(url || "")
+      .replace(/^\//, "")
+      .replace(/\?.*$/, "");
+    const pages = getCurrentPages();
+    const targetIdx = pages.findIndex((p) => String((p && p.route) || "") === targetRoute);
+    if (targetIdx >= 0 && targetIdx < pages.length - 1) {
+      wx.navigateBack({
+        delta: pages.length - 1 - targetIdx,
+        success: () => this.applyCatalogReset(true),
+        fail: () => this.openPracticeReturnPage(url),
+      });
+      return;
+    }
+    this.openPracticeReturnPage(url);
+  },
+
+  openPracticeReturnPage(url) {
+    wx.navigateTo({
+      url,
+      success: () => this.applyCatalogReset(true),
+      fail: () => {
+        this.applyCatalogReset(true);
+        wx.showToast({ title: "无法打开上一页", icon: "none" });
+      },
+    });
+  },
+
+  restartWizard() {
+    clearPracticeDraft();
+    let returnTarget = null;
+    try {
+      const app = getApp();
+      const pr = app && app.globalData && app.globalData.practiceReturnPage;
+      if (pr && (pr.type === "record-done" || pr.type === "record-wrong" || pr.type === "review_today")) {
+        returnTarget = pr;
+        app.globalData.practiceReturnPage = null;
+      }
+    } catch (_) {}
 
     if (returnTarget && returnTarget.type === "review_today") {
-      wx.navigateTo({ url: "/pages/review-today/index" });
-      if (sid) {
-        this.loadKnowledgeUnits(sid);
-      } else {
-        this.bootstrap();
-      }
+      this.leavePracticeToPage("/pages/review-today/index");
       return;
     }
 
@@ -769,15 +777,11 @@ Page({
         returnTarget.type === "record-done"
           ? "/pages/record-done/index?restore=1"
           : "/pages/record-wrong/index?restore=1";
-      wx.navigateTo({ url: path });
+      this.leavePracticeToPage(path);
       return;
     }
 
-    if (sid) {
-      this.loadKnowledgeUnits(sid);
-    } else {
-      this.bootstrap();
-    }
+    this.applyCatalogReset(true);
   },
 
   retryLoadQuestion() {

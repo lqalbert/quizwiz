@@ -4001,7 +4001,7 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req
   }
 })
 
-/** 今日待复习错题列表（与首页「今日」错题数同一口径） */
+/** 今日待复习错题列表（与首页 review_due_count 同一口径） */
 app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
   try {
@@ -4010,8 +4010,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
     const countR = await pool.query(
       `
       SELECT COUNT(*)::int AS cnt
-      FROM student_question_stats s
-      LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+      ${REVIEW_DUE_STATS_FROM_SQL}
       WHERE s.student_id = $1 AND s.wrong_count > 0
         AND (r.next_review_date IS NULL OR r.next_review_date <= $2::date)
       `,
@@ -4024,9 +4023,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
         q.stem, q.question_type,
         to_char(r.next_review_date, 'YYYY-MM-DD') AS next_review_date,
         COALESCE(r.ladder, 0)::int AS ladder
-      FROM student_question_stats s
-      INNER JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
-      LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+      ${REVIEW_DUE_STATS_FROM_SQL}
       WHERE s.student_id = $1 AND s.wrong_count > 0
         AND (r.next_review_date IS NULL OR r.next_review_date <= $2::date)
       ORDER BY r.next_review_date NULLS FIRST, s.updated_at DESC
@@ -4218,14 +4215,20 @@ const loadPracticeCheckinStreak = async (executor, studentId) => {
   return { streak, checked_in_today }
 }
 
-/** 今日待复习错题数：wrong_count>0 且（无排期或 next_review_date ≤ 上海当日），按题去重计数 */
+/** 待复习错题：wrong_count>0 且（无排期或 next_review_date ≤ 上海当日），仅统计未删除题目 */
+const REVIEW_DUE_STATS_FROM_SQL = `
+  FROM student_question_stats s
+  INNER JOIN questions q ON q.id = s.question_id AND q.deleted_at IS NULL
+  LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+`
+
+/** 今日待复习错题数：与 /api/student/stats/review-due-today 列表同一口径 */
 const loadReviewDueWrongCountsByStudentIds = async (executor, peerIdsForQuery) => {
   if (!peerIdsForQuery || peerIdsForQuery.length === 0) return { rows: [] }
   return executor.query(
     `
     SELECT s.student_id, COUNT(*)::int AS cnt
-    FROM student_question_stats s
-    LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+    ${REVIEW_DUE_STATS_FROM_SQL}
     WHERE s.student_id = ANY($1::bigint[])
       AND s.wrong_count > 0
       AND (r.next_review_date IS NULL OR r.next_review_date <= (timezone('Asia/Shanghai', now()))::date)

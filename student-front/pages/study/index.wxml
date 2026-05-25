@@ -2,8 +2,8 @@
   <view class="page-hero page-hero--motto study-hero">
     <image class="motto-banner-bg" src="/assets/motto/motto-study.jpg" mode="aspectFill" />
     <view class="motto-card-inner">
-      <text class="motto-main">青春须早为</text>
-      <text class="motto-sub">岂能长少年</text>
+      <text class="motto-main">勤能补拙</text>
+      <text class="motto-sub">学可医愚</text>
     </view>
   </view>
 

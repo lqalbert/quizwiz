@@ -21,7 +21,11 @@ async function showPostSessionDailyFeedback(roundQuestions) {
     const d = unwrapStudentPayload(res);
     const t = d.practice_periods && d.practice_periods.today;
     practiced = Number(t && t.practice_questions != null ? t.practice_questions : 0);
-    reviewDue = Number(t && t.wrong_count != null ? t.wrong_count : 0);
+    reviewDue = Number(
+      t && t.review_due_count != null && t.review_due_count !== ""
+        ? t.review_due_count
+        : 0,
+    );
     acc = Number(t && t.accuracy_pct != null ? t.accuracy_pct : 0);
   } catch (_) {
     /* 仍展示本轮信息 */

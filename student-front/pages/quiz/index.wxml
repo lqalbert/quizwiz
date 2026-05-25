@@ -25,16 +25,8 @@
     <view class="page-hero page-hero--motto catalog-hero">
       <image class="motto-banner-bg" src="/assets/motto/motto-quiz.jpg" mode="aspectFill" />
       <view class="motto-card-inner">
-        <text class="motto-main">少年负壮气</text>
-        <text class="motto-sub">奋烈自有时</text>
-      </view>
-    </view>
-    <view wx:if="{{practiceResumeHint}}" class="ios-card resume-hint">
-      <text class="resume-hint-title">未完成的练习</text>
-      <text class="resume-hint-meta muted">{{practiceResumeHint.label}} · 进度约 {{practiceResumeHint.current}}/{{practiceResumeHint.total}} 题</text>
-      <view class="resume-hint-row">
-        <view class="ui-btn-secondary resume-hint-btn" hover-class="ui-btn-secondary-hover" hover-stay-time="70" bindtap="discardPracticeDraft">放弃草稿</view>
-        <view class="btn-primary resume-hint-btn resume-hint-btn--go" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="resumePracticeDraft">继续练习</view>
+        <text class="motto-main">青春须早为</text>
+        <text class="motto-sub">岂能长少年</text>
       </view>
     </view>
     <view wx:if="{{!catalogLoaded}}" class="muted catalog-boot-hint">科目列表加载中…</view>

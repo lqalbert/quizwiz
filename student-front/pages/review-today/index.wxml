@@ -1,7 +1,6 @@
 <view class="page-wrap review-today-root">
   <view class="review-today-hero">
     <text class="h2">今日待复习</text>
-    <text class="muted" style="display:block;margin-top:12rpx;">与首页「今日」错题数同一口径（北京时间 {{beijingToday}}）：到复习日或尚未排期的错题。</text>
   </view>
 
   <view wx:if="{{loading}}" class="muted">加载中…</view>
@@ -17,6 +16,7 @@
   </view>
   <block wx:else>
     <view class="review-today-pill">共 {{count}} 题</view>
+    <text wx:if="{{reviewListTruncated}}" class="muted review-today-truncated">当前页展示 {{questions.length}} 题，请分批复习</text>
     <view class="review-today-actions">
       <view class="btn-primary" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
     </view>

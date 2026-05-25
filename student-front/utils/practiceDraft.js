@@ -1,5 +1,6 @@
 /** 刷题页本地草稿（续做）：onTabItemTap 切到其他 Tab 时写入；从子页返回刷题 Tab 时 onShow 会再补一次 */
 const KEY = "student_quiz_practice_draft_v1";
+const OPEN_RESUME_DRAFT_KEY = "open_resume_draft_on_show";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function clearPracticeDraft() {
@@ -37,4 +38,22 @@ function loadPracticeDraft() {
   }
 }
 
-module.exports = { clearPracticeDraft, savePracticeDraft, loadPracticeDraft };
+function buildPracticeResumeHint(draft) {
+  const d = draft || loadPracticeDraft();
+  if (!d) return null;
+  const total = d.questionIds.length;
+  const cur = Math.min(Number(d.currentIndex) + 1, total);
+  const o = String(d.sessionOrigin || "");
+  let label = "练习";
+  if (o === "review_today") label = "今日待复习";
+  else if (o === "wrong_book") label = "错题练习";
+  return { current: cur, total, label };
+}
+
+module.exports = {
+  clearPracticeDraft,
+  savePracticeDraft,
+  loadPracticeDraft,
+  buildPracticeResumeHint,
+  OPEN_RESUME_DRAFT_KEY,
+};

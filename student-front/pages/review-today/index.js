@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
+const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -33,13 +34,11 @@ Page({
     needLogin: false,
     count: 0,
     questions: [],
-    /** 北京日历「今天」，与接口统计口径一致 */
-    beijingToday: "",
+    reviewListTruncated: false,
   },
 
   onLoad() {
     wx.setNavigationBarTitle({ title: "今日待复习" });
-    this.setData({ beijingToday: beijingCalendarDateKey() });
   },
 
   onShow() {
@@ -75,7 +74,15 @@ Page({
         last_wrong_label: lastWrongLabel(it),
         next_review_date_display: formatBeijingCalendarDate(it.next_review_date),
       }));
-      this.setData({ loading: false, count, questions });
+      this.setData({
+        loading: false,
+        count,
+        questions,
+        reviewListTruncated: count > questions.length,
+      });
+      try {
+        refreshHomeSummaryIfOpen();
+      } catch (_) {}
     } catch (e) {
       const unauthorized = e && e.statusCode === 401;
       this.setData({

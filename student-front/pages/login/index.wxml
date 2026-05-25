@@ -1,7 +1,6 @@
 <view class="page-wrap login-page">
   <view class="hero-block">
     <text class="hero-title">欢迎使用</text>
-    <text class="hero-lead muted">点击下方按钮，在弹窗中点「允许」即可完成登录；入班信息在首页填写。</text>
   </view>
 
   <view class="ios-card pad-card">

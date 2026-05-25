@@ -1,8 +1,8 @@
 const { request } = require("./request.js");
+const { startLeaveClassFlowFromServer } = require("./leaveClass.js");
 
 const PENDING_MANUAL_KEY = "join_pending_manual";
 const OPEN_JOIN_MODAL_KEY = "open_join_modal_on_show";
-const OPEN_LEAVE_CLASS_KEY = "open_leave_class_on_show";
 
 function setNeedJoinClass(need) {
   wx.setStorageSync("need_join_class", need ? "1" : "0");
@@ -26,14 +26,11 @@ function promptLeaveBeforeJoin(classes) {
     wx.showModal({
       title: "请先退出当前班级",
       content: `你已在「${label}」中。须先申请退出并通过教师审核后，才能加入新班级。`,
-      confirmText: "去退出",
+      confirmText: "退出",
       cancelText: "取消",
       success: (r) => {
         if (r.confirm) {
-          try {
-            wx.setStorageSync(OPEN_LEAVE_CLASS_KEY, "1");
-          } catch (_) {}
-          wx.switchTab({ url: "/pages/mine/index" });
+          void startLeaveClassFlowFromServer();
         }
         resolve(false);
       },
@@ -108,7 +105,6 @@ async function submitJoinByInvite({ inviteCode, realName }) {
 module.exports = {
   PENDING_MANUAL_KEY,
   OPEN_JOIN_MODAL_KEY,
-  OPEN_LEAVE_CLASS_KEY,
   setNeedJoinClass,
   syncNeedJoinClassFromServer,
   submitJoinByInvite,
