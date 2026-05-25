@@ -151,6 +151,7 @@ function canUseDirectStudyDownload(fileUrlAbs) {
 Page({
   data: {
     loggedIn: false,
+    isGuestBrowse: false,
     loadError: "",
     /** null 表示尚未拉取班级列表 */
     classes: null,
@@ -263,23 +264,55 @@ Page({
       this.getTabBar().setData({ selected: 2 });
     }
     const token = wx.getStorageSync("student_token");
-    this.setData({ loggedIn: Boolean(token) });
+    this.setData({ loggedIn: Boolean(token), isGuestBrowse: false });
     if (!token) {
-      this.setData({
-        classes: [],
-        classId: null,
-        currentClassLabel: "",
-        sections: [],
-        resourcesEmpty: true,
-        resourcesLoading: false,
-        loadError: "",
-      });
+      this.setData({ loggedIn: false });
+      void this.loadPublicResources();
       return;
     }
     if (this.data.classId && Array.isArray(this.data.sections) && this.data.sections.length > 0) {
       this.refreshSectionsLocalFlags();
     }
     void this.bootstrap();
+  },
+
+  async loadPublicResources() {
+    this.setData({ resourcesLoading: true, loadError: "", isGuestBrowse: true });
+    try {
+      const res = await request({ path: "/api/public/study/resources", method: "GET", auth: false });
+      const list = takeArrayFromStudentApi(res);
+      const sections = buildSections(list);
+      this.setData({
+        classes: [],
+        classId: null,
+        currentClassLabel: "公开资料",
+        sections,
+        resourcesEmpty: list.length === 0,
+        resourcesLoading: false,
+        loadError: "",
+      });
+    } catch (e) {
+      this.setData({
+        sections: [],
+        resourcesEmpty: true,
+        resourcesLoading: false,
+        loadError: (e && e.message) || "加载失败",
+      });
+    }
+  },
+
+  requireLoginForMedia() {
+    if (wx.getStorageSync("student_token")) return true;
+    wx.showModal({
+      title: "需要登录",
+      content: "登录后可预览与下载资料。",
+      confirmText: "去登录",
+      cancelText: "稍后",
+      success: (r) => {
+        if (r.confirm) wx.navigateTo({ url: "/pages/login/index" });
+      },
+    });
+    return false;
   },
 
   goLogin() {
@@ -703,6 +736,7 @@ Page({
   },
 
   onTapCard(e) {
+    if (!this.requireLoginForMedia()) return;
     const ds = e.currentTarget.dataset || {};
     const id = Number(ds.id);
     const fileType = String(ds.ft || "file");
@@ -751,6 +785,7 @@ Page({
   },
 
   onTapDownload(e) {
+    if (!this.requireLoginForMedia()) return;
     this.closeAudioPreview();
     const id = Number(e.currentTarget.dataset.id);
     const name = String(e.currentTarget.dataset.name || "");

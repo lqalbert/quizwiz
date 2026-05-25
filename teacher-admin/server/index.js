@@ -2221,6 +2221,38 @@ app.get('/api/public/catalog/unit-detail', async (req, res) => {
   }
 })
 
+/** 备案合规：未登录可浏览未限定班级的公开资料（仅列表，下载/预览须登录） */
+app.get('/api/public/study/resources', async (_req, res) => {
+  try {
+    const resourceResult = await pool.query(
+      `
+      SELECT r.id, r.name, r.file_url, r.file_type, r.folder, r.subject_id, COALESCE(s.name, '') AS subject_name, r.created_at
+      FROM resources r
+      LEFT JOIN subjects s ON s.id = r.subject_id
+      WHERE NOT EXISTS (SELECT 1 FROM resource_class_visibility rv WHERE rv.resource_id = r.id)
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 500
+      `,
+    )
+    return res.json({
+      data: resourceResult.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        file_url: String(row.file_url || ''),
+        file_type: row.file_type,
+        folder: row.folder,
+        subject_id: row.subject_id != null ? Number(row.subject_id) : null,
+        subject_name: String(row.subject_name || ''),
+        created_at: row.created_at,
+        can_system_download: false,
+        direct_download_url: '',
+      })),
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载公开资料失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 app.get('/api/student/profile', studentAuthRequired, async (req, res) => {
   try {
     const studentId = req.studentAuth.studentId
@@ -3942,6 +3974,17 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
   try {
     const dR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
     const shDate = dR.rows[0]?.d
+    const countR = await pool.query(
+      `
+      SELECT COUNT(*)::int AS cnt
+      FROM student_question_stats s
+      LEFT JOIN student_wrong_review r ON r.student_id = s.student_id AND r.question_id = s.question_id
+      WHERE s.student_id = $1 AND s.wrong_count > 0
+        AND (r.next_review_date IS NULL OR r.next_review_date <= $2::date)
+      `,
+      [studentId, shDate],
+    )
+    const totalCount = Number(countR.rows[0]?.cnt || 0)
     const listR = await pool.query(
       `
       SELECT s.question_id, s.wrong_count, s.attempts, s.correct_count, s.updated_at,
@@ -3961,7 +4004,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
     const rows = listR.rows || []
     return res.json({
       data: {
-        count: rows.length,
+        count: totalCount,
         questions: rows.map((row) => ({
           question_id: row.question_id,
           stem: row.stem,
@@ -4111,6 +4154,7 @@ const addShanghaiCalendarDays = (dateKey, deltaDays) => {
 /**
  * 连续打卡天数：按北京日历日，当日至少 1 次刷题（practice_check / practice_exam）。
  * 若今日尚未打卡，则统计至昨日为止的连续天数（当日结束前仍展示昨日 streak）。
+ * @returns {{ streak: number, checked_in_today: boolean }}
  */
 const loadPracticeCheckinStreak = async (executor, studentId) => {
   const [datesR, todayR] = await Promise.all([
@@ -4127,17 +4171,18 @@ const loadPracticeCheckinStreak = async (executor, studentId) => {
     executor.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`),
   ])
   const daySet = new Set(datesR.rows.map((row) => toShanghaiDateKey(row.d)).filter(Boolean))
-  if (daySet.size === 0) return 0
   const today = toShanghaiDateKey(todayR.rows[0]?.d)
-  if (!today) return 0
-  let cursor = daySet.has(today) ? today : addShanghaiCalendarDays(today, -1)
-  if (!daySet.has(cursor)) return 0
+  const checked_in_today = Boolean(today && daySet.has(today))
+  if (daySet.size === 0) return { streak: 0, checked_in_today: false }
+  if (!today) return { streak: 0, checked_in_today: false }
+  let cursor = checked_in_today ? today : addShanghaiCalendarDays(today, -1)
+  if (!daySet.has(cursor)) return { streak: 0, checked_in_today }
   let streak = 0
   while (daySet.has(cursor)) {
     streak += 1
     cursor = addShanghaiCalendarDays(cursor, -1)
   }
-  return streak
+  return { streak, checked_in_today }
 }
 
 /** 今日待复习错题数：wrong_count>0 且（无排期或 next_review_date ≤ 上海当日），按题去重计数 */
@@ -4359,6 +4404,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
     const todayDueMap = new Map(todayDueR.rows.map((row) => [Number(row.student_id), Number(row.cnt || 0)]))
     const todayMerged = todayMergedBase.map((m) => ({ ...m, wrong_count: todayDueMap.get(m.student_id) || 0 }))
     const today = calcPracticeRankPayload(studentId, todayMerged, inClassPeerCount)
+    today.review_due_count = todayDueMap.get(studentId) || 0
     const week = calcPracticeRankPayload(
       studentId,
       mergePeerPracticeRows(peerIdsForQuery, weekEvR.rows),
@@ -4376,7 +4422,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
     )
 
     const practice_periods = { today, week, month, all }
-    const checkin_streak = await loadPracticeCheckinStreak(pool, studentId)
+    const checkin = await loadPracticeCheckinStreak(pool, studentId)
 
     return res.json({
       data: {
@@ -4389,7 +4435,8 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
           accuracy_pct,
         },
         practice_periods,
-        checkin_streak,
+        checkin_streak: checkin.streak,
+        checked_in_today: checkin.checked_in_today,
         timezone_note:
           '刷题 Tab 按 Asia/Shanghai。今日：答题数为当天每题最多计 1 次；错题数为「待复习」口径（错题本中 wrong_count>0 且已到 next_review_date 或无排期），与「今日待复习」列表一致；本周/月/全部错题数仍为先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
       },

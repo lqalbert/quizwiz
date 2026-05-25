@@ -30,6 +30,7 @@ Page({
   data: {
     loading: true,
     err: "",
+    needLogin: false,
     count: 0,
     questions: [],
     /** 北京日历「今天」，与接口统计口径一致 */
@@ -45,12 +46,23 @@ Page({
     this.loadList();
   },
 
-  async loadList() {
+  async loadList(e) {
+    const fromTap = Boolean(e && (e.type === "tap" || e.currentTarget));
     if (!wx.getStorageSync("student_token")) {
-      this.setData({ loading: false, err: "登录后查看待复习错题", count: 0, questions: [] });
+      if (fromTap && this.data.needLogin) {
+        wx.navigateTo({ url: "/pages/login/index" });
+        return;
+      }
+      this.setData({
+        loading: false,
+        err: "登录后查看待复习错题",
+        needLogin: true,
+        count: 0,
+        questions: [],
+      });
       return;
     }
-    this.setData({ loading: true, err: "" });
+    this.setData({ loading: true, err: "", needLogin: false });
     try {
       const res = await request({ path: "/api/student/stats/review-due-today", method: "GET" });
       const d = unwrapPayload(res);
@@ -65,9 +77,11 @@ Page({
       }));
       this.setData({ loading: false, count, questions });
     } catch (e) {
+      const unauthorized = e && e.statusCode === 401;
       this.setData({
         loading: false,
-        err: e.message || "加载失败",
+        err: unauthorized ? "登录后查看待复习错题" : e.message || "加载失败",
+        needLogin: Boolean(unauthorized),
         count: 0,
         questions: [],
       });

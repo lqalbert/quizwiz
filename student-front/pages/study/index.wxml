@@ -10,21 +10,21 @@
 
   <view wx:if="{{!loggedIn}}" class="ios-card pad-card study-guest-card">
     <text class="study-guest-title">浏览模式</text>
-    <text class="muted study-guest-desc">登录并加入班级后可查看与下载班级资料；可先浏览本页与其它功能。</text>
+    <text class="muted study-guest-desc">可浏览下方公开资料列表；预览与下载需登录。</text>
     <view class="btn-primary study-guest-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
   </view>
 
-  <view wx:elif="{{classes === null}}" class="ios-card pad-card">
+  <view wx:if="{{loggedIn && classes === null}}" class="ios-card pad-card">
     <text class="muted">加载中…</text>
   </view>
 
-  <view wx:elif="{{classes.length === 0}}" class="ios-card pad-card">
+  <view wx:elif="{{loggedIn && classes.length === 0}}" class="ios-card pad-card">
     <text class="muted">未加入班级暂无数据</text>
     <text class="muted study-guest-desc">请登录后在「我的 → 加入班级」填写真实姓名与邀请码</text>
   </view>
 
-  <block wx:else>
-    <view class="class-bar ios-card">
+  <block wx:elif="{{loggedIn || isGuestBrowse}}">
+    <view wx:if="{{loggedIn}}" class="class-bar ios-card">
       <text class="class-bar-label muted">当前班级</text>
       <picker wx:if="{{classes.length > 1}}" mode="selector" range="{{classes}}" range-key="label" value="{{classIndex}}" bindchange="onClassPick">
         <view class="class-picker-trigger">
@@ -34,13 +34,17 @@
       </picker>
       <text wx:else class="class-picker-text single">{{currentClassLabel}}</text>
     </view>
+    <view wx:else class="class-bar ios-card">
+      <text class="class-bar-label muted">当前范围</text>
+      <text class="class-picker-text single">{{currentClassLabel}}</text>
+    </view>
 
     <view wx:if="{{resourcesLoading}}" class="ios-card pad-card">
       <text class="muted">正在加载资料…</text>
     </view>
 
     <view wx:elif="{{resourcesEmpty}}" class="ios-card pad-card">
-      <text class="muted">暂无可见资料（教师可能尚未上传，或资料未对本班开放）</text>
+      <text class="muted">{{loggedIn ? '暂无可见资料（教师可能尚未上传，或资料未对本班开放）' : '暂无公开资料'}}</text>
     </view>
 
     <block wx:else>

@@ -1,6 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
-const { submitJoinByInvite, syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
+const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -9,6 +9,8 @@ function firstChar(s) {
 }
 
 Page({
+  behaviors: [joinClassModalBehavior],
+
   data: {
     /** 设为 true 可显示「其他」区块（通知、关于） */
     mineShowOther: false,
@@ -23,11 +25,6 @@ Page({
     classes: [],
     leavePendingCount: 0,
     needJoinClass: false,
-    joinModalVisible: false,
-    joinModalMode: "form",
-    joinInviteInput: "",
-    joinRealNameInput: "",
-    joinSubmitting: false,
     nameEditVisible: false,
     nameDraft: "",
     nickEditVisible: false,
@@ -329,86 +326,8 @@ Page({
 
   onPlaceholder() {},
 
-  openJoinModal() {
-    if (!this.data.loggedIn) {
-      wx.showModal({
-        title: "需要登录",
-        content: "加入班级前请先登录。",
-        confirmText: "去登录",
-        success: (r) => {
-          if (r.confirm) this.goLogin();
-        },
-      });
-      return;
-    }
-    const pendingManual = this.data.needJoinClass && wx.getStorageSync("join_pending_manual") === "1";
-    this.setData({
-      joinModalVisible: true,
-      joinModalMode: pendingManual ? "pending" : "form",
-    });
-  },
-
-  onCloseJoinModal() {
-    this.setData({ joinModalVisible: false });
-  },
-
-  onJoinInviteInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinInviteInput: v });
-  },
-
-  onJoinRealNameInput(e) {
-    const v = e.detail && e.detail.value != null ? e.detail.value : "";
-    this.setData({ joinRealNameInput: v });
-  },
-
-  async onSubmitJoinClass() {
-    if (this.data.joinSubmitting || this.data.joinModalMode !== "form") return;
-    this.setData({ joinSubmitting: true });
-    wx.showLoading({ title: "提交中", mask: true });
-    try {
-      const result = await submitJoinByInvite({
-        inviteCode: this.data.joinInviteInput,
-        realName: this.data.joinRealNameInput,
-      });
-      wx.hideLoading();
-      if (result.mode === "manual") {
-        this.setData({ joinModalMode: "pending", joinSubmitting: false });
-        wx.showToast({ title: result.message, icon: "none", duration: 2800 });
-        return;
-      }
-      wx.showToast({ title: result.message, icon: "success" });
-      this.setData({
-        joinModalVisible: false,
-        joinModalMode: "form",
-        joinInviteInput: "",
-        joinRealNameInput: "",
-        joinSubmitting: false,
-      });
-      await this.loadProfile();
-    } catch (err) {
-      wx.hideLoading();
-      this.setData({ joinSubmitting: false });
-      wx.showToast({ title: (err && err.message) || "加入失败", icon: "none" });
-    }
-  },
-
-  async onRefreshJoinPending() {
-    wx.showLoading({ title: "查询中", mask: true });
-    try {
-      const st = await syncNeedJoinClassFromServer();
-      await this.loadProfile();
-      wx.hideLoading();
-      if (!st.needJoin) {
-        this.setData({ joinModalVisible: false, joinModalMode: "form" });
-        wx.showToast({ title: "已通过审核", icon: "success" });
-        return;
-      }
-      this.setData({ joinModalMode: st.pendingManual ? "pending" : "form" });
-      wx.showToast({ title: "仍在审核中", icon: "none" });
-    } catch (_) {
-      wx.hideLoading();
-    }
+  async onJoinClassSuccess() {
+    await this.loadProfile();
   },
 
   logout() {

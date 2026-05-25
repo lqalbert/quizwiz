@@ -12,6 +12,23 @@ function unwrapStudentPayload(root) {
   return root;
 }
 
+const GUEST_TODAY_DISPLAY = {
+  streak: "—",
+  streakHint: "",
+  practiced: "—",
+  accuracy: "—",
+  reviewDue: "—",
+  lead: "登录后同步个人刷题数据",
+};
+
+const GUEST_PRACTICE_PANEL = {
+  practice_questions: "—",
+  wrong_count: "—",
+  accuracy_pct: "—",
+  rank_main: "—",
+  rank_sub: "未登录，暂无数据",
+};
+
 Page({
   data: {
     dateText: "",
@@ -26,8 +43,10 @@ Page({
       { key: "all", label: "全部" },
     ],
     practiceTab: "today",
+    practiceWrongLabel: "待复习",
     practice_periods: null,
     practicePanel: {},
+    todayDisplay: GUEST_TODAY_DISPLAY,
     examTasks: [],
     examOverview: null,
     examListError: "",
@@ -37,6 +56,7 @@ Page({
     /** 今日收获：连续打卡与今日统计（由 home-summary 接口统计） */
     todaySnapshot: null,
     checkinStreak: 0,
+    checkedInToday: false,
     needJoinClass: false,
   },
 
@@ -68,11 +88,28 @@ Page({
         statsError: "",
         totals: null,
         practice_periods: null,
-        practicePanel: {},
+        practicePanel: GUEST_PRACTICE_PANEL,
+        practiceTab: "today",
+        practiceWrongLabel: "待复习",
+        todayDisplay: GUEST_TODAY_DISPLAY,
         homeGuideVisible: false,
         todaySnapshot: null,
+        checkinStreak: 0,
+        checkedInToday: false,
       });
     }
+  },
+
+  buildTodayDisplay(snapshot) {
+    if (!snapshot) return GUEST_TODAY_DISPLAY;
+    return {
+      streak: snapshot.streak,
+      streakHint: snapshot.streakHint || "",
+      practiced: snapshot.practiced,
+      accuracy: `${snapshot.accuracy}`,
+      reviewDue: snapshot.reviewDue,
+      lead: snapshot.lead,
+    };
   },
 
   async syncNeedJoinStatus() {
@@ -228,12 +265,26 @@ Page({
   applyPracticeTab() {
     const key = this.data.practiceTab || "today";
     const p = this.data.practice_periods && this.data.practice_periods[key];
-    this.setData({ practicePanel: this.buildPracticePanelFromPeriod(p) });
+    const panel = this.buildPracticePanelFromPeriod(p);
+    if (key === "today" && p && p.review_due_count != null) {
+      panel.wrong_count = Number(p.review_due_count) || 0;
+    }
+    this.setData({
+      practicePanel: panel,
+      practiceWrongLabel: key === "today" ? "待复习" : "错题数",
+    });
   },
 
   onPracticeTab(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
+    if (!this.data.loggedIn) {
+      this.setData({
+        practiceTab: key,
+        practiceWrongLabel: key === "today" ? "待复习" : "错题数",
+      });
+      return;
+    }
     this.setData({ practiceTab: key });
     this.applyPracticeTab();
   },
@@ -247,11 +298,13 @@ Page({
       const practice_periods = d.practice_periods != null ? d.practice_periods : null;
       const today = practice_periods && practice_periods.today;
       const checkinStreak = Math.max(0, Number(d.checkin_streak) || 0);
+      const checkedInToday = Boolean(d.checked_in_today);
       const todaySnapshot = today
         ? buildTodaySnapshot({
             dateText: this.data.dateText,
             todayPeriod: today,
             checkinStreak,
+            checkedInToday,
           })
         : null;
       this.setData(
@@ -259,8 +312,10 @@ Page({
           totals,
           practice_periods,
           checkinStreak,
+          checkedInToday,
           statsLoading: false,
           todaySnapshot,
+          todayDisplay: this.buildTodayDisplay(todaySnapshot),
         },
         () => {
           this.applyPracticeTab();
@@ -280,6 +335,7 @@ Page({
         practice_periods: null,
         practicePanel: {},
         todaySnapshot: null,
+        todayDisplay: GUEST_TODAY_DISPLAY,
       });
     }
   },
@@ -292,8 +348,9 @@ Page({
       dateText: this.data.dateText,
       todayPeriod: today,
       checkinStreak: this.data.checkinStreak,
+      checkedInToday: this.data.checkedInToday,
     });
-    this.setData({ todaySnapshot });
+    this.setData({ todaySnapshot, todayDisplay: this.buildTodayDisplay(todaySnapshot) });
   },
 
   goLogin() {
@@ -341,7 +398,10 @@ Page({
 
   tryRemindReviewDueIfNeeded() {
     if (this.data.practiceTab !== "today") return;
-    const n = Number(this.data.practicePanel.wrong_count || 0);
+    const today = this.data.practice_periods && this.data.practice_periods.today;
+    const n = Number(
+      (today && today.review_due_count != null ? today.review_due_count : this.data.practicePanel.wrong_count) || 0,
+    );
     if (n <= 0) return;
     const key = `review_due_tip_${this.data.dateText}`;
     if (wx.getStorageSync(key)) return;

@@ -1,6 +1,22 @@
 <wxs src="../../wxs/tags.wxs" module="tg" />
 
 <view class="page-wrap quiz-root">
+  <join-class-modal
+    visible="{{joinModalVisible}}"
+    mode="{{joinModalMode}}"
+    invite-input="{{joinInviteInput}}"
+    real-name-input="{{joinRealNameInput}}"
+    submitting="{{joinSubmitting}}"
+    closable="{{true}}"
+    title-form="加入班级"
+    lead-form="请填写与学校登记一致的真实姓名及班级邀请码，便于老师在后台识别你。"
+    bind:close="onCloseJoinModal"
+    bind:inviteinput="onJoinInviteInput"
+    bind:realnameinput="onJoinRealNameInput"
+    bind:submit="onSubmitJoinClass"
+    bind:refresh="onRefreshJoinPending"
+  />
+
   <block wx:if="{{loading && step === 'play'}}">
     <view class="loading-pill muted">加载题目…</view>
   </block>
@@ -186,7 +202,7 @@
           </view>
         </view>
         <view wx:if="{{!subsectionRows.length}}" class="point-row empty-right">
-          <text class="muted">暂无知识小节</text>
+          <text class="muted">该单元各知识点暂无题目</text>
         </view>
       </scroll-view>
       <view class="sub-footer">
@@ -227,12 +243,11 @@
             <view class="mock-field">
               <text class="mock-field-caption">抽题数量</text>
               <input
-                class="mock-field-input {{item.maxCount <= 0 ? 'mock-field-input-off' : ''}}"
+                class="mock-field-input"
                 type="number"
                 placeholder="{{item.countPlaceholder}}"
                 placeholder-class="mock-ph"
                 value="{{item.countInput}}"
-                disabled="{{item.maxCount <= 0}}"
                 data-name="{{item.name}}"
                 data-max="{{item.maxCount}}"
                 bindinput="onMockCountInput"

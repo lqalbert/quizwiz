@@ -1,4 +1,20 @@
 <view class="page-wrap record-root quiz-root">
+  <join-class-modal
+    visible="{{joinModalVisible}}"
+    mode="{{joinModalMode}}"
+    invite-input="{{joinInviteInput}}"
+    real-name-input="{{joinRealNameInput}}"
+    submitting="{{joinSubmitting}}"
+    closable="{{true}}"
+    title-form="加入班级"
+    lead-form="请填写与学校登记一致的真实姓名及班级邀请码，便于老师在后台识别你。"
+    bind:close="onCloseJoinModal"
+    bind:inviteinput="onJoinInviteInput"
+    bind:realnameinput="onJoinRealNameInput"
+    bind:submit="onSubmitJoinClass"
+    bind:refresh="onRefreshJoinPending"
+  />
+
   <block wx:if="{{step === 'catalog'}}">
     <view class="page-hero record-catalog-hero page-hero--catalog-root">
       <view class="page-hero-accent"></view>

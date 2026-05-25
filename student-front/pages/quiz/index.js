@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
-const { ensureReadyForPractice, isNeedJoinClassError, promptJoinClassOnMine } = require("../../utils/practiceGate.js");
+const { ensureReadyForPractice, isNeedJoinClassError, promptJoinClass } = require("../../utils/practiceGate.js");
+const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft } = require("../../utils/practiceDraft.js");
@@ -18,6 +19,8 @@ function syncNavTitle() {
 }
 
 Page({
+  behaviors: [joinClassModalBehavior],
+
   data: {
     step: "catalog",
     loading: false,
@@ -295,7 +298,7 @@ Page({
       .catch((e) => {
         wx.hideLoading();
         if (isNeedJoinClassError(e)) {
-          void promptJoinClassOnMine();
+          void promptJoinClass();
           return;
         }
         wx.showModal({
@@ -348,7 +351,9 @@ Page({
   refreshSubsectionRows() {
     const sid = this.data.subjectId;
     const uid = this.data.unitId;
-    const tags = this.data.unitTags || [];
+    const tags = (this.data.unitTags || []).filter(
+      (t) => Math.max(0, Number(t.question_count) || 0) > 0,
+    );
     if (!sid || !uid) return;
     const subsectionRows = tags.map((t) => ({
       id: normalizePositiveInt(t.id),
@@ -467,6 +472,13 @@ Page({
       return;
     }
     if (m === "section") {
+      const tags = (this.data.unitTags || []).filter(
+        (t) => Math.max(0, Number(t.question_count) || 0) > 0,
+      );
+      if (!tags.length) {
+        wx.showToast({ title: "该单元各知识点暂无题目", icon: "none" });
+        return;
+      }
       this.refreshSubsectionRows();
       this.setData({ step: "subsections", selectedSectionTagIds: [], selectedSectionTagNames: [] }, () =>
         syncNavTitle(),
@@ -474,9 +486,11 @@ Page({
       return;
     }
     if (m === "mock") {
-      const tags = this.data.unitTags || [];
+      const tags = (this.data.unitTags || []).filter(
+        (t) => Math.max(0, Number(t.question_count) || 0) > 0,
+      );
       if (!tags.length) {
-        wx.showToast({ title: "该单元暂无知识点，无法模拟练习", icon: "none" });
+        wx.showToast({ title: "该单元各知识点暂无题目，无法模拟练习", icon: "none" });
         return;
       }
       const mockRows = tags.map((t) => {
@@ -488,7 +502,7 @@ Page({
           bankCount: bank,
           maxCount,
           countInput: "",
-          countPlaceholder: maxCount > 0 ? `填 0～${maxCount}，0 表示不抽` : "本题点暂无题目",
+          countPlaceholder: `填 0～${maxCount}，0 表示不抽`,
         };
       });
       this.setData({ practiceModule: "mock", mockRows, step: "mock" }, () => syncNavTitle());
@@ -659,7 +673,7 @@ Page({
     } catch (e) {
       wx.hideLoading();
       if (isNeedJoinClassError(e)) {
-        void promptJoinClassOnMine();
+        void promptJoinClass();
         return;
       }
       wx.showModal({

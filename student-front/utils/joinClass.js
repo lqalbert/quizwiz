@@ -1,6 +1,7 @@
 const { request } = require("./request.js");
 
 const PENDING_MANUAL_KEY = "join_pending_manual";
+const OPEN_JOIN_MODAL_KEY = "open_join_modal_on_show";
 
 function setNeedJoinClass(need) {
   wx.setStorageSync("need_join_class", need ? "1" : "0");
@@ -54,6 +55,7 @@ async function submitJoinByInvite({ inviteCode, realName }) {
 
 module.exports = {
   PENDING_MANUAL_KEY,
+  OPEN_JOIN_MODAL_KEY,
   setNeedJoinClass,
   syncNeedJoinClassFromServer,
   submitJoinByInvite,

@@ -585,6 +585,20 @@
   max-width: 420rpx;
 }
 
+.home-guest-foot {
+  display: block;
+  margin-top: 20rpx;
+  font-size: 22rpx;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.home-today-streak-hint {
+  font-size: 22rpx;
+  font-weight: 400;
+  margin-left: 4rpx;
+}
+
 .home-loading {
   text-align: center;
   padding: 32rpx;

@@ -7,7 +7,13 @@
   <view wx:if="{{loading}}" class="muted">加载中…</view>
   <view wx:elif="{{err}}" class="ios-card" style="padding:32rpx;">
     <text class="muted">{{err}}</text>
-    <view class="ui-btn-secondary" style="margin-top:24rpx;text-align:center;" hover-class="ui-btn-secondary-hover" hover-stay-time="70" bindtap="loadList">重试</view>
+    <view
+      class="ui-btn-secondary"
+      style="margin-top:24rpx;text-align:center;"
+      hover-class="ui-btn-secondary-hover"
+      hover-stay-time="70"
+      bindtap="loadList"
+    >{{needLogin ? '去登录' : '重试'}}</view>
   </view>
   <block wx:else>
     <view class="review-today-pill">共 {{count}} 题</view>

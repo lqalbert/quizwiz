@@ -13,37 +13,37 @@
     <view class="link-tint home-browse-login tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
   </view>
 
-  <block wx:if="{{loggedIn}}">
-    <view wx:if="{{homeGuideVisible}}" class="ios-card home-guide-card">
-      <view class="home-guide-head">
-        <text class="home-guide-title">快速了解</text>
-        <view class="home-guide-dismiss link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="dismissHomeGuide">知道了</view>
-      </view>
-      <text class="home-guide-line muted">「刷题」卡片可切换今日/本周等周期；今日「错题数」为待复习题量，点数字进入待复习。</text>
-      <text class="home-guide-line muted">底部「刷题」Tab 进入科目与单元练习；加入班级请前往「我的」。</text>
+  <view wx:if="{{loggedIn && homeGuideVisible}}" class="ios-card home-guide-card">
+    <view class="home-guide-head">
+      <text class="home-guide-title">快速了解</text>
+      <view class="home-guide-dismiss link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="dismissHomeGuide">知道了</view>
     </view>
-    <view wx:if="{{todaySnapshot}}" class="ios-card home-today-card">
-      <view class="home-today-head">
-        <text class="home-today-title">今日收获</text>
-        <text class="home-today-streak">连续打卡 <text class="home-today-streak-n">{{todaySnapshot.streak}}</text> 天</text>
+    <text class="home-guide-line muted">「刷题」卡片可切换今日/本周等周期；今日「待复习」与待复习列表同一口径，点数字进入待复习。</text>
+    <text class="home-guide-line muted">底部「刷题」Tab 进入科目与单元练习；加入班级请前往「我的」。</text>
+  </view>
+
+  <view class="ios-card home-today-card">
+    <view class="home-today-head">
+      <text class="home-today-title">今日收获</text>
+      <text class="home-today-streak">连续打卡 <text class="home-today-streak-n">{{todayDisplay.streak}}</text> 天<text wx:if="{{todayDisplay.streakHint}}" class="muted home-today-streak-hint">{{todayDisplay.streakHint}}</text></text>
+    </view>
+    <text class="home-today-lead muted">{{todayDisplay.lead}}</text>
+    <view class="home-today-stats">
+      <view class="home-today-stat">
+        <text class="home-today-stat-val">{{todayDisplay.practiced}}</text>
+        <text class="home-today-stat-lab">今日答题</text>
       </view>
-      <text class="home-today-lead muted">{{todaySnapshot.lead}}</text>
-      <view class="home-today-stats">
-        <view class="home-today-stat">
-          <text class="home-today-stat-val">{{todaySnapshot.practiced}}</text>
-          <text class="home-today-stat-lab">今日答题</text>
-        </view>
-        <view class="home-today-stat">
-          <text class="home-today-stat-val">{{todaySnapshot.accuracy}}%</text>
-          <text class="home-today-stat-lab">今日正确率</text>
-        </view>
-        <view class="home-today-stat home-today-stat--tap" hover-class="home-today-stat-hover" hover-stay-time="70" bindtap="goReviewToday">
-          <text class="home-today-stat-val home-today-stat-val--warn">{{todaySnapshot.reviewDue}}</text>
-          <text class="home-today-stat-lab">待复习</text>
-        </view>
+      <view class="home-today-stat">
+        <text class="home-today-stat-val">{{todayDisplay.accuracy}}<text wx:if="{{loggedIn && todayDisplay.accuracy !== '—'}}">%</text></text>
+        <text class="home-today-stat-lab">今日正确率</text>
+      </view>
+      <view class="home-today-stat {{loggedIn ? 'home-today-stat--tap' : ''}}" hover-class="{{loggedIn ? 'home-today-stat-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goReviewToday' : ''}}">
+        <text class="home-today-stat-val home-today-stat-val--warn">{{todayDisplay.reviewDue}}</text>
+        <text class="home-today-stat-lab">待复习</text>
       </view>
     </view>
-  </block>
+    <text wx:if="{{!loggedIn}}" class="home-guest-foot muted">未登录，暂无数据</text>
+  </view>
 
   <!-- 考试 -->
   <view class="home-dash-card home-dash-card--exam ios-card">
@@ -116,43 +116,37 @@
     </view>
     <text class="home-dash-sub muted">个人答题统计；班级排名需加入班级后显示</text>
 
-    <block wx:if="{{!loggedIn}}">
-      <view class="home-dash-empty muted">登录后查看个人刷题统计；浏览刷题目录不受限</view>
-    </block>
-    <block wx:elif="{{!practice_periods}}">
-      <view class="home-dash-empty muted">暂无刷题统计</view>
-    </block>
-    <block wx:else>
-      <view class="home-practice-tabs">
-        <view
-          wx:for="{{practiceTabList}}"
-          wx:key="key"
-          class="home-practice-tab {{practiceTab === item.key ? 'home-practice-tab--on' : ''}}"
-          data-key="{{item.key}}"
-          hover-class="home-practice-tab-hover"
-          hover-stay-time="70"
-          bindtap="onPracticeTab"
-        >{{item.label}}</view>
+    <view class="home-practice-tabs">
+      <view
+        wx:for="{{practiceTabList}}"
+        wx:key="key"
+        class="home-practice-tab {{practiceTab === item.key ? 'home-practice-tab--on' : ''}}"
+        data-key="{{item.key}}"
+        hover-class="home-practice-tab-hover"
+        hover-stay-time="70"
+        bindtap="onPracticeTab"
+      >{{item.label}}</view>
+    </view>
+    <view class="home-practice-grid">
+      <view class="home-practice-metric" hover-class="{{loggedIn ? 'home-practice-metric-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goQuiz' : ''}}">
+        <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
+        <text class="home-practice-metric-lab">答题数</text>
       </view>
-      <view class="home-practice-grid">
-        <view class="home-practice-metric" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goQuiz">
-          <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
-          <text class="home-practice-metric-lab">答题数</text>
-        </view>
-        <view class="home-practice-metric home-practice-metric--warn" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goWrongOrReviewToday">
-          <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
-          <text class="home-practice-metric-lab">错题数</text>
-        </view>
-        <view class="home-practice-metric home-practice-metric--static">
-          <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}%</text>
-          <text class="home-practice-metric-lab">正确率</text>
-        </view>
-        <view class="home-practice-metric home-practice-metric--rank" hover-class="home-practice-metric-hover" hover-stay-time="70" bindtap="goPracticeClassRank">
-          <text class="home-practice-metric-val home-practice-metric-val--rank">{{practicePanel.rank_main}}</text>
-          <text class="home-practice-metric-lab">班级排名</text>
-          <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>
-        </view>
+      <view class="home-practice-metric home-practice-metric--warn" hover-class="{{loggedIn ? 'home-practice-metric-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goWrongOrReviewToday' : ''}}">
+        <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
+        <text class="home-practice-metric-lab">{{practiceWrongLabel}}</text>
       </view>
-    </block>
+      <view class="home-practice-metric home-practice-metric--static">
+        <text class="home-practice-metric-val">{{practicePanel.accuracy_pct}}<text wx:if="{{loggedIn && practicePanel.accuracy_pct !== '—'}}">%</text></text>
+        <text class="home-practice-metric-lab">正确率</text>
+      </view>
+      <view class="home-practice-metric home-practice-metric--rank" hover-class="{{loggedIn ? 'home-practice-metric-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goPracticeClassRank' : ''}}">
+        <text class="home-practice-metric-val home-practice-metric-val--rank">{{practicePanel.rank_main}}</text>
+        <text class="home-practice-metric-lab">班级排名</text>
+        <text class="home-practice-metric-h muted">{{practicePanel.rank_sub}}</text>
+      </view>
+    </view>
+    <text wx:if="{{!loggedIn}}" class="home-guest-foot muted">未登录，暂无数据</text>
+    <view wx:elif="{{loggedIn && !practice_periods}}" class="home-dash-empty muted">暂无刷题统计</view>
   </view>
 </view>

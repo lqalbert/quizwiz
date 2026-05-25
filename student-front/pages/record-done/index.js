@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
 const { ensureReadyForPractice } = require("../../utils/practiceGate.js");
+const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
@@ -12,6 +13,8 @@ function normalizePositiveInt(v) {
 }
 
 Page({
+  behaviors: [joinClassModalBehavior],
+
   data: {
     step: "catalog",
     subjects: [],
