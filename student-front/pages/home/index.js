@@ -12,6 +12,10 @@ function unwrapStudentPayload(root) {
   return root;
 }
 
+function syncNavTitle() {
+  wx.setNavigationBarTitle({ title: "" });
+}
+
 const GUEST_TODAY_DISPLAY = {
   streak: "—",
   streakHint: "",
@@ -62,9 +66,11 @@ Page({
 
   onLoad() {
     this.setData({ dateText: beijingCalendarDateKey(new Date()) });
+    syncNavTitle();
   },
 
   onShow() {
+    syncNavTitle();
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 0 });
     }

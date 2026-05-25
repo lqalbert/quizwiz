@@ -1,10 +1,9 @@
 <view class="page-wrap study-page">
-  <view class="page-hero study-hero">
-    <view class="page-hero-accent"></view>
-    <view class="page-hero-body">
-      <text class="page-hero-eyebrow">学习</text>
-      <text class="page-hero-title">班级资料</text>
-      <text class="page-hero-lead muted">按科目浏览；已下载的资料会标注「已下载」，图片可预览，文档/音频可本地打开</text>
+  <view class="page-hero page-hero--motto study-hero">
+    <image class="motto-banner-bg" src="/assets/motto/motto-study.jpg" mode="aspectFill" />
+    <view class="motto-card-inner">
+      <text class="motto-main">青春须早为</text>
+      <text class="motto-sub">岂能长少年</text>
     </view>
   </view>
 

@@ -25,7 +25,7 @@
 }
 
 .home-hero {
-  margin-bottom: 28rpx;
+  margin-bottom: 24rpx;
 }
 
 .home-guide-card {

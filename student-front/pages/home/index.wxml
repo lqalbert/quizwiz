@@ -1,10 +1,9 @@
 <view class="page-wrap home-page">
-  <view class="page-hero home-hero">
-    <view class="page-hero-accent"></view>
-    <view class="page-hero-body">
-      <text class="page-hero-date">{{dateText}}</text>
-      <text class="page-hero-title">今天练几题？</text>
-      <text class="page-hero-lead muted">可自由浏览各功能；开始刷题时需登录，入班请在「我的」完成</text>
+  <view class="page-hero page-hero--motto home-hero">
+    <image class="motto-banner-bg" src="/assets/motto/motto-home.jpg" mode="aspectFill" />
+    <view class="motto-card-inner">
+      <text class="motto-main">勤能补拙</text>
+      <text class="motto-sub">学可医愚</text>
     </view>
   </view>
 

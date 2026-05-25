@@ -8,15 +8,9 @@
   margin-bottom: 12rpx;
 }
 
-.quiz-root .catalog-hero {
-  margin-bottom: 16rpx;
-}
-
-.quiz-root .page-hero {
-  margin-bottom: 18rpx;
-  padding-top: 0;
-  padding-left: 0;
-  padding-right: 0;
+.quiz-root .catalog-hero,
+.quiz-root .page-hero--motto {
+  margin-bottom: 24rpx;
 }
 
 .quiz-root .page-hero--compact {

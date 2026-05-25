@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
+const { OPEN_LEAVE_CLASS_KEY } = require("../../utils/joinClass.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -58,7 +59,19 @@ Page({
       });
       return;
     }
-    this.loadProfile();
+    void this.loadProfile().then(() => this.consumeOpenLeaveClassFlag());
+  },
+
+  consumeOpenLeaveClassFlag() {
+    try {
+      if (wx.getStorageSync(OPEN_LEAVE_CLASS_KEY) !== "1") return;
+      wx.removeStorageSync(OPEN_LEAVE_CLASS_KEY);
+    } catch (_) {
+      return;
+    }
+    if (!this.data.loggedIn) return;
+    if (!(this.data.classes || []).length) return;
+    this.openLeaveClassFromMenu();
   },
 
   goLogin() {

@@ -599,6 +599,24 @@ const upsertStudentAndJoinClass = async ({
   return { studentId }
 }
 
+/** 学生已在其它班级时不可直接加入新班（须先申请退班） */
+const listStudentClassMemberships = async (client, studentId) => {
+  const result = await client.query(
+    `
+    SELECT c.id, c.name
+    FROM class_members cm
+    JOIN classes c ON c.id = cm.class_id
+    WHERE cm.student_id = $1
+    ORDER BY c.name ASC
+    `,
+    [studentId],
+  )
+  return result.rows
+}
+
+const findOtherClassMemberships = (memberships, targetClassId) =>
+  memberships.filter((row) => Number(row.id) !== Number(targetClassId))
+
 /**
  * 学生退出某班级时：凡考试曾在 exam_classes 中关联过该班，即删除该生该场考试的答卷（answers 随 exam_submissions 级联删除），
  * 不区分该生是否仍在其它班级。删除本班学业预警个案。个人刷题统计（student_question_stats / practice_events 等）一律保留。
@@ -2529,6 +2547,21 @@ app.post('/api/student/join-by-invite', studentAuthRequired, async (req, res) =>
           class_id: Number(classRow.id),
           class_name: classRow.name,
         },
+      })
+    }
+    const memberships = await listStudentClassMemberships(client, studentId)
+    const otherClasses = findOtherClassMemberships(memberships, classRow.id)
+    if (otherClasses.length > 0) {
+      await client.query('ROLLBACK')
+      const names =
+        otherClasses
+          .map((c) => String(c.name || '').trim())
+          .filter(Boolean)
+          .join('、') || '当前班级'
+      return res.status(409).json({
+        code: 'ALREADY_IN_CLASS',
+        message: `你已在「${names}」中，须先申请退出并通过教师审核后，才能加入新班级`,
+        data: { classes: otherClasses },
       })
     }
     await client.query(`UPDATE students SET real_name = $1 WHERE id = $2`, [realName, studentId])

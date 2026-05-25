@@ -2,6 +2,7 @@ const { request } = require("./request.js");
 
 const PENDING_MANUAL_KEY = "join_pending_manual";
 const OPEN_JOIN_MODAL_KEY = "open_join_modal_on_show";
+const OPEN_LEAVE_CLASS_KEY = "open_leave_class_on_show";
 
 function setNeedJoinClass(need) {
   wx.setStorageSync("need_join_class", need ? "1" : "0");
@@ -10,6 +11,57 @@ function setNeedJoinClass(need) {
       wx.removeStorageSync(PENDING_MANUAL_KEY);
     } catch (_) {}
   }
+}
+
+function formatClassNames(classes) {
+  const names = (classes || [])
+    .map((c) => String((c && c.name) || "").trim())
+    .filter(Boolean);
+  return names.length ? names.join("、") : "当前班级";
+}
+
+function promptLeaveBeforeJoin(classes) {
+  const label = formatClassNames(classes);
+  return new Promise((resolve) => {
+    wx.showModal({
+      title: "请先退出当前班级",
+      content: `你已在「${label}」中。须先申请退出并通过教师审核后，才能加入新班级。`,
+      confirmText: "去退出",
+      cancelText: "取消",
+      success: (r) => {
+        if (r.confirm) {
+          try {
+            wx.setStorageSync(OPEN_LEAVE_CLASS_KEY, "1");
+          } catch (_) {}
+          wx.switchTab({ url: "/pages/mine/index" });
+        }
+        resolve(false);
+      },
+      fail: () => resolve(false),
+    });
+  });
+}
+
+async function fetchStudentClasses() {
+  const res = await request({ path: "/api/student/profile", method: "GET" });
+  return (res.data && res.data.classes) || [];
+}
+
+/** 已入班则引导先退班；返回 true 表示可继续入班流程 */
+async function ensureCanJoinClass() {
+  const token = wx.getStorageSync("student_token") || "";
+  if (!token) return true;
+  const classes = await fetchStudentClasses();
+  if (!classes.length) return true;
+  await promptLeaveBeforeJoin(classes);
+  return false;
+}
+
+function handleAlreadyInClassError(err) {
+  if (!err || err.apiCode !== "ALREADY_IN_CLASS") return false;
+  const classes = (err.apiData && err.apiData.classes) || [];
+  void promptLeaveBeforeJoin(classes.length ? classes : [{ name: "当前班级" }]);
+  return true;
 }
 
 /** 是否须入班（本地缓存 + 可选服务端刷新） */
@@ -56,7 +108,11 @@ async function submitJoinByInvite({ inviteCode, realName }) {
 module.exports = {
   PENDING_MANUAL_KEY,
   OPEN_JOIN_MODAL_KEY,
+  OPEN_LEAVE_CLASS_KEY,
   setNeedJoinClass,
   syncNeedJoinClassFromServer,
   submitJoinByInvite,
+  ensureCanJoinClass,
+  promptLeaveBeforeJoin,
+  handleAlreadyInClassError,
 };

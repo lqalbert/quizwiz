@@ -27,6 +27,7 @@ function request({ path, method = "GET", data, auth = true }) {
         const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
         err.statusCode = res.statusCode;
         err.apiCode = body.code;
+        err.apiData = body.data;
         reject(err);
       },
       fail(err) {

@@ -29,6 +29,10 @@ function takeArrayFromStudentApi(res) {
   return [];
 }
 
+function syncNavTitle() {
+  wx.setNavigationBarTitle({ title: "" });
+}
+
 function buildSections(list) {
   const map = new Map();
   for (const row of list) {
@@ -169,6 +173,7 @@ Page({
   },
 
   onLoad() {
+    syncNavTitle();
     this._audioPlayEpoch = 0;
     this._audioSuppressErrorUntil = 0;
     this._audioCurrentResourceId = 0;
@@ -260,6 +265,7 @@ Page({
   },
 
   onShow() {
+    syncNavTitle();
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 2 });
     }

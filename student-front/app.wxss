@@ -231,6 +231,58 @@ page {
   box-sizing: border-box;
 }
 
+/* Tab 首页 / 刷题 / 学习：纸纹底图 + 居中诗题 */
+.page-hero--motto {
+  position: relative;
+  display: block;
+  margin: 0 0 24rpx;
+  padding: 0;
+  min-height: 260rpx;
+  border-radius: var(--ios-radius-card);
+  overflow: hidden;
+  box-sizing: border-box;
+  box-shadow: var(--ios-shadow);
+  background: #f7f3eb;
+}
+
+.motto-banner-bg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.motto-card-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 260rpx;
+  padding: 40rpx 48rpx 36rpx;
+  box-sizing: border-box;
+}
+
+.page-hero--motto .motto-main,
+.page-hero--motto .motto-sub {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 12rpx;
+  text-indent: 12rpx;
+  color: #2a2520;
+  text-align: center;
+  text-shadow: 0 1rpx 0 rgba(255, 252, 245, 0.65);
+}
+
+.page-hero--motto .motto-sub {
+  margin-top: 16rpx;
+}
+
 .page-hero--compact {
   margin-bottom: 20rpx;
   padding-top: 0;

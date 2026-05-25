@@ -22,11 +22,11 @@
   </block>
 
   <block wx:elif="{{step === 'catalog'}}">
-    <view class="page-hero catalog-hero page-hero--catalog-root">
-      <view class="page-hero-accent"></view>
-      <view class="page-hero-body">
-        <text class="page-hero-title">刷题</text>
-        <text class="page-hero-lead muted">选择科目与单元；做题中途切换底部其他 Tab 会保存进度；从子页返回刷题页也会补存。回到本页可点「继续练习」。</text>
+    <view class="page-hero page-hero--motto catalog-hero">
+      <image class="motto-banner-bg" src="/assets/motto/motto-quiz.jpg" mode="aspectFill" />
+      <view class="motto-card-inner">
+        <text class="motto-main">少年负壮气</text>
+        <text class="motto-sub">奋烈自有时</text>
       </view>
     </view>
     <view wx:if="{{practiceResumeHint}}" class="ios-card resume-hint">
@@ -80,7 +80,6 @@
         </view>
       </scroll-view>
     </view>
-    <view wx:if="{{catalogLoaded && subjects.length && units.length}}" class="catalog-foot muted">点左侧科目、右侧单元进入练习方式。</view>
   </block>
 
   <!-- 刷题模式四宫格：针对当前知识单元 -->

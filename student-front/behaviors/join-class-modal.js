@@ -1,4 +1,10 @@
-const { submitJoinByInvite, syncNeedJoinClassFromServer, OPEN_JOIN_MODAL_KEY } = require("../utils/joinClass.js");
+const {
+  submitJoinByInvite,
+  syncNeedJoinClassFromServer,
+  OPEN_JOIN_MODAL_KEY,
+  ensureCanJoinClass,
+  handleAlreadyInClassError,
+} = require("../utils/joinClass.js");
 
 /** 入班弹框：页面混入后实现 openJoinModal 等方法，并在 wxml 挂载 join-class-modal */
 module.exports = Behavior({
@@ -41,6 +47,20 @@ module.exports = Behavior({
           },
         });
         return;
+      }
+      void this._openJoinModalAfterGate();
+    },
+
+    async _openJoinModalAfterGate() {
+      wx.showLoading({ title: "加载中", mask: true });
+      try {
+        const ok = await ensureCanJoinClass();
+        if (!ok) return;
+      } catch (e) {
+        wx.showToast({ title: (e && e.message) || "加载失败", icon: "none" });
+        return;
+      } finally {
+        wx.hideLoading();
       }
       const needJoin = wx.getStorageSync("need_join_class") === "1";
       const pendingManual = needJoin && wx.getStorageSync("join_pending_manual") === "1";
@@ -98,6 +118,7 @@ module.exports = Behavior({
       } catch (err) {
         wx.hideLoading();
         this.setData({ joinSubmitting: false });
+        if (handleAlreadyInClassError(err)) return;
         wx.showToast({ title: (err && err.message) || "加入失败", icon: "none" });
       }
     },
