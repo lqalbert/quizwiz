@@ -18,7 +18,7 @@
       <text class="home-guide-title">快速了解</text>
       <view class="home-guide-dismiss link-tint tap-link" hover-class="link-tint-hover" hover-stay-time="70" bindtap="dismissHomeGuide">知道了</view>
     </view>
-    <text class="home-guide-line muted">「刷题」卡片可切换今日/本周等周期；今日「待复习」与待复习列表同一口径，点数字进入待复习。</text>
+    <text class="home-guide-line muted">「刷题」卡片可切换今日/本周等周期；今日「错题数」为当天刷题时最后一次判错的题数；「今日收获」中的待复习与待复习列表同一口径。</text>
     <text class="home-guide-line muted">底部「刷题」Tab 进入科目与单元练习；加入班级请前往「我的」。</text>
   </view>
 

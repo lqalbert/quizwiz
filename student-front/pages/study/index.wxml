@@ -8,12 +8,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loggedIn}}" class="ios-card pad-card study-guest-card">
-    <text class="study-guest-title">浏览模式</text>
-    <text class="muted study-guest-desc">可浏览下方公开资料列表；预览与下载需登录。</text>
-    <view class="btn-primary study-guest-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goLogin">去登录</view>
-  </view>
-
   <view wx:if="{{loggedIn && classes === null}}" class="ios-card pad-card">
     <text class="muted">加载中…</text>
   </view>

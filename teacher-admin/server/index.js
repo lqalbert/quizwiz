@@ -4273,8 +4273,8 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
 }
 
 /**
- * 今日：答题数/错题数=当天每题最多计 1（distinct）；周/月/全部=按上海日历日先算当日 distinct 再累加。
- * total_attempts / wrong_attempts 为本周期原始判题次数，供正确率与排名乘积中的「正确率」使用。
+ * 今日：答题数=当天练习过的题数（去重）；错题数=当天每题最后一次判题为错的题数。
+ * 周/月/全部：按自然日先算当日 distinct 答题/错题再累加；正确率按本周期全部判题次数。
  */
 const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, period) => {
   const p = String(period || '').toLowerCase()
@@ -4289,14 +4289,26 @@ const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, pe
   if (p === 'today') {
     return executor.query(
       `
-      SELECT e.student_id,
-        COUNT(DISTINCT e.question_id)::int AS practice_questions,
-        COUNT(DISTINCT CASE WHEN NOT e.is_correct THEN e.question_id END)::int AS wrong_count,
+      WITH today_ev AS (
+        SELECT e.student_id, e.question_id, e.is_correct, e.created_at
+        FROM student_practice_events e
+        WHERE ${base} AND ${todayEq}
+      ),
+      last_try AS (
+        SELECT DISTINCT ON (student_id, question_id)
+          student_id,
+          question_id,
+          is_correct
+        FROM today_ev
+        ORDER BY student_id, question_id, created_at DESC
+      )
+      SELECT ev.student_id,
+        (SELECT COUNT(DISTINCT question_id)::int FROM today_ev t WHERE t.student_id = ev.student_id) AS practice_questions,
+        (SELECT COUNT(*)::int FROM last_try l WHERE l.student_id = ev.student_id AND NOT l.is_correct) AS wrong_count,
         COUNT(*)::int AS total_attempts,
-        COUNT(*) FILTER (WHERE NOT e.is_correct)::int AS wrong_attempts
-      FROM student_practice_events e
-      WHERE ${base} AND ${todayEq}
-      GROUP BY e.student_id
+        COUNT(*) FILTER (WHERE NOT ev.is_correct)::int AS wrong_attempts
+      FROM today_ev ev
+      GROUP BY ev.student_id
       `,
       [peerIdsForQuery],
     )
@@ -4402,9 +4414,10 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
     const todayMergedBase = mergePeerPracticeRows(peerIdsForQuery, todayEvR.rows)
     const todayDueR = await loadReviewDueWrongCountsByStudentIds(pool, peerIdsForQuery)
     const todayDueMap = new Map(todayDueR.rows.map((row) => [Number(row.student_id), Number(row.cnt || 0)]))
-    const todayMerged = todayMergedBase.map((m) => ({ ...m, wrong_count: todayDueMap.get(m.student_id) || 0 }))
-    const today = calcPracticeRankPayload(studentId, todayMerged, inClassPeerCount)
+    const today = calcPracticeRankPayload(studentId, todayMergedBase, inClassPeerCount)
+    const selfRow = todayMergedBase.find((m) => m.student_id === studentId)
     today.review_due_count = todayDueMap.get(studentId) || 0
+    today.today_wrong_count = Number(selfRow?.wrong_count || today.wrong_count || 0)
     const week = calcPracticeRankPayload(
       studentId,
       mergePeerPracticeRows(peerIdsForQuery, weekEvR.rows),
@@ -4438,7 +4451,7 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
         checkin_streak: checkin.streak,
         checked_in_today: checkin.checked_in_today,
         timezone_note:
-          '刷题 Tab 按 Asia/Shanghai。今日：答题数为当天每题最多计 1 次；错题数为「待复习」口径（错题本中 wrong_count>0 且已到 next_review_date 或无排期），与「今日待复习」列表一致；本周/月/全部错题数仍为先按自然日去重再累加各日。正确率仍按本周期原始判题次数。不含班级正式考试；排名按答题数×正确率。无事件时「全部」回退为题库 attempts 累计。',
+          '刷题 Tab 按 Asia/Shanghai。今日：答题数为当天练习过的题数（去重）；错题数为当天每题最后一次判题为错的题数；今日收获「待复习」为 review_due_count，与待复习列表一致。本周/月/全部错题数为各日错题数累加。正确率按本周期全部判题次数。不含班级正式考试。',
       },
     })
   } catch (error) {
@@ -4482,11 +4495,6 @@ app.get('/api/student/stats/practice-class-rank', studentAuthRequired, async (re
       }
     }
     let merged = mergePeerPracticeRows(classPeerIds, aggRows)
-    if (period === 'today') {
-      const dueR = await loadReviewDueWrongCountsByStudentIds(pool, classPeerIds)
-      const dm = new Map(dueR.rows.map((row) => [Number(row.student_id), Number(row.cnt || 0)]))
-      merged = merged.map((r) => ({ ...r, wrong_count: dm.get(r.student_id) || 0 }))
-    }
     const rankProduct = (r) => {
       const t = r.total_attempts
       if (t <= 0) return -1

@@ -43,7 +43,7 @@ Page({
       { key: "all", label: "全部" },
     ],
     practiceTab: "today",
-    practiceWrongLabel: "待复习",
+    practiceWrongLabel: "错题数",
     practice_periods: null,
     practicePanel: {},
     todayDisplay: GUEST_TODAY_DISPLAY,
@@ -90,7 +90,7 @@ Page({
         practice_periods: null,
         practicePanel: GUEST_PRACTICE_PANEL,
         practiceTab: "today",
-        practiceWrongLabel: "待复习",
+        practiceWrongLabel: "错题数",
         todayDisplay: GUEST_TODAY_DISPLAY,
         homeGuideVisible: false,
         todaySnapshot: null,
@@ -266,12 +266,16 @@ Page({
     const key = this.data.practiceTab || "today";
     const p = this.data.practice_periods && this.data.practice_periods[key];
     const panel = this.buildPracticePanelFromPeriod(p);
-    if (key === "today" && p && p.review_due_count != null) {
-      panel.wrong_count = Number(p.review_due_count) || 0;
+    if (key === "today" && p) {
+      const n =
+        p.today_wrong_count != null
+          ? Number(p.today_wrong_count)
+          : Number(p.wrong_count || 0);
+      panel.wrong_count = Number.isFinite(n) && n >= 0 ? n : 0;
     }
     this.setData({
       practicePanel: panel,
-      practiceWrongLabel: key === "today" ? "待复习" : "错题数",
+      practiceWrongLabel: "错题数",
     });
   },
 
@@ -281,7 +285,7 @@ Page({
     if (!this.data.loggedIn) {
       this.setData({
         practiceTab: key,
-        practiceWrongLabel: key === "today" ? "待复习" : "错题数",
+        practiceWrongLabel: "错题数",
       });
       return;
     }
@@ -370,10 +374,6 @@ Page({
   },
 
   goWrongOrReviewToday() {
-    if (this.data.practiceTab === "today") {
-      wx.navigateTo({ url: "/pages/review-today/index" });
-      return;
-    }
     wx.navigateTo({ url: "/pages/record-wrong/index" });
   },
 
