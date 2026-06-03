@@ -3911,9 +3911,57 @@ async function fetchOptionsMapForQuestionIds(executor, questionIds) {
   return map
 }
 
-function optionsForQuestionFromMap(optionsMap, questionId) {
-  return optionsMap.get(Number(questionId)) || []
+function defaultJudgeOptions() {
+  return [
+    { option_key: 'A', option_text: '对', sort_order: 1 },
+    { option_key: 'B', option_text: '错', sort_order: 2 },
+  ]
 }
+
+function optionsForQuestionFromMap(optionsMap, questionId, questionType) {
+  const opts = optionsMap.get(Number(questionId)) || []
+  if (opts.length) return opts
+  if (Number(questionType) === 3) return defaultJudgeOptions()
+  return []
+}
+
+app.post('/api/student/stats/question-options-batch', studentAuthRequired, async (req, res) => {
+  const rawIds = Array.isArray(req.body?.question_ids) ? req.body.question_ids : []
+  const questionIds = []
+  const seen = new Set()
+  for (const x of rawIds) {
+    const id = Number(x)
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    questionIds.push(id)
+  }
+  if (questionIds.length === 0) {
+    return res.status(400).json({ message: '请提供 question_ids' })
+  }
+  if (questionIds.length > 100) {
+    return res.status(400).json({ message: '单次最多 100 题' })
+  }
+  try {
+    const optionsMap = await fetchOptionsMapForQuestionIds(pool, questionIds)
+    const typeR = await pool.query(
+      `
+      SELECT id, question_type
+      FROM questions
+      WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL
+      `,
+      [questionIds],
+    )
+    const typeById = new Map(typeR.rows.map((row) => [Number(row.id), Number(row.question_type)]))
+    const data = {}
+    for (const qid of questionIds) {
+      const opts = optionsForQuestionFromMap(optionsMap, qid, typeById.get(qid))
+      data[String(qid)] = opts
+    }
+    return res.json({ data })
+  } catch (error) {
+    return res.status(500).json({ message: '加载选项失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
 
 app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
@@ -3991,7 +4039,7 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
         correct_count: row.correct_count,
         wrong_count: row.wrong_count,
         updated_at: row.updated_at,
-        options: optionsForQuestionFromMap(optionsMap, row.question_id),
+        options: optionsForQuestionFromMap(optionsMap, row.question_id, row.question_type),
       })),
       pagination: { total, page, pageSize },
     })
@@ -4088,7 +4136,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
           next_review_date: row.next_review_date,
           ladder: row.ladder,
           updated_at: row.updated_at,
-          options: optionsForQuestionFromMap(optionsMap, row.question_id),
+          options: optionsForQuestionFromMap(optionsMap, row.question_id, row.question_type),
         })),
         pagination: { total: totalCount, page, pageSize },
       },
@@ -4174,7 +4222,7 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
         correct_count: row.correct_count,
         wrong_count: row.wrong_count,
         updated_at: row.updated_at,
-        options: optionsForQuestionFromMap(optionsMap, row.question_id),
+        options: optionsForQuestionFromMap(optionsMap, row.question_id, row.question_type),
       })),
       pagination: { total, page, pageSize },
     })

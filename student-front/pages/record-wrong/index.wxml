@@ -86,8 +86,8 @@
     <view wx:else class="record-list-wrap">
       <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
         <text class="record-stem">{{item.stem}}</text>
-        <view wx:if="{{item.showOptions}}" class="record-options">
-          <view wx:for="{{item.options}}" wx:for-item="opt" wx:key="option_key" class="record-opt-row">
+        <view wx:if="{{item.options.length}}" class="record-options">
+          <view wx:for="{{item.options}}" wx:for-item="opt" wx:for-index="optIdx" wx:key="optIdx" class="record-opt-row">
             <text class="record-opt-k">{{opt.option_key}}.</text>
             <text class="record-opt-t">{{opt.option_text}}</text>
           </view>

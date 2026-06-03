@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { formatRecordQuestionRow } = require("../../utils/recordListFormat.js");
+const { enrichRecordRowsWithOptions } = require("../../utils/recordListFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 const withPageShare = require("../../utils/withPageShare.js");
@@ -30,8 +30,8 @@ function lastWrongLabel(row) {
   return s ? `最近做错 ${s}` : "";
 }
 
-function mapReviewRow(it) {
-  const row = formatRecordQuestionRow(it);
+function mapReviewRow(row, source) {
+  const it = source || row;
   return {
     ...row,
     stem_display: row.stem,
@@ -110,7 +110,9 @@ withPageShare({
       const pg = (d && d.pagination) || {};
       const total = Number(pg.total != null ? pg.total : d && d.count != null ? d.count : raw.length) || 0;
       const count = Number(d && d.count != null ? d.count : total) || 0;
-      const chunk = raw.map(mapReviewRow);
+      const enriched = await enrichRecordRowsWithOptions(raw);
+      const rawById = new Map(raw.map((r) => [Number(r.question_id), r]));
+      const chunk = enriched.map((row) => mapReviewRow(row, rawById.get(Number(row.question_id))));
       const questions = append ? (this.data.questions || []).concat(chunk) : chunk;
       this.setData({
         loading: false,

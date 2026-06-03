@@ -3,7 +3,7 @@ const { ensureReadyForPractice } = require("../../utils/practiceGate.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const withPageShare = require("../../utils/withPageShare.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
-const { formatRecordQuestionRow } = require("../../utils/recordListFormat.js");
+const { enrichRecordRowsWithOptions } = require("../../utils/recordListFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 
 const LIST_PAGE_SIZE = 25;
@@ -187,7 +187,7 @@ withPageShare({
       const chunk = (res && res.data) || [];
       const pg = (res && res.pagination) || {};
       const total = Number(pg.total || 0);
-      const formatted = chunk.map((row) => formatRecordQuestionRow(row));
+      const formatted = await enrichRecordRowsWithOptions(chunk);
       const list = append ? (this.data.list || []).concat(formatted) : formatted;
       this.setData({
         list,

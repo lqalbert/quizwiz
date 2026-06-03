@@ -31,8 +31,8 @@
       <block wx:for="{{questions}}" wx:key="question_id">
         <view class="review-item" hover-class="review-item-hover" hover-stay-time="70" bindtap="startOne" data-id="{{item.question_id}}">
           <text class="review-item-stem">{{item.stem_display}}</text>
-          <view wx:if="{{item.showOptions}}" class="record-options">
-            <view wx:for="{{item.options}}" wx:for-item="opt" wx:key="option_key" class="record-opt-row">
+          <view wx:if="{{item.options.length}}" class="record-options">
+            <view wx:for="{{item.options}}" wx:for-item="opt" wx:for-index="optIdx" wx:key="optIdx" class="record-opt-row">
               <text class="record-opt-k">{{opt.option_key}}.</text>
               <text class="record-opt-t">{{opt.option_text}}</text>
             </view>
