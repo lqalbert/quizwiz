@@ -3,6 +3,7 @@ const { uploadStudentAvatar } = require("../../utils/profile.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const withPageShare = require("../../utils/withPageShare.js");
 const { startLeaveClassFlow } = require("../../utils/leaveClass.js");
+const { readNicknameInputValue } = require("../../utils/nicknameInput.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -14,15 +15,11 @@ withPageShare({
   behaviors: [joinClassModalBehavior],
 
   data: {
-    /** 设为 true 可显示「其他」区块（通知、关于） */
     mineShowOther: false,
     loggedIn: false,
-    /** 老师端展示用：优先真实姓名 */
     realDisplayName: "",
-    /** 顶部展示：微信昵称 */
     wxNickname: "",
     wxAvatarUrl: "",
-    showWxProfileHint: false,
     avatarLetter: "?",
     classes: [],
     leavePendingCount: 0,
@@ -30,7 +27,7 @@ withPageShare({
     nameEditVisible: false,
     nameDraft: "",
     nickEditVisible: false,
-    nickDraft: "",
+    nickEditPlaceholder: "点击使用微信昵称",
     menus: [
       { title: "加入班级", action: "join_class" },
       { title: "退出班级", action: "leave_class" },
@@ -50,7 +47,6 @@ withPageShare({
         realDisplayName: "",
         wxNickname: "",
         wxAvatarUrl: "",
-        showWxProfileHint: false,
         avatarLetter: "?",
         classes: [],
         leavePendingCount: 0,
@@ -60,6 +56,10 @@ withPageShare({
       });
       return;
     }
+    try {
+      const cached = getApp().globalData.studentProfile;
+      if (cached) this.applyStudentHeader(cached);
+    } catch (_) {}
     void this.loadProfile();
   },
 
@@ -76,7 +76,6 @@ withPageShare({
       realDisplayName: realDisp,
       wxNickname: wxNick,
       wxAvatarUrl: wxAva,
-      showWxProfileHint: !wxAva || wxNick === "微信用户",
       avatarLetter: firstChar(wxNick),
     });
   },
@@ -94,6 +93,9 @@ withPageShare({
       const need = Boolean(res.data && res.data.need_join_class);
       wx.setStorageSync("need_join_class", need ? "1" : "0");
       this.applyStudentHeader(st);
+      try {
+        getApp().globalData.studentProfile = st;
+      } catch (_) {}
       this.setData({
         loggedIn: true,
         classes,
@@ -112,7 +114,6 @@ withPageShare({
           realDisplayName: "",
           wxNickname: "",
           wxAvatarUrl: "",
-          showWxProfileHint: false,
           classes: [],
           leavePendingCount: 0,
           needJoinClass: false,
@@ -154,22 +155,23 @@ withPageShare({
 
   onTapEditNickname() {
     if (!this.data.loggedIn) return;
+    const cur = this.data.wxNickname === "微信用户" ? "" : this.data.wxNickname;
     this.setData({
       nickEditVisible: true,
-      nickDraft: this.data.wxNickname === "微信用户" ? "" : this.data.wxNickname,
+      nickEditPlaceholder: cur || "点击使用微信昵称",
     });
   },
 
-  onNickDraftInput(e) {
-    this.setData({ nickDraft: e.detail.value });
+  cancelNickEdit() {
+    this.setData({ nickEditVisible: false });
   },
 
-  cancelNickEdit() {
-    this.setData({ nickEditVisible: false, nickDraft: "" });
-  },
+  onNickEditChange() {},
+  onNickEditBlur() {},
 
   async saveNickEdit() {
-    const name = String(this.data.nickDraft || "").trim().slice(0, 32);
+    const fromQuery = await readNicknameInputValue("#nick-edit-input", this);
+    const name = String(fromQuery || "").trim().slice(0, 32);
     if (!name) {
       wx.showToast({ title: "昵称不能为空", icon: "none" });
       return;
@@ -179,7 +181,7 @@ withPageShare({
       const res = await request({ path: "/api/student/profile", method: "PATCH", data: { name } });
       const st = (res.data && res.data.student) || {};
       this.applyStudentHeader(st);
-      this.setData({ nickEditVisible: false, nickDraft: "" });
+      this.setData({ nickEditVisible: false });
       wx.hideLoading();
       wx.showToast({ title: "已保存", icon: "success" });
     } catch (e) {
@@ -280,12 +282,14 @@ withPageShare({
         wx.removeStorageSync("student_token");
         wx.removeStorageSync("need_join_class");
         getApp().globalData.token = "";
+        try {
+          getApp().globalData.studentProfile = null;
+        } catch (_) {}
         this.setData({
           loggedIn: false,
           realDisplayName: "",
           wxNickname: "",
           wxAvatarUrl: "",
-          showWxProfileHint: false,
           avatarLetter: "?",
           classes: [],
           leavePendingCount: 0,

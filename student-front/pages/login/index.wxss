@@ -2,10 +2,6 @@
   padding-top: 16rpx;
 }
 
-.pad-card {
-  padding: 28rpx 28rpx;
-}
-
 .hero-block {
   margin-bottom: 40rpx;
 }
@@ -25,40 +21,14 @@
   line-height: 1.45;
 }
 
-.field-row {
-  display: flex;
-  align-items: center;
+.pad-card {
   padding: 28rpx 28rpx;
-  min-height: 100rpx;
-  box-sizing: border-box;
 }
 
-.field-row-single {
-  padding-top: 32rpx;
-  padding-bottom: 32rpx;
-}
-
-.field-label {
-  width: 140rpx;
-  flex-shrink: 0;
-  font-size: 30rpx;
-  font-weight: 500;
-  color: var(--ios-label);
-}
-
-.field-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 32rpx;
-  color: var(--ios-label);
-}
-
-.field-input-full {
-  width: 100%;
-}
-
-.ph {
-  color: var(--ios-tertiary);
+.login-auth-desc {
+  display: block;
+  font-size: 26rpx;
+  line-height: 1.45;
 }
 
 .login-action {

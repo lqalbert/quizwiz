@@ -1,6 +1,9 @@
 const { formatStemForDisplay } = require("./stemFormat.js");
 const { request } = require("./request.js");
 
+/** 生产环境未部署 batch 接口时，避免每页重复 404 */
+let batchOptionsApiAvailable = true;
+
 function defaultOptionsForQuestionType(questionType) {
   const t = Number(questionType);
   if (t === 3) {
@@ -55,7 +58,7 @@ function needsOptionsFromServer(row) {
   return true;
 }
 
-async function fetchOptionsMapForQuestionIds(questionIds) {
+function dedupeQuestionIds(questionIds) {
   const ids = [];
   const seen = new Set();
   for (const x of questionIds || []) {
@@ -64,18 +67,64 @@ async function fetchOptionsMapForQuestionIds(questionIds) {
     seen.add(id);
     ids.push(id);
   }
-  if (!ids.length) return {};
+  return ids;
+}
+
+function mergeOptionsIntoMap(map, qid, opts) {
+  if (opts && Array.isArray(opts) && opts.length) map[qid] = opts;
+}
+
+async function fetchOptionsMapViaBatch(questionIds) {
+  if (!batchOptionsApiAvailable || !questionIds.length) return null;
   try {
     const res = await request({
       path: "/api/student/stats/question-options-batch",
       method: "POST",
-      data: { question_ids: ids },
+      data: { question_ids: questionIds },
     });
     const data = (res && res.data) || {};
-    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
-  } catch (_) {
-    return {};
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+    const map = {};
+    for (const qid of questionIds) {
+      mergeOptionsIntoMap(map, qid, data[String(qid)] || data[qid]);
+    }
+    return map;
+  } catch (err) {
+    if (err && err.statusCode === 404) batchOptionsApiAvailable = false;
+    return null;
   }
+}
+
+/** 兼容旧版后端：走刷题页同款单题接口补选项 */
+async function fetchOptionsMapViaQuestionDetails(questionIds) {
+  const map = {};
+  const ids = dedupeQuestionIds(questionIds);
+  const concurrency = 5;
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const slice = ids.slice(i, i + concurrency);
+    await Promise.all(
+      slice.map(async (qid) => {
+        try {
+          const res = await request({ path: `/api/student/questions/${qid}`, method: "GET" });
+          const opts = (res && res.data && res.data.options) || [];
+          mergeOptionsIntoMap(map, qid, opts);
+        } catch (_) {}
+      }),
+    );
+  }
+  return map;
+}
+
+async function fetchOptionsMapForQuestionIds(questionIds) {
+  const ids = dedupeQuestionIds(questionIds);
+  if (!ids.length) return {};
+
+  const map = (await fetchOptionsMapViaBatch(ids)) || {};
+  const missing = ids.filter((qid) => !(map[qid] && map[qid].length));
+  if (!missing.length) return map;
+
+  const detailMap = await fetchOptionsMapViaQuestionDetails(missing);
+  return { ...map, ...detailMap };
 }
 
 /** 列表接口未带 options 时，批量补拉后再格式化 */
@@ -90,7 +139,7 @@ async function enrichRecordRowsWithOptions(rows) {
   const optionsMap = await fetchOptionsMapForQuestionIds(needIds);
   return list.map((row) => {
     const qid = Number(row.question_id);
-    const fromMap = optionsMap[String(qid)] || optionsMap[qid];
+    const fromMap = optionsMap[qid];
     const merged =
       row.options && (Array.isArray(row.options) ? row.options.length : typeof row.options === "string")
         ? row.options

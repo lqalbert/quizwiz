@@ -36,7 +36,6 @@
 }
 
 .review-item-stem {
-  display: block;
   font-size: 30rpx;
   line-height: 1.45;
   color: var(--ios-label);

@@ -28,9 +28,12 @@
       </view>
     </view>
     <view wx:elif="{{questions.length}}" class="ios-card review-list-card">
-      <block wx:for="{{questions}}" wx:key="question_id">
+      <block wx:for="{{questions}}" wx:for-index="idx" wx:key="question_id">
         <view class="review-item" hover-class="review-item-hover" hover-stay-time="70" bindtap="startOne" data-id="{{item.question_id}}">
-          <text class="review-item-stem">{{item.stem_display}}</text>
+          <view class="record-stem-row">
+            <text class="record-seq">{{idx + 1}}.</text>
+            <text class="review-item-stem">{{item.stem_display}}</text>
+          </view>
           <view wx:if="{{item.options.length}}" class="record-options">
             <view wx:for="{{item.options}}" wx:for-item="opt" wx:for-index="optIdx" wx:key="optIdx" class="record-opt-row">
               <text class="record-opt-k">{{opt.option_key}}.</text>

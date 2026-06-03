@@ -37,7 +37,6 @@
             <text class="name">{{wxNickname}}</text>
             <text class="name-edit-hint muted">修改</text>
           </view>
-          <text class="subline muted" wx:if="{{showWxProfileHint}}">点头像选微信头像；点昵称可修改</text>
           <text class="subline muted" wx:if="{{needJoinClass}}">尚未加入班级，班级相关数据暂无</text>
         </view>
       </view>
@@ -99,7 +98,16 @@
   <view wx:if="{{loggedIn && nickEditVisible}}" class="name-edit-mask" catchtouchmove="noop" bindtap="cancelNickEdit">
     <view class="name-edit-dialog" catchtap="noop">
       <text class="name-edit-dialog-title">修改昵称</text>
-      <input class="name-edit-input" type="nickname" value="{{nickDraft}}" maxlength="32" placeholder="微信昵称" placeholder-class="ph" bindinput="onNickDraftInput" />
+      <input
+        id="nick-edit-input"
+        class="name-edit-input"
+        type="nickname"
+        maxlength="32"
+        placeholder="{{nickEditPlaceholder}}"
+        placeholder-class="ph"
+        bindblur="onNickEditBlur"
+        bindchange="onNickEditChange"
+      />
       <view class="ui-modal-actions">
         <view class="ui-modal-btn ui-modal-btn--cancel" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="cancelNickEdit">取消</view>
         <view class="ui-modal-btn ui-modal-btn--ok" hover-class="ui-modal-btn-hover" hover-stay-time="70" bindtap="saveNickEdit">保存</view>

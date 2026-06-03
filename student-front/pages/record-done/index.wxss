@@ -121,7 +121,6 @@
 }
 
 .record-stem {
-  display: block;
   font-size: 30rpx;
   font-weight: 500;
   line-height: 1.45;
