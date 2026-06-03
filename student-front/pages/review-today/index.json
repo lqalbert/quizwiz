@@ -1,5 +1,6 @@
 {
   "navigationBarTitleText": "今日待复习",
   "navigationBarBackgroundColor": "#f2f2f7",
+  "onReachBottomDistance": 120,
   "usingComponents": {}
 }

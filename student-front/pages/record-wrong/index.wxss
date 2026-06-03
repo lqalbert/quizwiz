@@ -123,11 +123,8 @@
   justify-content: center;
 }
 
-.wrong-list-scroll {
-  max-height: calc(100vh - 360rpx);
-  min-height: 280rpx;
-  padding-bottom: 0;
-  box-sizing: border-box;
+.record-list-wrap {
+  padding-bottom: 8rpx;
 }
 
 .record-card {
@@ -136,23 +133,18 @@
 }
 
 .record-stem {
+  display: block;
   font-size: 30rpx;
   font-weight: 500;
   line-height: 1.45;
   white-space: pre-line;
+  word-break: break-word;
 }
 
 .record-meta {
   display: block;
   margin-top: 12rpx;
   font-size: 24rpx;
-}
-
-.line-clamp {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
 
 .record-actions {

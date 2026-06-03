@@ -4042,6 +4042,9 @@ app.post('/api/student/stats/wrong-book/remove', studentAuthRequired, async (req
 /** 今日待复习错题列表（与首页 review_due_count 同一口径） */
 app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, res) => {
   const studentId = req.studentAuth.studentId
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
+  const offset = (page - 1) * pageSize
   try {
     const dR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
     const shDate = dR.rows[0]?.d
@@ -4065,9 +4068,9 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
       WHERE s.student_id = $1 AND s.wrong_count > 0
         AND (r.next_review_date IS NULL OR r.next_review_date <= $2::date)
       ORDER BY r.next_review_date NULLS FIRST, s.updated_at DESC
-      LIMIT 200
+      LIMIT $3 OFFSET $4
       `,
-      [studentId, shDate],
+      [studentId, shDate, pageSize, offset],
     )
     const rows = listR.rows || []
     const optionsMap = await fetchOptionsMapForQuestionIds(pool, rows.map((row) => row.question_id))
@@ -4087,6 +4090,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
           updated_at: row.updated_at,
           options: optionsForQuestionFromMap(optionsMap, row.question_id),
         })),
+        pagination: { total: totalCount, page, pageSize },
       },
     })
   } catch (error) {

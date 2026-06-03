@@ -221,6 +221,12 @@ withPageShare({
     }
   },
 
+  onReachBottom() {
+    if (this.data.step === "list") {
+      this.onWrongScrollToLower();
+    }
+  },
+
   onLoadMoreWrong() {
     if (this.data.hasMore && !this.data.listLoadingMore && !this.data.listLoading) {
       this.loadWrongList(false);

@@ -3,8 +3,8 @@
     <text class="h2">今日待复习</text>
   </view>
 
-  <view wx:if="{{loading}}" class="muted">加载中…</view>
-  <view wx:elif="{{err}}" class="ios-card" style="padding:32rpx;">
+  <view wx:if="{{loading && !questions.length}}" class="muted">加载中…</view>
+  <view wx:elif="{{err && !questions.length}}" class="ios-card" style="padding:32rpx;">
     <text class="muted">{{err}}</text>
     <view
       class="ui-btn-secondary"
@@ -16,11 +16,10 @@
   </view>
   <block wx:else>
     <view class="review-today-pill">共 {{count}} 题</view>
-    <text wx:if="{{reviewListTruncated}}" class="muted review-today-truncated">当前页展示 {{questions.length}} 题，请分批复习</text>
     <view class="review-today-actions">
       <view class="btn-primary" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="startReviewAll" wx:if="{{count > 0}}">开始复习全部</view>
     </view>
-    <view wx:if="{{count === 0}}" class="ios-card review-empty">
+    <view wx:if="{{count === 0 && !loading}}" class="ios-card review-empty">
       <text class="review-empty-title">暂无待复习错题</text>
       <text class="muted review-empty-desc">说明当前没有到期的错题，或错题本里已清空。去刷题积累错题后，系统会按节奏提醒你复习。</text>
       <view class="review-empty-actions">
@@ -28,7 +27,7 @@
         <view class="btn-primary review-empty-btn" bindtap="goBrowseQuiz">去刷题</view>
       </view>
     </view>
-    <view wx:else class="ios-card" style="padding:8rpx 28rpx 28rpx;">
+    <view wx:elif="{{questions.length}}" class="ios-card review-list-card">
       <block wx:for="{{questions}}" wx:key="question_id">
         <view class="review-item" hover-class="review-item-hover" hover-stay-time="70" bindtap="startOne" data-id="{{item.question_id}}">
           <text class="review-item-stem">{{item.stem_display}}</text>
@@ -42,6 +41,12 @@
           <text wx:if="{{item.last_wrong_label}}" class="review-item-meta muted">{{item.last_wrong_label}}</text>
         </view>
       </block>
+      <view wx:if="{{listLoadingMore}}" class="load-more-wrap">
+        <text class="muted load-more-text">加载更多…</text>
+      </view>
+      <view wx:elif="{{!hasMore && questions.length}}" class="load-more-wrap">
+        <text class="muted load-more-text">已加载全部</text>
+      </view>
     </view>
   </block>
 </view>

@@ -220,6 +220,12 @@ withPageShare({
     }
   },
 
+  onReachBottom() {
+    if (this.data.step === "list") {
+      this.onDoneScrollToLower();
+    }
+  },
+
   onLoadMoreDone() {
     if (this.data.hasMore && !this.data.listLoadingMore && !this.data.listLoading) {
       this.loadDoneList(false);

@@ -83,15 +83,7 @@
         <view class="btn-primary record-empty-btn" hover-class="btn-primary-hover" hover-stay-time="70" bindtap="goBrowseQuiz">去刷题</view>
       </view>
     </view>
-    <scroll-view
-      wx:else
-      scroll-y
-      class="wrong-list-scroll"
-      enhanced="{{true}}"
-      show-scrollbar="{{false}}"
-      lower-threshold="120"
-      bindscrolltolower="onWrongScrollToLower"
-    >
+    <view wx:else class="record-list-wrap">
       <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
         <text class="record-stem">{{item.stem}}</text>
         <view wx:if="{{item.showOptions}}" class="record-options">
@@ -106,13 +98,12 @@
           <view class="ui-link-btn ui-link-btn--tint" hover-class="ui-link-btn-hover" hover-stay-time="70" catchtap="onRetryTap" data-qid="{{item.question_id}}">再练</view>
         </view>
       </view>
-      <view wx:if="{{list.length && hasMore}}" class="load-more-wrap">
-        <text wx:if="{{listLoadingMore}}" class="muted load-more-text">加载更多…</text>
-        <view wx:else class="load-more-tap muted" hover-class="load-more-tap-hover" hover-stay-time="70" bindtap="onLoadMoreWrong">点击加载更多</view>
+      <view wx:if="{{list.length && listLoadingMore}}" class="load-more-wrap">
+        <text class="muted load-more-text">加载更多…</text>
       </view>
       <view wx:if="{{list.length && !hasMore}}" class="load-more-wrap">
         <text class="muted load-more-text">已加载全部</text>
       </view>
-    </scroll-view>
+    </view>
   </block>
 </view>

@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "已做题",
   "navigationBarBackgroundColor": "#f2f2f7",
+  "onReachBottomDistance": 120,
   "usingComponents": {
     "join-class-modal": "/components/join-class-modal/index"
   }

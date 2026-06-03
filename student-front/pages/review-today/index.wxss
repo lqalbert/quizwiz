@@ -22,13 +22,6 @@
   margin-bottom: 16rpx;
 }
 
-.review-today-truncated {
-  display: block;
-  font-size: 24rpx;
-  line-height: 1.45;
-  margin: -8rpx 0 16rpx;
-}
-
 .review-item {
   padding: 28rpx 0;
   border-bottom: 1rpx solid var(--ios-separator);
@@ -43,15 +36,31 @@
 }
 
 .review-item-stem {
+  display: block;
   font-size: 30rpx;
   line-height: 1.45;
   color: var(--ios-label);
+  white-space: pre-line;
+  word-break: break-word;
 }
 
 .review-item-meta {
   margin-top: 12rpx;
   font-size: 24rpx;
   color: var(--ios-secondary);
+}
+
+.review-list-card {
+  padding: 8rpx 28rpx 28rpx;
+}
+
+.load-more-wrap {
+  padding: 16rpx 0 8rpx;
+  text-align: center;
+}
+
+.load-more-text {
+  font-size: 26rpx;
 }
 
 .review-empty {
