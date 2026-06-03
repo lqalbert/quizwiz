@@ -2,6 +2,7 @@ const { request } = require("../../utils/request.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
 const { ensureReadyForPractice, isNeedJoinClassError, promptJoinClass } = require("../../utils/practiceGate.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
+const withPageShare = require("../../utils/withPageShare.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft, OPEN_RESUME_DRAFT_KEY } = require("../../utils/practiceDraft.js");
@@ -18,7 +19,7 @@ function syncNavTitle() {
   wx.setNavigationBarTitle({ title: "" });
 }
 
-Page({
+withPageShare({
   behaviors: [joinClassModalBehavior],
 
   data: {
@@ -105,6 +106,12 @@ Page({
   onTabItemTap(item) {
     const p = String((item && item.pagePath) || "").replace(/^\//, "");
     if (p === "pages/quiz/index") return;
+    this.persistSeqProgressOnExit();
+    this.savePracticeDraftIfPlaying();
+  },
+
+  onHide() {
+    this.persistSeqProgressOnExit();
     this.savePracticeDraftIfPlaying();
   },
 
@@ -307,6 +314,88 @@ Page({
 
   seqStorageKeyTagPos(subjectId, unitId, tagId) {
     return `quiz_seq_pos_${subjectId}_${unitId}_tag_${tagId}`;
+  },
+
+  seqStorageKeySectionPos(subjectId, unitId, tagIds) {
+    const ids = (tagIds || [])
+      .map((x) => normalizePositiveInt(x))
+      .filter((x) => x > 0)
+      .sort((a, b) => a - b);
+    if (!ids.length) return "";
+    return `quiz_seq_pos_${subjectId}_${unitId}_sec_${ids.join("_")}`;
+  },
+
+  /** 已答题数（1-based），用于恢复时跳到下一题 */
+  readSeqProgressPos(practiceModule) {
+    const sid = this.data.subjectId;
+    const uid = this.data.unitId;
+    if (!sid || !uid) return 0;
+    if (practiceModule === "sequential") {
+      return Number(wx.getStorageSync(this.seqStorageKeyUnitPos(sid, uid))) || 0;
+    }
+    if (practiceModule === "section") {
+      const tagIds = this.data.selectedSectionTagIds || [];
+      const compositeKey = this.seqStorageKeySectionPos(sid, uid, tagIds);
+      if (compositeKey) {
+        const v = Number(wx.getStorageSync(compositeKey));
+        if (v > 0) return v;
+      }
+      if (tagIds.length === 1) {
+        return Number(wx.getStorageSync(this.seqStorageKeyTagPos(sid, uid, tagIds[0]))) || 0;
+      }
+    }
+    return 0;
+  },
+
+  resolveSeqStartIndex(practiceModule, questionCount) {
+    const total = Math.max(0, Number(questionCount) || 0);
+    if (!total) return 0;
+    const pos = this.readSeqProgressPos(practiceModule);
+    if (pos <= 0) return 0;
+    if (pos >= total) return 0;
+    return pos;
+  },
+
+  writeSeqProgressPos(practiceModule, pos) {
+    const sid = this.data.subjectId;
+    const uid = this.data.unitId;
+    const done = Math.max(0, Number(pos) || 0);
+    if (!sid || !uid || done <= 0) return;
+    if (practiceModule === "sequential") {
+      wx.setStorageSync(this.seqStorageKeyUnitHint(sid, uid), `已刷至${done}题`);
+      wx.setStorageSync(this.seqStorageKeyUnitPos(sid, uid), done);
+      this.setData({ seqProgressHint: `已刷至${done}题` });
+      return;
+    }
+    if (practiceModule === "section") {
+      const tagIds = this.data.selectedSectionTagIds || [];
+      const compositeKey = this.seqStorageKeySectionPos(sid, uid, tagIds);
+      if (compositeKey) wx.setStorageSync(compositeKey, done);
+      const tags = this.data.unitTags || [];
+      const names = (this.data.selectedSectionTagNames || []).length
+        ? this.data.selectedSectionTagNames
+        : this.data.sectionTag
+          ? [this.data.sectionTag]
+          : [];
+      for (const nm of names) {
+        const tagRow = tags.find((t) => String(t.name) === String(nm));
+        const tid = tagRow && tagRow.id;
+        if (tid) wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), done);
+      }
+      if (this.data.step === "subsections") this.refreshSubsectionRows();
+    }
+  },
+
+  persistSeqProgressOnExit() {
+    const d = this.data;
+    if (d.step !== "play") return;
+    const pm = d.practiceModule;
+    if (pm !== "sequential" && pm !== "section") return;
+    const idx = Number(d.currentIndex) || 0;
+    const submitted = Boolean(d.submitted);
+    const nextPos = submitted ? idx + 1 : idx;
+    if (nextPos <= 0) return;
+    this.writeSeqProgressPos(pm, nextPos);
   },
 
   seqHintForUnit(subjectId, unitId) {
@@ -584,8 +673,10 @@ Page({
     const body = {
       subject_id: subjectId,
       practice_module: practiceModule,
-      limit: 30,
     };
+    if (practiceModule === "sequential" || practiceModule === "random" || practiceModule === "section") {
+      body.limit = 0;
+    }
     if (tag_names.length) body.tag_names = tag_names;
     if (unitId) body.unit_id = unitId;
     if (practiceModule === "section") {
@@ -625,10 +716,14 @@ Page({
       const ids = (res.data && res.data.question_ids) || [];
       if (!ids.length) throw new Error("没有题目");
       clearPracticeDraft();
+      const startIndex =
+        practiceModule === "sequential" || practiceModule === "section"
+          ? this.resolveSeqStartIndex(practiceModule, ids.length)
+          : 0;
       this.setData(
         {
           questionIds: ids,
-          currentIndex: 0,
+          currentIndex: startIndex,
           examAnswers: {},
           step: "play",
           submitted: false,
@@ -749,6 +844,7 @@ Page({
   },
 
   restartWizard() {
+    this.persistSeqProgressOnExit();
     clearPracticeDraft();
     let returnTarget = null;
     try {
@@ -954,32 +1050,8 @@ Page({
   bumpSeqProgressHint() {
     const pm = this.data.practiceModule;
     if (pm !== "sequential" && pm !== "section") return;
-    const sid = this.data.subjectId;
-    const uid = this.data.unitId;
-    if (!sid || !uid) return;
     const done = this.data.currentIndex + 1;
-    const hintText = `已刷至${done}题`;
-    if (pm === "sequential") {
-      wx.setStorageSync(this.seqStorageKeyUnitHint(sid, uid), hintText);
-      wx.setStorageSync(this.seqStorageKeyUnitPos(sid, uid), done);
-      this.setData({ seqProgressHint: hintText });
-      return;
-    }
-    if (pm === "section") {
-      const tags = this.data.unitTags || [];
-      const names = (this.data.selectedSectionTagNames || []).length
-        ? this.data.selectedSectionTagNames
-        : this.data.sectionTag
-          ? [this.data.sectionTag]
-          : [];
-      for (const nm of names) {
-        const tagRow = tags.find((t) => String(t.name) === String(nm));
-        const tid = tagRow && tagRow.id;
-        if (tid) {
-          wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), done);
-        }
-      }
-    }
+    this.writeSeqProgressPos(pm, done);
   },
 
   onExamPrev() {

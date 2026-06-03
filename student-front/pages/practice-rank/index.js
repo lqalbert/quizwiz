@@ -1,4 +1,5 @@
 const { request } = require("../../utils/request.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -14,7 +15,7 @@ const PERIOD_LABEL = {
   all: "全部",
 };
 
-Page({
+withPageShare({
   data: {
     period: "today",
     periodLabel: "今日",

@@ -3,6 +3,7 @@ const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
 const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
 /** 兼容接口体为 { data: {...} } 或直接为业务对象两种形态 */
 function unwrapStudentPayload(root) {
@@ -33,7 +34,7 @@ const GUEST_PRACTICE_PANEL = {
   rank_sub: "未登录，暂无数据",
 };
 
-Page({
+withPageShare({
   data: {
     dateText: "",
     loggedIn: false,

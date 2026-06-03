@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 const studyLocalCache = require("../../utils/studyLocalCache.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
 function absFileUrl(u) {
   const s = String(u || "").trim();
@@ -152,7 +153,7 @@ function canUseDirectStudyDownload(fileUrlAbs) {
   return false;
 }
 
-Page({
+withPageShare({
   data: {
     loggedIn: false,
     isGuestBrowse: false,

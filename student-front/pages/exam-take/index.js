@@ -2,11 +2,12 @@ const { request } = require("../../utils/request.js");
 const { requireAuthNavigate } = require("../../utils/practiceGate.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const examLocalCache = require("../../utils/examLocalCache.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
 /** 离开小程序（AppHide）达到此次数则自动交卷 */
 const FORCE_SUBMIT_AFTER_APP_LEAVES = 3;
 
-Page({
+withPageShare({
   data: {
     mode: "",
     loadErr: "",

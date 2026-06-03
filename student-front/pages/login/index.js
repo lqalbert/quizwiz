@@ -2,8 +2,9 @@ const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
 const { setNeedJoinClass } = require("../../utils/joinClass.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
-Page({
+withPageShare({
   data: {
     _loginInFlight: false,
   },

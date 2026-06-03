@@ -3009,7 +3009,10 @@ app.post('/api/student/practice/build', studentAuthRequired, studentClassMembers
   const sectionFilterNames =
     sectionTagsFromBody.length > 0 ? sectionTagsFromBody : sectionTag ? [sectionTag] : []
   const mockAllocation = Array.isArray(req.body?.mock_allocation) ? req.body.mock_allocation : []
-  const limit = Math.min(100, Math.max(1, parseInt(String(req.body?.limit || '25'), 10) || 25))
+  const limitRaw = parseInt(String(req.body?.limit ?? ''), 10)
+  /** limit <= 0 表示不限制题量（顺序/随机/知识小节拉全量）；否则上限 10000 */
+  const useLimit = Number.isFinite(limitRaw) && limitRaw > 0
+  const limit = useLimit ? Math.min(10000, limitRaw) : 0
   const unitIdBody = Number(req.body?.unit_id)
 
   /** 错题再练等：按题目 ID 组卷（须为本生错题本中 wrong_count>0 的题目） */
@@ -3027,8 +3030,7 @@ app.post('/api/student/practice/build', studentAuthRequired, studentClassMembers
   try {
     if (fixedOrderedIds.length > 0) {
       const studentId = req.studentAuth.studentId
-      const sliceInput = fixedOrderedIds
-        .slice(0, limit)
+      const sliceInput = (useLimit ? fixedOrderedIds.slice(0, limit) : fixedOrderedIds)
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0 && id <= Number.MAX_SAFE_INTEGER)
       if (sliceInput.length === 0) {
@@ -3130,8 +3132,7 @@ app.post('/api/student/practice/build', studentAuthRequired, studentClassMembers
       if (orderedIds.length === 0) {
         return res.status(400).json({ message: '未匹配到题目，请检查知识点名称与题量' })
       }
-      const sliced = orderedIds.slice(0, limit)
-      return res.json({ data: { question_ids: sliced } })
+      return res.json({ data: { question_ids: orderedIds } })
     }
 
     const values = [subjectId]
@@ -3188,16 +3189,15 @@ app.post('/api/student/practice/build', studentAuthRequired, studentClassMembers
 
     const orderSql =
       practiceModule === 'random' ? 'ORDER BY random()' : 'ORDER BY q.id ASC'
-    values.push(limit)
-    const limitParam = values.length
+    const limitSql = useLimit ? ` LIMIT $${values.length + 1}` : ''
+    if (useLimit) values.push(limit)
 
     const sql = `
       SELECT q.id
       FROM questions q
       WHERE q.deleted_at IS NULL AND q.subject_id = $1
       ${whereExtra}
-      ${orderSql}
-      LIMIT $${limitParam}
+      ${orderSql}${limitSql}
     `
     const { rows } = await pool.query(sql, values)
     const questionIds = rows.map((row) => Number(row.id)).filter((id) => !Number.isNaN(id))

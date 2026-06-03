@@ -2,6 +2,7 @@ const { request } = require("../../utils/request.js");
 const { formatStemForDisplay } = require("../../utils/stemFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -27,7 +28,7 @@ function lastWrongLabel(row) {
   return s ? `最近做错 ${s}` : "";
 }
 
-Page({
+withPageShare({
   data: {
     loading: true,
     err: "",

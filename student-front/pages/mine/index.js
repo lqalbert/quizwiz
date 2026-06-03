@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { uploadStudentAvatar } = require("../../utils/profile.js");
 const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
+const withPageShare = require("../../utils/withPageShare.js");
 const { startLeaveClassFlow } = require("../../utils/leaveClass.js");
 
 function firstChar(s) {
@@ -9,7 +10,7 @@ function firstChar(s) {
   return t.slice(0, 1);
 }
 
-Page({
+withPageShare({
   behaviors: [joinClassModalBehavior],
 
   data: {

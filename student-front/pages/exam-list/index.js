@@ -1,8 +1,9 @@
 const { request } = require("../../utils/request.js");
 const { formatBeijingRange } = require("../../utils/beijingTime.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
+const withPageShare = require("../../utils/withPageShare.js");
 
-Page({
+withPageShare({
   data: {
     loading: true,
     err: "",
