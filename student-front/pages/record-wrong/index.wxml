@@ -93,7 +93,13 @@
       bindscrolltolower="onWrongScrollToLower"
     >
       <view wx:for="{{list}}" wx:key="question_id" class="ios-card record-card">
-        <text class="record-stem line-clamp">{{item.stem}}</text>
+        <text class="record-stem">{{item.stem}}</text>
+        <view wx:if="{{item.showOptions}}" class="record-options">
+          <view wx:for="{{item.options}}" wx:for-item="opt" wx:key="option_key" class="record-opt-row">
+            <text class="record-opt-k">{{opt.option_key}}.</text>
+            <text class="record-opt-t">{{opt.option_text}}</text>
+          </view>
+        </view>
         <text class="record-meta muted">{{item.question_type_text}} · 做过 {{item.attempts}} 次 · 错 {{item.wrong_count}}</text>
         <view class="record-actions">
           <view class="ui-link-btn ui-link-btn--muted" hover-class="ui-link-btn-hover" hover-stay-time="70" catchtap="onRemoveWrong" data-qid="{{item.question_id}}">移出错题本</view>

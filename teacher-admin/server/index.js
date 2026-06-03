@@ -3879,6 +3879,42 @@ app.post('/api/student/exams/:examId/submit', studentAuthRequired, studentClassM
   }
 })
 
+async function fetchOptionsMapForQuestionIds(executor, questionIds) {
+  const ids = []
+  const seen = new Set()
+  for (const x of questionIds) {
+    const id = Number(x)
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  const map = new Map()
+  if (!ids.length) return map
+  const { rows } = await executor.query(
+    `
+    SELECT question_id, option_key, option_text, sort_order
+    FROM question_options
+    WHERE question_id = ANY($1::bigint[])
+    ORDER BY question_id ASC, sort_order ASC, option_key ASC
+    `,
+    [ids],
+  )
+  for (const row of rows) {
+    const qid = Number(row.question_id)
+    if (!map.has(qid)) map.set(qid, [])
+    map.get(qid).push({
+      option_key: row.option_key,
+      option_text: row.option_text,
+      sort_order: row.sort_order,
+    })
+  }
+  return map
+}
+
+function optionsForQuestionFromMap(optionsMap, questionId) {
+  return optionsMap.get(Number(questionId)) || []
+}
+
 app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20))
@@ -3944,6 +3980,7 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
       `,
       listParams,
     )
+    const optionsMap = await fetchOptionsMapForQuestionIds(pool, rows.map((row) => row.question_id))
     return res.json({
       data: rows.map((row) => ({
         question_id: row.question_id,
@@ -3954,6 +3991,7 @@ app.get('/api/student/stats/wrong-book', studentAuthRequired, async (req, res) =
         correct_count: row.correct_count,
         wrong_count: row.wrong_count,
         updated_at: row.updated_at,
+        options: optionsForQuestionFromMap(optionsMap, row.question_id),
       })),
       pagination: { total, page, pageSize },
     })
@@ -4032,6 +4070,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
       [studentId, shDate],
     )
     const rows = listR.rows || []
+    const optionsMap = await fetchOptionsMapForQuestionIds(pool, rows.map((row) => row.question_id))
     return res.json({
       data: {
         count: totalCount,
@@ -4046,6 +4085,7 @@ app.get('/api/student/stats/review-due-today', studentAuthRequired, async (req, 
           next_review_date: row.next_review_date,
           ladder: row.ladder,
           updated_at: row.updated_at,
+          options: optionsForQuestionFromMap(optionsMap, row.question_id),
         })),
       },
     })
@@ -4119,6 +4159,7 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
       `,
       listParams,
     )
+    const optionsMap = await fetchOptionsMapForQuestionIds(pool, rows.map((row) => row.question_id))
     return res.json({
       data: rows.map((row) => ({
         question_id: row.question_id,
@@ -4129,6 +4170,7 @@ app.get('/api/student/stats/done-questions', studentAuthRequired, async (req, re
         correct_count: row.correct_count,
         wrong_count: row.wrong_count,
         updated_at: row.updated_at,
+        options: optionsForQuestionFromMap(optionsMap, row.question_id),
       })),
       pagination: { total, page, pageSize },
     })
@@ -4151,6 +4193,62 @@ const loadStudentClassPeerIds = async (executor, studentId) => {
 }
 
 const PRACTICE_EVENT_SOURCES = `('practice_check', 'practice_exam')`
+
+/** 题目删除后：清除各学生错题本、已做统计、刷题事件（软删时 question 行仍在，须主动清理） */
+const purgeStudentPracticeDataForQuestionIds = async (client, rawQuestionIds) => {
+  const questionIds = []
+  const seen = new Set()
+  for (const x of rawQuestionIds) {
+    const id = Number(x)
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    questionIds.push(id)
+  }
+  if (questionIds.length === 0) {
+    return { stats: 0, wrongReview: 0, practiceEvents: 0 }
+  }
+
+  const dayRows = await client.query(
+    `
+    SELECT student_id, (timezone('Asia/Shanghai', created_at))::date AS practice_date, COUNT(*)::int AS c
+    FROM student_practice_events
+    WHERE question_id = ANY($1::bigint[])
+      AND source IN ${PRACTICE_EVENT_SOURCES}
+    GROUP BY student_id, (timezone('Asia/Shanghai', created_at))::date
+    `,
+    [questionIds],
+  )
+
+  const wrongR = await client.query(`DELETE FROM student_wrong_review WHERE question_id = ANY($1::bigint[])`, [
+    questionIds,
+  ])
+  const statsR = await client.query(`DELETE FROM student_question_stats WHERE question_id = ANY($1::bigint[])`, [
+    questionIds,
+  ])
+  const eventsR = await client.query(`DELETE FROM student_practice_events WHERE question_id = ANY($1::bigint[])`, [
+    questionIds,
+  ])
+
+  for (const row of dayRows.rows) {
+    const c = Math.max(0, Number(row.c) || 0)
+    if (c <= 0) continue
+    await client.query(
+      `
+      UPDATE student_practice_day
+      SET attempts = GREATEST(0, attempts - $3)
+      WHERE student_id = $1 AND practice_date = $2
+      `,
+      [row.student_id, row.practice_date, c],
+    )
+  }
+  await client.query(`DELETE FROM student_practice_day WHERE attempts <= 0`)
+
+  return {
+    stats: Number(statsR.rowCount || 0),
+    wrongReview: Number(wrongR.rowCount || 0),
+    practiceEvents: Number(eventsR.rowCount || 0),
+  }
+}
 
 /** PG date / timestamptz → 北京日历 YYYY-MM-DD */
 const toShanghaiDateKey = (value) => {
@@ -9155,6 +9253,7 @@ app.delete('/api/questions/:id', authRequired, async (req, res) => {
     }
 
     await client.query(`UPDATE questions SET deleted_at = NOW(), deleted_by = $1, updated_at = NOW() WHERE id = $2`, [req.auth?.userId || null, questionId])
+    await purgeStudentPracticeDataForQuestionIds(client, [questionId])
     await writeOperationLog({
       client,
       operatorId: req.auth?.userId,
@@ -9637,6 +9736,7 @@ app.post('/api/question-duplicates/merge-group', authRequired, async (req, res) 
     }
 
     if (mergeIds.length > 0) {
+      await purgeStudentPracticeDataForQuestionIds(client, mergeIds)
       await client.query(`UPDATE questions SET deleted_at = NOW(), deleted_by = $1, updated_at = NOW() WHERE id = ANY($2::bigint[])`, [req.auth?.userId || null, mergeIds])
     }
     await client.query(
@@ -9711,6 +9811,9 @@ app.post('/api/questions/batch-delete', authRequired, async (req, res) => {
         detail: { from_batch: true },
       })
       successIds.push(questionId)
+    }
+    if (successIds.length > 0) {
+      await purgeStudentPracticeDataForQuestionIds(client, successIds)
     }
     await client.query('COMMIT')
     return res.json({

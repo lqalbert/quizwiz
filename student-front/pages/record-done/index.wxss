@@ -1,3 +1,5 @@
+@import "../../styles/record-list-options.wxss";
+
 /* 覆盖全局 page-wrap 大底边距；列表页贴底，仅保留刘海屏安全区 */
 .page-wrap.done-root {
   padding-bottom: constant(safe-area-inset-bottom);

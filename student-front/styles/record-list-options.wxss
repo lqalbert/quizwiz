@@ -1,0 +1,32 @@
+.record-options {
+  margin-top: 16rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid rgba(60, 60, 67, 0.12);
+}
+
+.record-opt-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  line-height: 1.45;
+  color: #333;
+}
+
+.record-opt-row:first-child {
+  margin-top: 0;
+}
+
+.record-opt-k {
+  flex-shrink: 0;
+  min-width: 40rpx;
+  font-weight: 600;
+  color: #666;
+}
+
+.record-opt-t {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-line;
+}

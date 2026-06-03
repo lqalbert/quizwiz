@@ -1,5 +1,5 @@
 const { request } = require("../../utils/request.js");
-const { formatStemForDisplay } = require("../../utils/stemFormat.js");
+const { formatRecordQuestionRow } = require("../../utils/recordListFormat.js");
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 const withPageShare = require("../../utils/withPageShare.js");
@@ -68,13 +68,16 @@ withPageShare({
       const d = unwrapPayload(res);
       const raw = (d && d.questions) || [];
       const count = Number(d && d.count != null ? d.count : raw.length) || 0;
-      const questions = raw.map((it) => ({
-        ...it,
-        stem_display: formatStemForDisplay(it.stem),
-        next_label: nextReviewLabel(it),
-        last_wrong_label: lastWrongLabel(it),
-        next_review_date_display: formatBeijingCalendarDate(it.next_review_date),
-      }));
+      const questions = raw.map((it) => {
+        const row = formatRecordQuestionRow(it);
+        return {
+          ...row,
+          stem_display: row.stem,
+          next_label: nextReviewLabel(it),
+          last_wrong_label: lastWrongLabel(it),
+          next_review_date_display: formatBeijingCalendarDate(it.next_review_date),
+        };
+      });
       this.setData({
         loading: false,
         count,

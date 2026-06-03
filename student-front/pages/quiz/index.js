@@ -15,6 +15,23 @@ function normalizePositiveInt(v) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** 顺序/小节题单按 id 升序：先精确匹配上一题，找不到则取 id 更大的第一道仍存在的题 */
+function findStartIndexAfterQuestionId(ids, lastId) {
+  const last = normalizePositiveInt(lastId);
+  if (!last || !ids.length) return -1;
+  const idx = ids.findIndex((id) => id === last);
+  if (idx >= 0) return idx + 1;
+  const nextIdx = ids.findIndex((id) => id > last);
+  return nextIdx >= 0 ? nextIdx : -1;
+}
+
+function isMissingQuestionError(err) {
+  if (!err) return false;
+  if (Number(err.statusCode) === 404) return true;
+  const msg = String(err.message || "");
+  return msg.includes("不存在") || msg.includes("已删除");
+}
+
 function syncNavTitle() {
   wx.setNavigationBarTitle({ title: "" });
 }
@@ -325,52 +342,113 @@ withPageShare({
     return `quiz_seq_pos_${subjectId}_${unitId}_sec_${ids.join("_")}`;
   },
 
-  /** 已答题数（1-based），用于恢复时跳到下一题 */
-  readSeqProgressPos(practiceModule) {
-    const sid = this.data.subjectId;
-    const uid = this.data.unitId;
-    if (!sid || !uid) return 0;
-    if (practiceModule === "sequential") {
-      return Number(wx.getStorageSync(this.seqStorageKeyUnitPos(sid, uid))) || 0;
-    }
+  getSeqProgressStorageKey(practiceModule, subjectId, unitId, sectionTagIds) {
+    const sid = normalizePositiveInt(subjectId);
+    const uid = normalizePositiveInt(unitId);
+    if (!sid || !uid) return "";
+    if (practiceModule === "sequential") return this.seqStorageKeyUnitPos(sid, uid);
     if (practiceModule === "section") {
-      const tagIds = this.data.selectedSectionTagIds || [];
-      const compositeKey = this.seqStorageKeySectionPos(sid, uid, tagIds);
-      if (compositeKey) {
-        const v = Number(wx.getStorageSync(compositeKey));
-        if (v > 0) return v;
+      const compositeKey = this.seqStorageKeySectionPos(sid, uid, sectionTagIds);
+      if (compositeKey) return compositeKey;
+      const tagIds = (sectionTagIds || [])
+        .map((x) => normalizePositiveInt(x))
+        .filter((x) => x > 0);
+      if (tagIds.length === 1) return this.seqStorageKeyTagPos(sid, uid, tagIds[0]);
+    }
+    return "";
+  },
+
+  parseSeqProgressRaw(raw) {
+    if (raw == null || raw === "") return null;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      const n = Math.max(0, Math.floor(raw));
+      return n > 0 ? { nextIndex: n, lastAnsweredQuestionId: null, answeredCount: n } : null;
+    }
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (/^\d+$/.test(trimmed)) {
+        const n = parseInt(trimmed, 10) || 0;
+        return n > 0 ? { nextIndex: n, lastAnsweredQuestionId: null, answeredCount: n } : null;
       }
-      if (tagIds.length === 1) {
-        return Number(wx.getStorageSync(this.seqStorageKeyTagPos(sid, uid, tagIds[0]))) || 0;
+      try {
+        return this.parseSeqProgressRaw(JSON.parse(trimmed));
+      } catch (_) {
+        return null;
       }
     }
-    return 0;
+    if (typeof raw === "object") {
+      const nextIndex = Math.max(0, Number(raw.nextIndex ?? raw.answeredCount) || 0);
+      const lastAnsweredQuestionId = normalizePositiveInt(raw.lastAnsweredQuestionId) || null;
+      if (nextIndex <= 0 && !lastAnsweredQuestionId) return null;
+      return {
+        nextIndex,
+        lastAnsweredQuestionId,
+        answeredCount: nextIndex,
+      };
+    }
+    return null;
   },
 
-  resolveSeqStartIndex(practiceModule, questionCount) {
-    const total = Math.max(0, Number(questionCount) || 0);
-    if (!total) return 0;
-    const pos = this.readSeqProgressPos(practiceModule);
-    if (pos <= 0) return 0;
-    if (pos >= total) return 0;
-    return pos;
+  readSeqProgress(practiceModule, subjectId, unitId, sectionTagIds) {
+    const key = this.getSeqProgressStorageKey(practiceModule, subjectId, unitId, sectionTagIds);
+    if (!key) return null;
+    let progress = this.parseSeqProgressRaw(wx.getStorageSync(key));
+    if (progress || practiceModule !== "section") return progress;
+    const sid = normalizePositiveInt(subjectId);
+    const uid = normalizePositiveInt(unitId);
+    const tagIds = (sectionTagIds || [])
+      .map((x) => normalizePositiveInt(x))
+      .filter((x) => x > 0);
+    if (tagIds.length === 1) {
+      progress = this.parseSeqProgressRaw(wx.getStorageSync(this.seqStorageKeyTagPos(sid, uid, tagIds[0])));
+    }
+    return progress;
   },
 
-  writeSeqProgressPos(practiceModule, pos) {
-    const sid = this.data.subjectId;
-    const uid = this.data.unitId;
-    const done = Math.max(0, Number(pos) || 0);
-    if (!sid || !uid || done <= 0) return;
+  resolveSeqStartIndex(practiceModule, questionIds, subjectId, unitId, sectionTagIds) {
+    const ids = (questionIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
+    if (!ids.length) return 0;
+    const progress = this.readSeqProgress(practiceModule, subjectId, unitId, sectionTagIds);
+    if (!progress) return 0;
+
+    let start = 0;
+    const lastId = normalizePositiveInt(progress.lastAnsweredQuestionId);
+    if (lastId) {
+      const byId = findStartIndexAfterQuestionId(ids, lastId);
+      if (byId >= 0) start = byId;
+    }
+    if (start <= 0) start = Math.max(0, Number(progress.nextIndex) || 0);
+    if (start >= ids.length) return 0;
+    return start;
+  },
+
+  writeSeqProgress(practiceModule, subjectId, unitId, sectionTagIds, progress) {
+    const sid = normalizePositiveInt(subjectId);
+    const uid = normalizePositiveInt(unitId);
+    const nextIndex = Math.max(0, Number(progress && progress.nextIndex) || 0);
+    const lastAnsweredQuestionId = normalizePositiveInt(progress && progress.lastAnsweredQuestionId) || null;
+    if (!sid || !uid || nextIndex <= 0) return;
+
+    const payload = {
+      nextIndex,
+      lastAnsweredQuestionId,
+      answeredCount: nextIndex,
+      updatedAt: Date.now(),
+    };
+    const key = this.getSeqProgressStorageKey(practiceModule, sid, uid, sectionTagIds);
+    if (!key) return;
+    wx.setStorageSync(key, payload);
+
     if (practiceModule === "sequential") {
-      wx.setStorageSync(this.seqStorageKeyUnitHint(sid, uid), `已刷至${done}题`);
-      wx.setStorageSync(this.seqStorageKeyUnitPos(sid, uid), done);
-      this.setData({ seqProgressHint: `已刷至${done}题` });
+      const hintText = `已刷至${nextIndex}题`;
+      wx.setStorageSync(this.seqStorageKeyUnitHint(sid, uid), hintText);
+      if (normalizePositiveInt(this.data.unitId) === uid && normalizePositiveInt(this.data.subjectId) === sid) {
+        this.setData({ seqProgressHint: hintText });
+      }
       return;
     }
+
     if (practiceModule === "section") {
-      const tagIds = this.data.selectedSectionTagIds || [];
-      const compositeKey = this.seqStorageKeySectionPos(sid, uid, tagIds);
-      if (compositeKey) wx.setStorageSync(compositeKey, done);
       const tags = this.data.unitTags || [];
       const names = (this.data.selectedSectionTagNames || []).length
         ? this.data.selectedSectionTagNames
@@ -380,10 +458,22 @@ withPageShare({
       for (const nm of names) {
         const tagRow = tags.find((t) => String(t.name) === String(nm));
         const tid = tagRow && tagRow.id;
-        if (tid) wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), done);
+        if (tid) wx.setStorageSync(this.seqStorageKeyTagPos(sid, uid, tid), payload);
       }
       if (this.data.step === "subsections") this.refreshSubsectionRows();
     }
+  },
+
+  saveSeqProgressAfterQuestion(questionIndex, questionId) {
+    const pm = this.data.practiceModule;
+    if (pm !== "sequential" && pm !== "section") return;
+    const idx = Number(questionIndex) || 0;
+    const nextIndex = idx + 1;
+    if (nextIndex <= 0) return;
+    this.writeSeqProgress(pm, this.data.subjectId, this.data.unitId, this.data.selectedSectionTagIds || [], {
+      nextIndex,
+      lastAnsweredQuestionId: questionId,
+    });
   },
 
   persistSeqProgressOnExit() {
@@ -391,14 +481,22 @@ withPageShare({
     if (d.step !== "play") return;
     const pm = d.practiceModule;
     if (pm !== "sequential" && pm !== "section") return;
+    const ids = d.questionIds || [];
     const idx = Number(d.currentIndex) || 0;
     const submitted = Boolean(d.submitted);
-    const nextPos = submitted ? idx + 1 : idx;
-    if (nextPos <= 0) return;
-    this.writeSeqProgressPos(pm, nextPos);
+    const nextIndex = submitted ? idx + 1 : idx;
+    if (nextIndex <= 0) return;
+    const lastAnsweredQuestionId = submitted ? ids[idx] : idx > 0 ? ids[idx - 1] : null;
+    this.writeSeqProgress(pm, d.subjectId, d.unitId, d.selectedSectionTagIds || [], {
+      nextIndex,
+      lastAnsweredQuestionId,
+    });
   },
 
   seqHintForUnit(subjectId, unitId) {
+    const progress = this.readSeqProgress("sequential", subjectId, unitId, []);
+    const done = progress ? Math.max(0, Number(progress.nextIndex) || 0) : 0;
+    if (done > 0) return `已刷至${done}题`;
     const key = this.seqStorageKeyUnitHint(subjectId, unitId);
     const v = wx.getStorageSync(key);
     if (v) return String(v);
@@ -408,9 +506,12 @@ withPageShare({
   subsectionProgressText(subjectId, unitId, tag) {
     const tid = tag && tag.id;
     const total = Number((tag && tag.question_count) || 0);
-    const pos = Number(wx.getStorageSync(this.seqStorageKeyTagPos(subjectId, unitId, tid))) || 1;
+    const raw = wx.getStorageSync(this.seqStorageKeyTagPos(subjectId, unitId, tid));
+    const progress = this.parseSeqProgressRaw(raw);
+    const pos = progress ? Math.max(0, Number(progress.nextIndex) || 0) : 0;
     const safeTotal = total > 0 ? total : 0;
-    return safeTotal ? `已刷至${pos}/${safeTotal}题` : "暂无题目";
+    if (!safeTotal) return "暂无题目";
+    return pos > 0 ? `已刷至${pos}/${safeTotal}题` : "从第一题开始";
   },
 
   refreshSubsectionRows() {
@@ -525,8 +626,7 @@ withPageShare({
     if (!m || m === "mock" || m === "section") return;
     const uid = this.data.unitId;
     if (!uid) return;
-    this.setData({ practiceModule: m, feedbackMode: "exam" });
-    this.buildAndStart();
+    this.setData({ practiceModule: m, feedbackMode: "exam" }, () => this.buildAndStart());
   },
 
   onStyleCardTap(e) {
@@ -716,9 +816,11 @@ withPageShare({
       const ids = (res.data && res.data.question_ids) || [];
       if (!ids.length) throw new Error("没有题目");
       clearPracticeDraft();
+      const sectionTagIds =
+        practiceModule === "section" ? (this.data.selectedSectionTagIds || []) : [];
       const startIndex =
         practiceModule === "sequential" || practiceModule === "section"
-          ? this.resolveSeqStartIndex(practiceModule, ids.length)
+          ? this.resolveSeqStartIndex(practiceModule, ids, subjectId, unitId, sectionTagIds)
           : 0;
       this.setData(
         {
@@ -884,7 +986,47 @@ withPageShare({
     this.setData({ playLoadError: "" }, () => this.loadCurrentQuestion());
   },
 
-  async loadCurrentQuestion() {
+  /** 从题单移除已删题并加载下一题；无后续题则结束练习 */
+  removeDeletedQuestionAtAndContinue(fromIndex, loadSkipCount = 0) {
+    const ids = this.data.questionIds || [];
+    const idx = Number(fromIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= ids.length) {
+      this.restartWizard();
+      return false;
+    }
+    const prunedIds = ids.slice(0, idx).concat(ids.slice(idx + 1));
+    const resetPlay = {
+      questionIds: prunedIds,
+      submitted: false,
+      checkResult: null,
+      selectedAnswer: "",
+      multiSelected: [],
+      textAnswer: "",
+      currentQuestion: null,
+      playLoadError: "",
+      loading: false,
+    };
+    if (!prunedIds.length || idx >= prunedIds.length) {
+      this.setData(resetPlay, () => this.restartWizard());
+      return false;
+    }
+    this.setData({ ...resetPlay, currentIndex: idx }, () => this.loadCurrentQuestion(loadSkipCount));
+    return true;
+  },
+
+  promptDeletedQuestionAndContinue(fromIndex) {
+    wx.showModal({
+      title: "提示",
+      content: "该题目已从数据库删除，继续做下一题",
+      showCancel: false,
+      confirmText: "知道了",
+      success: () => {
+        this.removeDeletedQuestionAtAndContinue(fromIndex, 0);
+      },
+    });
+  },
+
+  async loadCurrentQuestion(skipMissingCount = 0) {
     const ids = this.data.questionIds || [];
     const idx = this.data.currentIndex;
     if (idx >= ids.length) {
@@ -936,6 +1078,11 @@ withPageShare({
         () => this.syncPlayButton(),
       );
     } catch (e) {
+      if (isMissingQuestionError(e) && skipMissingCount < ids.length) {
+        wx.showToast({ title: "题目已删除，已跳过", icon: "none" });
+        this.removeDeletedQuestionAtAndContinue(idx, skipMissingCount + 1);
+        return;
+      }
       this.setData({ loading: false, currentQuestion: null, playLoadError: e.message || "加载失败" });
     }
   },
@@ -965,10 +1112,20 @@ withPageShare({
             refreshHomeSummaryIfOpen();
           } catch (_) {}
         }
-        this.setData({ submitted: true, checkResult: cr, sessionRight: sr, sessionWrong: sw }, () => this.syncPlayButton());
+        this.setData({ submitted: true, checkResult: cr, sessionRight: sr, sessionWrong: sw }, () => {
+          this.syncPlayButton();
+          const ids = this.data.questionIds || [];
+          const idx = Number(this.data.currentIndex) || 0;
+          this.saveSeqProgressAfterQuestion(idx, ids[idx]);
+        });
       })
       .catch((e) => {
         wx.hideLoading();
+        if (isMissingQuestionError(e)) {
+          const idx = Number(this.data.currentIndex) || 0;
+          this.promptDeletedQuestionAndContinue(idx);
+          return;
+        }
         wx.showModal({
           title: "提交失败",
           content: e.message || "请检查网络后重试",
@@ -1050,8 +1207,9 @@ withPageShare({
   bumpSeqProgressHint() {
     const pm = this.data.practiceModule;
     if (pm !== "sequential" && pm !== "section") return;
-    const done = this.data.currentIndex + 1;
-    this.writeSeqProgressPos(pm, done);
+    const ids = this.data.questionIds || [];
+    const idx = Number(this.data.currentIndex) || 0;
+    this.saveSeqProgressAfterQuestion(idx, ids[idx]);
   },
 
   onExamPrev() {
@@ -1110,6 +1268,7 @@ withPageShare({
       const ua = this.getUserAnswer();
       const examAnswers = { ...this.data.examAnswers, [String(qid)]: ua };
       if (!last) {
+        this.saveSeqProgressAfterQuestion(idx, qid);
         this.setData({ examAnswers, currentIndex: idx + 1 }, () => this.loadCurrentQuestion());
         return;
       }
