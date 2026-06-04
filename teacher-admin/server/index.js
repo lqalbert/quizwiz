@@ -1551,6 +1551,127 @@ app.delete('/api/knowledge-units/:id', authRequired, async (req, res) => {
   }
 })
 
+const parsePositiveIntIds = (raw) => {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set()
+  const ids = []
+  for (const item of raw) {
+    const n = Number(item)
+    if (!Number.isInteger(n) || n <= 0 || seen.has(n)) continue
+    seen.add(n)
+    ids.push(n)
+  }
+  return ids
+}
+
+app.patch('/api/subjects/reorder', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可调整科目排序' })
+  }
+  const ids = parsePositiveIntIds(req.body?.ids)
+  if (!ids.length) {
+    return res.status(400).json({ message: 'ids 不能为空' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const existing = await client.query(`SELECT id FROM subjects ORDER BY id ASC`)
+    const existingIds = existing.rows.map((r) => Number(r.id))
+    if (ids.length !== existingIds.length || !ids.every((id) => existingIds.includes(id))) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: 'ids 须包含全部科目且不可重复' })
+    }
+    for (let i = 0; i < ids.length; i += 1) {
+      await client.query(`UPDATE subjects SET sort_order = $1 WHERE id = $2`, [i + 1, ids[i]])
+    }
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'subject.reorder',
+      targetType: 'subject',
+      targetId: 'batch',
+      detail: { ids },
+    })
+    await client.query('COMMIT')
+    return res.json({ data: { ok: true } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '科目排序保存失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+app.patch('/api/knowledge-units/reorder', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可调整知识单元排序' })
+  }
+  const subjectId = Number(req.body?.subjectId ?? req.body?.subject_id)
+  if (!Number.isInteger(subjectId) || subjectId <= 0) {
+    return res.status(400).json({ message: 'subjectId 不合法' })
+  }
+  const ids = parsePositiveIntIds(req.body?.ids)
+  if (!ids.length) {
+    return res.status(400).json({ message: 'ids 不能为空' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const subjectCheck = await client.query(`SELECT id FROM subjects WHERE id = $1 LIMIT 1`, [subjectId])
+    if (!subjectCheck.rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '科目不存在' })
+    }
+    const existing = await client.query(
+      `
+      SELECT id, name
+      FROM knowledge_units
+      WHERE subject_id = $1
+      ORDER BY id ASC
+      `,
+      [subjectId],
+    )
+    const pinnedIds = existing.rows
+      .filter((r) => String(r.name || '') === DEFAULT_KNOWLEDGE_UNIT_NAME)
+      .map((r) => Number(r.id))
+    const draggableIds = existing.rows
+      .filter((r) => String(r.name || '') !== DEFAULT_KNOWLEDGE_UNIT_NAME)
+      .map((r) => Number(r.id))
+    if (ids.length !== draggableIds.length || !ids.every((id) => draggableIds.includes(id))) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: 'ids 须包含该科目下全部可排序知识单元且不可重复（不含「未分类」）' })
+    }
+    for (let i = 0; i < ids.length; i += 1) {
+      await client.query(`UPDATE knowledge_units SET sort_order = $1 WHERE id = $2 AND subject_id = $3`, [
+        i + 1,
+        ids[i],
+        subjectId,
+      ])
+    }
+    for (const pinnedId of pinnedIds) {
+      await client.query(`UPDATE knowledge_units SET sort_order = 0 WHERE id = $1 AND subject_id = $2`, [
+        pinnedId,
+        subjectId,
+      ])
+    }
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'knowledge_unit.reorder',
+      targetType: 'knowledge_unit',
+      targetId: String(subjectId),
+      detail: { subjectId, ids },
+    })
+    await client.query('COMMIT')
+    return res.json({ data: { ok: true } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '知识单元排序保存失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
 app.get('/api/users', authRequired, async (req, res) => {
   try {
     if (!canAccessTeacherAccounts(req)) {

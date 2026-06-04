@@ -6,6 +6,7 @@ import {
   DownOutlined,
   FileProtectOutlined,
   FolderOpenOutlined,
+  HolderOutlined,
   LogoutOutlined,
   ReadOutlined,
   TeamOutlined,
@@ -43,7 +44,7 @@ import {
   Upload,
 } from 'antd'
 import type { MenuProps, TabsProps, UploadFile, UploadProps } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
 import ExcelJS from 'exceljs'
@@ -70,6 +71,7 @@ import {
   hasRole,
   isSubjectTeacherOnly,
 } from './roles'
+import { SortableOrderList, reorderById } from './SortableOrderList'
 
 const { Header, Sider, Content } = Layout
 
@@ -8197,6 +8199,79 @@ function SystemSettingsPage() {
     }
   }
 
+  const reorderSubjects = async (orderedIds: number[]) => {
+    if (!CAN_USE_API) return
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/subjects/reorder`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ ids: orderedIds }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `排序保存失败(${response.status})`)
+      message.success('科目顺序已保存')
+      await loadSubjects()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '科目排序保存失败')
+      throw error
+    }
+  }
+
+  const unitDragIdRef = useRef<number | null>(null)
+  const [unitDragOverId, setUnitDragOverId] = useState<number | null>(null)
+  const [unitReorderSaving, setUnitReorderSaving] = useState(false)
+
+  const unitDictPinnedRows = useMemo(
+    () => unitDictRows.filter((r) => r.name === '未分类'),
+    [unitDictRows],
+  )
+  const unitDictDraggableRows = useMemo(
+    () => unitDictRows.filter((r) => r.name !== '未分类'),
+    [unitDictRows],
+  )
+  const unitDictDisplayRows = useMemo(
+    () => [...unitDictPinnedRows, ...unitDictDraggableRows],
+    [unitDictPinnedRows, unitDictDraggableRows],
+  )
+
+  const reorderKnowledgeUnits = async (orderedIds: number[]) => {
+    if (!CAN_USE_API || unitDictSubjectId == null) return
+    try {
+      setUnitReorderSaving(true)
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/knowledge-units/reorder`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ subjectId: unitDictSubjectId, ids: orderedIds }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `排序保存失败(${response.status})`)
+      message.success('知识单元顺序已保存')
+      await loadUnitDictRows(unitDictSubjectId)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '知识单元排序保存失败')
+      throw error
+    } finally {
+      setUnitReorderSaving(false)
+      unitDragIdRef.current = null
+      setUnitDragOverId(null)
+    }
+  }
+
+  const handleUnitRowDrop = (targetId: number) => {
+    const dragId = unitDragIdRef.current
+    if (dragId == null || dragId === targetId) return
+    const nextDraggable = reorderById(unitDictDraggableRows, dragId, targetId)
+    if (!nextDraggable) return
+    setUnitDictRows([...unitDictPinnedRows, ...nextDraggable])
+    void reorderKnowledgeUnits(nextDraggable.map((r) => r.id))
+  }
+
   const deleteSubject = (id: number, name: string) => {
     Modal.confirm({
       title: '确认删除科目',
@@ -8232,8 +8307,10 @@ function SystemSettingsPage() {
     'exam.delete': '删除考试',
     'subject.create': '新增科目',
     'subject.delete': '删除科目',
+    'subject.reorder': '科目排序',
     'knowledge_unit.create': '新增知识单元',
     'knowledge_unit.delete': '删除知识单元',
+    'knowledge_unit.reorder': '知识单元排序',
     'user.reset_password': '重置密码',
     'user.self_profile_update': '修改个人资料',
     'user.self_password_change': '修改登录密码',
@@ -8408,13 +8485,22 @@ function SystemSettingsPage() {
             </Button>
             <Button onClick={() => void loadSubjects()}>刷新</Button>
           </Space>
-          <List
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            拖动左侧手柄调整顺序，松手后自动保存；小程序科目列表将按此顺序展示。
+          </Typography.Paragraph>
+          <SortableOrderList
+            items={subjects}
             loading={subjectLoading}
-            dataSource={subjects}
-            renderItem={(item) => (
-              <List.Item actions={[<Button key="delete" danger type="link" onClick={() => deleteSubject(item.id, item.name)}>删除</Button>]}>
-                {item.sort_order}. {item.name}
-              </List.Item>
+            onPersistOrder={reorderSubjects}
+            renderContent={(item, index) => (
+              <>
+                {index + 1}. {item.name}
+              </>
+            )}
+            renderActions={(item) => (
+              <Button key="delete" danger type="link" onClick={() => deleteSubject(item.id, item.name)}>
+                删除
+              </Button>
             )}
           />
         </Space>
@@ -8460,15 +8546,62 @@ function SystemSettingsPage() {
             </Button>
             <Button onClick={() => void loadSubjects()}>刷新科目列表</Button>
           </Space>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            拖动可排序行的手柄调整顺序（「未分类」固定在最前）；小程序该科目下的知识单元将按此顺序展示。
+          </Typography.Paragraph>
           <Table
             size="small"
-            loading={unitDictLoading}
+            loading={unitDictLoading || unitReorderSaving}
             rowKey="id"
             pagination={false}
-            dataSource={unitDictRows}
+            dataSource={unitDictDisplayRows}
             locale={{ emptyText: unitDictSubjectId ? '暂无知识单元' : '请先选择科目' }}
+            onRow={(row: { id: number; name: string; sort_order: number }) => {
+              const draggable = row.name !== '未分类'
+              return {
+                draggable,
+                style: {
+                  cursor: draggable ? 'grab' : 'default',
+                  background: unitDragOverId === row.id ? 'rgba(22, 119, 255, 0.08)' : undefined,
+                },
+                onDragStart: () => {
+                  if (!draggable) return
+                  unitDragIdRef.current = row.id
+                },
+                onDragOver: (e) => {
+                  if (!draggable || unitDragIdRef.current == null) return
+                  e.preventDefault()
+                  setUnitDragOverId(row.id)
+                },
+                onDragLeave: () => {
+                  if (unitDragOverId === row.id) setUnitDragOverId(null)
+                },
+                onDrop: (e) => {
+                  e.preventDefault()
+                  if (!draggable) return
+                  handleUnitRowDrop(row.id)
+                },
+                onDragEnd: () => {
+                  unitDragIdRef.current = null
+                  setUnitDragOverId(null)
+                },
+              }
+            }}
             columns={[
-              { title: '排序', dataIndex: 'sort_order', width: 72 },
+              {
+                title: '',
+                key: 'drag',
+                width: 40,
+                render: (_: unknown, row: { name: string }) =>
+                  row.name === '未分类' ? null : <HolderOutlined style={{ color: '#999' }} />,
+              },
+              {
+                title: '排序',
+                key: 'sort_order',
+                width: 72,
+                render: (_: unknown, row: { name: string; sort_order: number }, index: number) =>
+                  row.name === '未分类' ? 0 : index - unitDictPinnedRows.length + 1,
+              },
               { title: '名称', dataIndex: 'name' },
               {
                 title: '操作',
