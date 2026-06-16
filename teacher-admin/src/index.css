@@ -604,6 +604,20 @@ body {
   color: #cf1322;
 }
 
+.dashboard-online-bar-section {
+  width: 100%;
+}
+
+.dashboard-online-bar-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-online-bar-inner {
+  width: 100%;
+}
+
 @media (max-width: 768px) {
   .online-timeline-event {
     flex-direction: column;

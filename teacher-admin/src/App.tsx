@@ -624,6 +624,42 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: (token: string, user: A
   )
 }
 
+function splitStudentNameTwoLines(name: string): [string, string] {
+  const n = String(name || '').trim() || '—'
+  if (n.length <= 3) return [n, '']
+  const mid = Math.ceil(n.length / 2)
+  return [n.slice(0, mid), n.slice(mid)]
+}
+
+function DashboardOnlineBarTick({
+  x = 0,
+  y = 0,
+  payload,
+  index = 0,
+}: {
+  x?: number
+  y?: number
+  payload?: { value?: string }
+  index?: number
+}) {
+  const [line1, line2] = splitStudentNameTwoLines(String(payload?.value || ''))
+  const stagger = index % 2 === 1 ? 18 : 0
+  return (
+    <g transform={`translate(${x},${y + stagger})`}>
+      <text textAnchor="middle" fill="#595959" fontSize={12}>
+        <tspan x={0} dy={12}>
+          {line1}
+        </tspan>
+        {line2 ? (
+          <tspan x={0} dy={14}>
+            {line2}
+          </tspan>
+        ) : null}
+      </text>
+    </g>
+  )
+}
+
 function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: string }) {
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const navigate = useNavigate()
@@ -1019,6 +1055,20 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     return items
   }, [pendingWarningCount, overviewMetrics.pending_grade_count, overviewMetrics.ongoing_exam_count])
 
+  const onlineBarChartData = useMemo(
+    () =>
+      onlineStatsRows
+        .filter((r) => r.total_seconds > 0)
+        .map((r) => ({
+          name: r.name,
+          minutes: Math.round((r.total_seconds / 60) * 10) / 10,
+          total_seconds: r.total_seconds,
+        })),
+    [onlineStatsRows],
+  )
+
+  const onlineBarChartMinWidth = Math.max(720, onlineBarChartData.length * 80)
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Row gutter={16}>
@@ -1035,40 +1085,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           </Col>
         ))}
       </Row>
-      <Row gutter={16}>
-        <Col span={8}>
-          <Card>
-            <Statistic title="待处理学业预警" value={pendingWarningCount} valueStyle={{ color: pendingWarningCount > 0 ? '#cf1322' : undefined }} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic title="最近考试质量平均分" value={qualityAvgScore} precision={2} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic title="最近考试质量及格率" value={qualityPassRate} suffix="%" precision={2} />
-          </Card>
-        </Col>
-      </Row>
-      <Card title="班级维度统计（概览）">
-        <Table
-          loading={classStatsLoading}
-          rowKey="class_id"
-          pagination={{ pageSize: 6 }}
-          dataSource={classStats}
-          columns={[
-            { title: '班级', dataIndex: 'class_name', width: 140 },
-            { title: '学生数', dataIndex: 'student_count', width: 90 },
-            { title: '考试场次', dataIndex: 'exam_count', width: 100 },
-            { title: '提交率', render: (_: unknown, row: { submission_rate: number }) => `${row.submission_rate}%`, width: 100 },
-            { title: '平均分', dataIndex: 'avg_score', width: 90 },
-            { title: '最高分', dataIndex: 'max_score', width: 90 },
-            { title: '最低分', dataIndex: 'min_score', width: 90 },
-          ]}
-        />
-      </Card>
       <Card
         title="班级刷题排行榜"
         extra={
@@ -1215,59 +1231,67 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               />
             </Space>
           </Card>
-          <Row gutter={16}>
-            <Col span={14}>
-              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                学生在线时长对比（本周期）
-              </Typography.Text>
-              <div style={{ width: '100%', height: 280 }}>
-                {onlineStatsRows.filter((r) => r.total_seconds > 0).length === 0 ? (
-                  <Empty description="本周期暂无在线记录" />
+          <div className="dashboard-online-bar-section">
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              学生在线时长对比（本周期，仅展示有在线记录的学生）
+            </Typography.Text>
+            <div className="dashboard-online-bar-scroll">
+              <div className="dashboard-online-bar-inner" style={{ minWidth: onlineBarChartMinWidth }}>
+                {onlineBarChartData.length === 0 ? (
+                  <Empty description="本周期暂无在线记录" style={{ padding: '48px 0' }} />
                 ) : (
-                  <ResponsiveContainer>
-                    <BarChart
-                      data={onlineStatsRows
-                        .filter((r) => r.total_seconds > 0)
-                        .map((r) => ({
-                          name: r.name.length > 6 ? `${r.name.slice(0, 6)}…` : r.name,
-                          minutes: Math.round((r.total_seconds / 60) * 10) / 10,
-                        }))}
-                      margin={{ top: 8, right: 8, left: 0, bottom: 24 }}
-                    >
-                      <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" height={56} />
-                      <YAxis unit="分" />
-                      <RechartsTooltip formatter={(value) => [`${value} 分钟`, '在线时长']} />
-                      <Bar dataKey="minutes" fill={themePrimary} radius={[6, 6, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={340}>
+                    <BarChart data={onlineBarChartData} margin={{ top: 12, right: 16, left: 8, bottom: 88 }}>
+                      <XAxis
+                        dataKey="name"
+                        interval={0}
+                        tick={(props) => (
+                          <DashboardOnlineBarTick
+                            x={typeof props.x === 'number' ? props.x : Number(props.x)}
+                            y={typeof props.y === 'number' ? props.y : Number(props.y)}
+                            payload={props.payload}
+                            index={props.index}
+                          />
+                        )}
+                        height={88}
+                      />
+                      <YAxis unit="分" allowDecimals />
+                      <RechartsTooltip
+                        formatter={(value, _name, item) => {
+                          const row = item?.payload as { total_seconds?: number; name?: string } | undefined
+                          const sec = Number(row?.total_seconds || 0)
+                          return [`${value} 分钟（${formatDurationSeconds(sec)}）`, row?.name || '学生']
+                        }}
+                      />
+                      <Bar dataKey="minutes" fill={themePrimary} radius={[6, 6, 0, 0]} maxBarSize={48} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
               </div>
-            </Col>
-            <Col span={10}>
-              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                近 14 日班级在线总时长
-              </Typography.Text>
-              <div style={{ width: '100%', height: 280 }}>
-                {onlineDailyTotals.length === 0 ? (
-                  <Empty description="暂无日汇总数据" />
-                ) : (
-                  <ResponsiveContainer>
-                    <LineChart
-                      data={onlineDailyTotals.map((r) => ({
-                        name: r.day.slice(5),
-                        minutes: Math.round((r.total_seconds / 60) * 10) / 10,
-                      }))}
-                    >
-                      <XAxis dataKey="name" />
-                      <YAxis unit="分" />
-                      <RechartsTooltip formatter={(value) => [`${value} 分钟`, '班级总时长']} />
-                      <Line type="monotone" dataKey="minutes" stroke={themePrimary} strokeWidth={2} dot={{ r: 3 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </Col>
-          </Row>
+            </div>
+          </div>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            近 14 日班级在线总时长
+          </Typography.Text>
+          <div style={{ width: '100%', height: 260 }}>
+            {onlineDailyTotals.length === 0 ? (
+              <Empty description="暂无日汇总数据" />
+            ) : (
+              <ResponsiveContainer>
+                <LineChart
+                  data={onlineDailyTotals.map((r) => ({
+                    name: r.day.slice(5),
+                    minutes: Math.round((r.total_seconds / 60) * 10) / 10,
+                  }))}
+                >
+                  <XAxis dataKey="name" />
+                  <YAxis unit="分" />
+                  <RechartsTooltip formatter={(value) => [`${value} 分钟`, '班级总时长']} />
+                  <Line type="monotone" dataKey="minutes" stroke={themePrimary} strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
           <Table
             loading={onlineStatsLoading || classStatsLoading}
             rowKey="student_id"
@@ -1307,6 +1331,40 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             ]}
           />
         </Space>
+      </Card>
+      <Row gutter={16}>
+        <Col span={8}>
+          <Card>
+            <Statistic title="待处理学业预警" value={pendingWarningCount} valueStyle={{ color: pendingWarningCount > 0 ? '#cf1322' : undefined }} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="最近考试质量平均分" value={qualityAvgScore} precision={2} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="最近考试质量及格率" value={qualityPassRate} suffix="%" precision={2} />
+          </Card>
+        </Col>
+      </Row>
+      <Card title="班级维度统计（概览）">
+        <Table
+          loading={classStatsLoading}
+          rowKey="class_id"
+          pagination={{ pageSize: 6 }}
+          dataSource={classStats}
+          columns={[
+            { title: '班级', dataIndex: 'class_name', width: 140 },
+            { title: '学生数', dataIndex: 'student_count', width: 90 },
+            { title: '考试场次', dataIndex: 'exam_count', width: 100 },
+            { title: '提交率', render: (_: unknown, row: { submission_rate: number }) => `${row.submission_rate}%`, width: 100 },
+            { title: '平均分', dataIndex: 'avg_score', width: 90 },
+            { title: '最高分', dataIndex: 'max_score', width: 90 },
+            { title: '最低分', dataIndex: 'min_score', width: 90 },
+          ]}
+        />
       </Card>
       <Card title="近期成绩趋势（默认首个可见班级，最近 5 次考试均分）" loading={trendLoading}>
         <div style={{ width: '100%', height: 280 }}>
