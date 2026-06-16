@@ -1,4 +1,5 @@
 const { getApiBase, getExpectedMiniProgramAppId } = require("./utils/config.js");
+const { handleAppShow: trackOnlineShow, handleAppHide: trackOnlineHide } = require("./utils/onlineSession.js");
 
 App({
   globalData: {
@@ -39,5 +40,10 @@ App({
   onShow() {
     const token = wx.getStorageSync("student_token") || "";
     this.globalData.token = token;
+    void trackOnlineShow();
+  },
+
+  onHide() {
+    void trackOnlineHide();
   },
 });

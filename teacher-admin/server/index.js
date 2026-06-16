@@ -4533,7 +4533,31 @@ const rawWrongAttempts = (r) => {
   return Number.isFinite(w) && w >= 0 ? w : 0
 }
 
-/** 班级内排名：按 答题数×正确率（比例）；正确率用原始判题答错次数计算。平局：答题数（展示）多、展示错题数少者靠前 */
+const practiceCorrectAttempts = (r) => {
+  const total = Number(r.total_attempts || 0)
+  if (total <= 0) return 0
+  return Math.max(0, total - rawWrongAttempts(r))
+}
+
+/** 排名得分：答题正确数 × 正确率（正确率按本周期判题次数） */
+const practiceRankScore = (r) => {
+  const total = Number(r.total_attempts || 0)
+  if (total <= 0) return -1
+  const correct = practiceCorrectAttempts(r)
+  return correct * (correct / total)
+}
+
+const comparePracticeRankRows = (a, b) => {
+  const d = practiceRankScore(b) - practiceRankScore(a)
+  if (Math.abs(d) > 1e-9) return d
+  const cb = practiceCorrectAttempts(b)
+  const ca = practiceCorrectAttempts(a)
+  if (cb !== ca) return cb - ca
+  if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
+  return a.wrong_count - b.wrong_count
+}
+
+/** 班级内排名：按 答题正确数×正确率；平局：正确次数多、答题数多、错题数少者靠前 */
 const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   const mine = merged.find((x) => x.student_id === studentId) || {
     student_id: studentId,
@@ -4549,19 +4573,8 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   const practice_questions = mine.practice_questions
   const wrong = mine.wrong_count
 
-  const rankProduct = (r) => {
-    const t = r.total_attempts
-    if (t <= 0) return -1
-    const rw0 = rawWrongAttempts(r)
-    return (r.practice_questions * (t - rw0)) / t
-  }
   const active = merged.filter((r) => r.total_attempts > 0)
-  active.sort((a, b) => {
-    const d = rankProduct(b) - rankProduct(a)
-    if (Math.abs(d) > 1e-9) return d
-    if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
-    return a.wrong_count - b.wrong_count
-  })
+  active.sort(comparePracticeRankRows)
   const idx = active.findIndex((r) => r.student_id === studentId)
   const inClass = Number(inClassPeerCount || 0) > 0
   const class_rank = inClass && idx >= 0 ? idx + 1 : null
@@ -4807,19 +4820,8 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
   }
 
   const merged = mergePeerPracticeRows(classPeerIds, aggRows)
-  const rankProduct = (r) => {
-    const t = r.total_attempts
-    if (t <= 0) return -1
-    const rw0 = rawWrongAttempts(r)
-    return (r.practice_questions * (t - rw0)) / t
-  }
   const active = merged.filter((r) => r.total_attempts > 0)
-  active.sort((a, b) => {
-    const d = rankProduct(b) - rankProduct(a)
-    if (Math.abs(d) > 1e-9) return d
-    if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
-    return a.wrong_count - b.wrong_count
-  })
+  active.sort(comparePracticeRankRows)
   const nameR = await executor.query(
     `SELECT id, name, real_name, student_no, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name FROM students WHERE id = ANY($1::bigint[])`,
     [classPeerIds],
@@ -4851,6 +4853,112 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
   })
   return { period: p, rows }
 }
+
+const ONLINE_SESSION_MAX_SECONDS = 12 * 3600
+
+const closeStudentOnlineSession = async (client, sessionId, studentId) => {
+  const upd = await client.query(
+    `
+    UPDATE student_online_sessions
+    SET ended_at = NOW(),
+        duration_seconds = GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))
+    WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+    RETURNING duration_seconds, online_date
+    `,
+    [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
+  )
+  const row = upd.rows[0]
+  if (!row) return null
+  const duration = Number(row.duration_seconds || 0)
+  if (duration > 0) {
+    await client.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      VALUES ($1, $2, $3, 1)
+      ON CONFLICT (student_id, online_date) DO UPDATE SET
+        total_seconds = student_online_day.total_seconds + EXCLUDED.total_seconds,
+        session_count = student_online_day.session_count + 1
+      `,
+      [studentId, row.online_date, duration],
+    )
+  }
+  return row
+}
+
+const onlineSessionEffectiveSecondsSql = `CASE
+  WHEN sos.ended_at IS NOT NULL THEN COALESCE(sos.duration_seconds, 0)
+  ELSE GREATEST(0, LEAST(${ONLINE_SESSION_MAX_SECONDS}, EXTRACT(EPOCH FROM (NOW() - sos.started_at))::int))
+END`
+
+const onlinePeriodStartExpr = (period) => {
+  const p = String(period || 'today').toLowerCase()
+  if (p === 'week') {
+    return `(date_trunc('week', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
+  }
+  if (p === 'month') {
+    return `(date_trunc('month', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
+  }
+  if (p === 'all') return null
+  return `(date_trunc('day', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
+}
+
+/** 小程序进入前台：开始在线会话 */
+app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const openR = await client.query(
+      `SELECT id FROM student_online_sessions WHERE student_id = $1 AND ended_at IS NULL ORDER BY started_at ASC`,
+      [studentId],
+    )
+    for (const row of openR.rows) {
+      await closeStudentOnlineSession(client, Number(row.id), studentId)
+    }
+    const dateR = await client.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
+    const onlineDate = dateR.rows[0]?.d
+    const ins = await client.query(
+      `
+      INSERT INTO student_online_sessions (student_id, started_at, online_date)
+      VALUES ($1, NOW(), $2)
+      RETURNING id
+      `,
+      [studentId, onlineDate],
+    )
+    await client.query('COMMIT')
+    return res.json({ data: { session_id: Number(ins.rows[0]?.id || 0) } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '开始在线会话失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+/** 小程序切出前台：结束在线会话 */
+app.post('/api/student/online-sessions/end', studentAuthRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  const sessionId = Number(req.body?.session_id ?? req.body?.sessionId)
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ message: 'session_id 不合法' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const row = await closeStudentOnlineSession(client, sessionId, studentId)
+    if (!row) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '会话不存在或已结束' })
+    }
+    await client.query('COMMIT')
+    return res.json({ data: { session_id: sessionId, duration_seconds: Number(row.duration_seconds || 0) } })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '结束在线会话失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
 
 /** 本周期班级刷题排名列表（含姓名），period=today|week|month|all */
 app.get('/api/student/stats/practice-class-rank', studentAuthRequired, async (req, res) => {
@@ -5447,6 +5555,38 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
       [studentId],
     )
 
+    const onlineDailyR = await client.query(
+      `
+      SELECT online_date::text AS online_date, total_seconds::int AS total_seconds, session_count::int AS session_count
+      FROM student_online_day
+      WHERE student_id = $1
+      ORDER BY online_date DESC
+      LIMIT 21
+      `,
+      [studentId],
+    )
+    const online30R = await client.query(
+      `
+      SELECT COALESCE(SUM(total_seconds), 0)::int AS total_seconds
+      FROM student_online_day
+      WHERE student_id = $1
+        AND online_date >= ((timezone('Asia/Shanghai', now()))::date - 29)
+      `,
+      [studentId],
+    )
+    const onlineOpenR = await client.query(
+      `
+      SELECT COALESCE(SUM(
+        GREATEST(0, LEAST($2::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))
+      ), 0)::int AS open_seconds
+      FROM student_online_sessions
+      WHERE student_id = $1 AND ended_at IS NULL
+      `,
+      [studentId, ONLINE_SESSION_MAX_SECONDS],
+    )
+    const online30Seconds =
+      Number(online30R.rows[0]?.total_seconds || 0) + Number(onlineOpenR.rows[0]?.open_seconds || 0)
+
     const examsR = await client.query(
       `
       SELECT
@@ -5509,6 +5649,14 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
         practice_daily: dailyR.rows.map((r) => ({
           practice_date: r.practice_date,
           attempts: Number(r.attempts || 0),
+        })),
+        online_summary: {
+          total_seconds_30d: online30Seconds,
+        },
+        online_daily: onlineDailyR.rows.map((r) => ({
+          online_date: r.online_date,
+          total_seconds: Number(r.total_seconds || 0),
+          session_count: Number(r.session_count || 0),
         })),
         exams: examsR.rows.map((row) => ({
           exam_id: Number(row.exam_id),
@@ -6183,6 +6331,98 @@ app.get('/api/dashboard/practice-class-rank', authRequired, async (req, res) => 
     })
   } catch (error) {
     return res.status(500).json({ message: '加载班级刷题排行失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 教师端：班级学生小程序在线时长（切出即断开） */
+app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) => {
+  const period = String(req.query.period || 'today').toLowerCase()
+  const classId = Number(req.query.classId ?? req.query.class_id)
+  if (!['today', 'week', 'month', 'all'].includes(period)) {
+    return res.status(400).json({ message: 'period 仅支持 today、week、month、all' })
+  }
+  if (!Number.isInteger(classId) || classId <= 0) {
+    return res.status(400).json({ message: 'classId 不合法' })
+  }
+  try {
+    const { accessSql, values } = buildVisibleClassesAccessSql(req)
+    const checkValues = [...values, classId]
+    const classIdPh = `$${checkValues.length}`
+    const classWhere = accessSql ? `${accessSql} AND c.id = ${classIdPh}` : `WHERE c.id = ${classIdPh}`
+    const classResult = await pool.query(
+      `SELECT c.id, c.name FROM classes c ${classWhere} LIMIT 1`,
+      checkValues,
+    )
+    const classRow = classResult.rows[0]
+    if (!classRow) {
+      return res.status(404).json({ message: '班级不存在或无权查看' })
+    }
+
+    const periodStart = onlinePeriodStartExpr(period)
+    const periodCond = periodStart ? `AND sos.started_at >= ${periodStart}` : ''
+
+    const statsResult = await pool.query(
+      `
+      SELECT
+        cm.student_id,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
+        s.student_no,
+        COALESCE(SUM(${onlineSessionEffectiveSecondsSql}), 0)::int AS total_seconds,
+        COUNT(sos.id)::int AS session_count
+      FROM class_members cm
+      INNER JOIN students s ON s.id = cm.student_id
+      LEFT JOIN student_online_sessions sos
+        ON sos.student_id = cm.student_id
+        ${periodCond}
+      WHERE cm.class_id = $1
+      GROUP BY cm.student_id, display_name, s.student_no
+      ORDER BY total_seconds DESC, display_name ASC
+      `,
+      [classId],
+    )
+
+    const dailyResult = await pool.query(
+      `
+      SELECT
+        sod.online_date::text AS day,
+        COALESCE(SUM(sod.total_seconds), 0)::int AS total_seconds
+      FROM student_online_day sod
+      INNER JOIN class_members cm ON cm.student_id = sod.student_id AND cm.class_id = $1
+      WHERE sod.online_date >= ((timezone('Asia/Shanghai', now()))::date - 13)
+      GROUP BY sod.online_date
+      ORDER BY sod.online_date ASC
+      `,
+      [classId],
+    )
+
+    const rows = statsResult.rows.map((row, index) => ({
+      rank: index + 1,
+      student_id: Number(row.student_id),
+      name: String(row.display_name || '').trim() || '同学',
+      student_no: String(row.student_no || '').trim(),
+      total_seconds: Number(row.total_seconds || 0),
+      session_count: Number(row.session_count || 0),
+    }))
+    const classTotalSeconds = rows.reduce((sum, row) => sum + row.total_seconds, 0)
+    const activeCount = rows.filter((row) => row.total_seconds > 0).length
+
+    return res.json({
+      data: {
+        period,
+        class_id: Number(classRow.id),
+        class_name: String(classRow.name || ''),
+        student_count: rows.length,
+        active_count: activeCount,
+        class_total_seconds: classTotalSeconds,
+        rows,
+        daily_totals: dailyResult.rows.map((row) => ({
+          day: row.day,
+          total_seconds: Number(row.total_seconds || 0),
+        })),
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载在线时长统计失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 

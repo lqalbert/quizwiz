@@ -556,6 +556,16 @@ async function fetchQuestionPreviewDetails(ids: number[]): Promise<{ items: Ques
   return { items, errorCount }
 }
 
+function formatDurationSeconds(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0))
+  if (sec < 60) return `${sec} 秒`
+  const minutes = Math.floor(sec / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  const rem = minutes % 60
+  return rem > 0 ? `${hours} 小时 ${rem} 分钟` : `${hours} 小时`
+}
+
 function LoginPage({ onLoginSuccess }: { onLoginSuccess: (token: string, user: AuthUser) => void }) {
   const navigate = useNavigate()
   const [loginLoading, setLoginLoading] = useState(false)
@@ -670,6 +680,26 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       accuracy_pct: number
     }>
   >([])
+  const [onlineStatsPeriod, setOnlineStatsPeriod] = useState<PracticeRankPeriod>('today')
+  const [onlineStatsClassId, setOnlineStatsClassId] = useState<number | undefined>(undefined)
+  const [onlineStatsLoading, setOnlineStatsLoading] = useState(false)
+  const [onlineStatsSummary, setOnlineStatsSummary] = useState({
+    class_name: '',
+    student_count: 0,
+    active_count: 0,
+    class_total_seconds: 0,
+  })
+  const [onlineStatsRows, setOnlineStatsRows] = useState<
+    Array<{
+      rank: number
+      student_id: number
+      name: string
+      student_no: string
+      total_seconds: number
+      session_count: number
+    }>
+  >([])
+  const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
 
   const cards =
     role === 'subject_teacher'
@@ -788,7 +818,13 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     if (practiceRankClassId != null && !classStats.some((c) => Number(c.class_id) === practiceRankClassId)) {
       setPracticeRankClassId(classStats[0] ? Number(classStats[0].class_id) : undefined)
     }
-  }, [classStats, practiceRankClassId])
+    if (onlineStatsClassId == null && classStats.length > 0) {
+      setOnlineStatsClassId(Number(classStats[0].class_id))
+    }
+    if (onlineStatsClassId != null && !classStats.some((c) => Number(c.class_id) === onlineStatsClassId)) {
+      setOnlineStatsClassId(classStats[0] ? Number(classStats[0].class_id) : undefined)
+    }
+  }, [classStats, practiceRankClassId, onlineStatsClassId])
 
   useEffect(() => {
     const loadPracticeRank = async () => {
@@ -835,6 +871,55 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     }
     void loadPracticeRank()
   }, [authToken, practiceRankClassId, practiceRankPeriod])
+
+  useEffect(() => {
+    const loadOnlineStats = async () => {
+      if (!CAN_USE_API || onlineStatsClassId == null) {
+        setOnlineStatsRows([])
+        setOnlineDailyTotals([])
+        setOnlineStatsSummary({
+          class_name: '',
+          student_count: 0,
+          active_count: 0,
+          class_total_seconds: 0,
+        })
+        return
+      }
+      try {
+        setOnlineStatsLoading(true)
+        const params = new URLSearchParams()
+        params.set('classId', String(onlineStatsClassId))
+        params.set('period', onlineStatsPeriod)
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload?.message || `加载在线时长失败(${response.status})`)
+        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+        setOnlineStatsRows(Array.isArray(data.rows) ? data.rows : [])
+        setOnlineDailyTotals(Array.isArray(data.daily_totals) ? data.daily_totals : [])
+        setOnlineStatsSummary({
+          class_name: String(data.class_name || ''),
+          student_count: Number(data.student_count || 0),
+          active_count: Number(data.active_count || 0),
+          class_total_seconds: Number(data.class_total_seconds || 0),
+        })
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '加载在线时长失败')
+        setOnlineStatsRows([])
+        setOnlineDailyTotals([])
+        setOnlineStatsSummary({
+          class_name: '',
+          student_count: 0,
+          active_count: 0,
+          class_total_seconds: 0,
+        })
+      } finally {
+        setOnlineStatsLoading(false)
+      }
+    }
+    void loadOnlineStats()
+  }, [authToken, onlineStatsClassId, onlineStatsPeriod])
 
   useEffect(() => {
     const loadTrend = async () => {
@@ -982,7 +1067,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         title="班级刷题排行榜"
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            排名规则与小程序一致
+            排名规则：答题正确数 × 正确率（与小程序一致）
           </Typography.Text>
         }
       >
@@ -1037,6 +1122,124 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                 width: 90,
                 render: (v: number) => `${v}%`,
               },
+            ]}
+          />
+        </Space>
+      </Card>
+      <Card
+        title="班级在线时长"
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            切出小程序即断开
+          </Typography.Text>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space wrap>
+            <Segmented
+              value={onlineStatsPeriod}
+              options={practicePeriodOptions.map((o) => ({ label: o.label, value: o.value }))}
+              onChange={(value) => setOnlineStatsPeriod(value as PracticeRankPeriod)}
+            />
+            <Select
+              placeholder="选择班级"
+              style={{ minWidth: 180 }}
+              value={onlineStatsClassId}
+              onChange={(value) => setOnlineStatsClassId(Number(value))}
+              options={classStats.map((c) => ({ value: Number(c.class_id), label: c.class_name }))}
+            />
+          </Space>
+          <Row gutter={12}>
+            <Col span={6}>
+              <Statistic title="班级人数" value={onlineStatsSummary.student_count} />
+            </Col>
+            <Col span={6}>
+              <Statistic title="本周期有在线" value={onlineStatsSummary.active_count} suffix="人" />
+            </Col>
+            <Col span={6}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                本周期班级总时长
+              </Typography.Text>
+              <Typography.Text strong>{formatDurationSeconds(onlineStatsSummary.class_total_seconds)}</Typography.Text>
+            </Col>
+            <Col span={6}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                当前班级
+              </Typography.Text>
+              <Typography.Text strong>{onlineStatsSummary.class_name || '—'}</Typography.Text>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={14}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                学生在线时长对比（本周期）
+              </Typography.Text>
+              <div style={{ width: '100%', height: 280 }}>
+                {onlineStatsRows.filter((r) => r.total_seconds > 0).length === 0 ? (
+                  <Empty description="本周期暂无在线记录" />
+                ) : (
+                  <ResponsiveContainer>
+                    <BarChart
+                      data={onlineStatsRows
+                        .filter((r) => r.total_seconds > 0)
+                        .map((r) => ({
+                          name: r.name.length > 6 ? `${r.name.slice(0, 6)}…` : r.name,
+                          minutes: Math.round((r.total_seconds / 60) * 10) / 10,
+                        }))}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 24 }}
+                    >
+                      <XAxis dataKey="name" interval={0} angle={-20} textAnchor="end" height={56} />
+                      <YAxis unit="分" />
+                      <RechartsTooltip formatter={(value) => [`${value} 分钟`, '在线时长']} />
+                      <Bar dataKey="minutes" fill={themePrimary} radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Col>
+            <Col span={10}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                近 14 日班级在线总时长
+              </Typography.Text>
+              <div style={{ width: '100%', height: 280 }}>
+                {onlineDailyTotals.length === 0 ? (
+                  <Empty description="暂无日汇总数据" />
+                ) : (
+                  <ResponsiveContainer>
+                    <LineChart
+                      data={onlineDailyTotals.map((r) => ({
+                        name: r.day.slice(5),
+                        minutes: Math.round((r.total_seconds / 60) * 10) / 10,
+                      }))}
+                    >
+                      <XAxis dataKey="name" />
+                      <YAxis unit="分" />
+                      <RechartsTooltip formatter={(value) => [`${value} 分钟`, '班级总时长']} />
+                      <Line type="monotone" dataKey="minutes" stroke={themePrimary} strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Col>
+          </Row>
+          <Table
+            loading={onlineStatsLoading || classStatsLoading}
+            rowKey="student_id"
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            dataSource={onlineStatsRows}
+            locale={{ emptyText: onlineStatsClassId ? '本周期暂无在线记录' : '请先选择班级' }}
+            scroll={{ x: 720 }}
+            columns={[
+              { title: '排名', dataIndex: 'rank', width: 72 },
+              { title: '姓名', dataIndex: 'name', width: 120 },
+              { title: '学号', dataIndex: 'student_no', width: 120, render: (v: string) => v || '—' },
+              {
+                title: '在线时长',
+                dataIndex: 'total_seconds',
+                width: 140,
+                render: (v: number) => formatDurationSeconds(v),
+              },
+              { title: '会话次数', dataIndex: 'session_count', width: 100 },
             ]}
           />
         </Space>
@@ -1097,6 +1300,8 @@ type ClassStudentInsightPayload = {
     practice_events_30d: number
   }
   practice_daily: Array<{ practice_date: string; attempts: number }>
+  online_summary: { total_seconds_30d: number }
+  online_daily: Array<{ online_date: string; total_seconds: number; session_count: number }>
   exams: Array<{
     exam_id: number
     title: string
@@ -2032,6 +2237,27 @@ function ClassPage() {
                   { title: '当日作答次数', dataIndex: 'attempts', width: 160 },
                 ]}
                 locale={{ emptyText: '暂无按日汇总数据' }}
+              />
+            </Card>
+            <Card size="small" title="小程序在线时长（切出即断开）">
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                近 30 日累计在线：{formatDurationSeconds(studentInsightData.online_summary?.total_seconds_30d || 0)}
+              </Typography.Paragraph>
+              <Table
+                size="small"
+                pagination={false}
+                dataSource={(studentInsightData.online_daily || []).map((r) => ({ ...r, key: r.online_date }))}
+                columns={[
+                  { title: '日期', dataIndex: 'online_date', width: 140 },
+                  {
+                    title: '在线时长',
+                    dataIndex: 'total_seconds',
+                    width: 140,
+                    render: (v: number) => formatDurationSeconds(v),
+                  },
+                  { title: '会话次数', dataIndex: 'session_count', width: 100 },
+                ]}
+                locale={{ emptyText: '暂无在线记录（学生登录并使用小程序后才有数据）' }}
               />
             </Card>
             <Card size="small" title="与本班关联的考试（含未参与，最多 100 场）">

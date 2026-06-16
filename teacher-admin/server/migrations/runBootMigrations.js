@@ -436,6 +436,52 @@ const ensureExamProctorSchema = async () => {
   )
 }
 
+/** 小程序前台在线时长：onAppShow 开始会话，onAppHide 结束 */
+const ensureStudentOnlineSchema = async () => {
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS student_online_sessions (
+      id BIGSERIAL PRIMARY KEY,
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      duration_seconds INT,
+      online_date DATE NOT NULL
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_online_sessions_student_started
+    ON student_online_sessions (student_id, started_at DESC)
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_online_sessions_student_open
+    ON student_online_sessions (student_id)
+    WHERE ended_at IS NULL
+    `,
+  )
+  await pool.query(
+    `
+    CREATE TABLE IF NOT EXISTS student_online_day (
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      online_date DATE NOT NULL,
+      total_seconds INT NOT NULL DEFAULT 0,
+      session_count INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (student_id, online_date)
+    )
+    `,
+  )
+  await pool.query(
+    `
+    CREATE INDEX IF NOT EXISTS idx_student_online_day_student_date
+    ON student_online_day (student_id, online_date DESC)
+    `,
+  )
+}
+
 /** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
 export async function runBootMigrations() {
   await ensureKnowledgeUnitSchema()
@@ -452,4 +498,5 @@ export async function runBootMigrations() {
   await ensureStudentPracticeSchema()
   await ensureStudentWechatSchema()
   await ensureExamProctorSchema()
+  await ensureStudentOnlineSchema()
 }
