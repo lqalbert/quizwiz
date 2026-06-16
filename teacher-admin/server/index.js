@@ -4876,18 +4876,41 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
   return { period: p, rows }
 }
 
-const ONLINE_SESSION_MAX_SECONDS = 12 * 3600
+/** 单会话绝对上限（防异常）；正常统计以心跳末次时间为准 */
+const ONLINE_SESSION_MAX_SECONDS = 4 * 3600
+/** 超过该秒数未心跳，视为已离线 */
+const ONLINE_HEARTBEAT_STALE_SECONDS = 180
+/** 末次心跳后再计入的缓冲秒数（覆盖一次心跳间隔） */
+const ONLINE_HEARTBEAT_TAIL_SECONDS = 90
 
-const closeStudentOnlineSession = async (client, sessionId, studentId) => {
+const onlineSessionEffectiveEndSql = (alias = 'sos') => `CASE
+  WHEN ${alias}.ended_at IS NOT NULL THEN ${alias}.ended_at
+  WHEN ${alias}.last_heartbeat_at IS NOT NULL
+    AND ${alias}.last_heartbeat_at < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
+    THEN ${alias}.last_heartbeat_at + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+  ELSE NOW()
+END`
+
+const closeStudentOnlineSession = async (client, sessionId, studentId, { atForegroundHide = false } = {}) => {
+  const durationExpr = atForegroundHide
+    ? `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))`
+    : `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (
+        LEAST(
+          NOW(),
+          COALESCE(last_heartbeat_at, started_at) + ($4::int * INTERVAL '1 second')
+        ) - started_at
+      ))::int))`
   const upd = await client.query(
     `
     UPDATE student_online_sessions
     SET ended_at = NOW(),
-        duration_seconds = GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))
+        duration_seconds = ${durationExpr}
     WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
     RETURNING duration_seconds, online_date
     `,
-    [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
+    atForegroundHide
+      ? [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS]
+      : [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS, ONLINE_HEARTBEAT_TAIL_SECONDS],
   )
   const row = upd.rows[0]
   if (!row) return null
@@ -4909,7 +4932,13 @@ const closeStudentOnlineSession = async (client, sessionId, studentId) => {
 
 const onlineSessionEffectiveSecondsSql = `CASE
   WHEN sos.ended_at IS NOT NULL THEN COALESCE(sos.duration_seconds, 0)
-  ELSE GREATEST(0, LEAST(${ONLINE_SESSION_MAX_SECONDS}, EXTRACT(EPOCH FROM (NOW() - sos.started_at))::int))
+  ELSE GREATEST(
+    0,
+    LEAST(
+      ${ONLINE_SESSION_MAX_SECONDS},
+      EXTRACT(EPOCH FROM (${onlineSessionEffectiveEndSql('sos')} - sos.started_at))::int
+    )
+  )
 END`
 
 const onlinePeriodStartExpr = (period) => {
@@ -4941,8 +4970,8 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
     const onlineDate = dateR.rows[0]?.d
     const ins = await client.query(
       `
-      INSERT INTO student_online_sessions (student_id, started_at, online_date)
-      VALUES ($1, NOW(), $2)
+      INSERT INTO student_online_sessions (student_id, started_at, online_date, last_heartbeat_at)
+      VALUES ($1, NOW(), $2, NOW())
       RETURNING id
       `,
       [studentId, onlineDate],
@@ -4967,7 +4996,7 @@ app.post('/api/student/online-sessions/end', studentAuthRequired, async (req, re
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const row = await closeStudentOnlineSession(client, sessionId, studentId)
+    const row = await closeStudentOnlineSession(client, sessionId, studentId, { atForegroundHide: true })
     if (!row) {
       await client.query('ROLLBACK')
       return res.status(404).json({ message: '会话不存在或已结束' })
@@ -4979,6 +5008,32 @@ app.post('/api/student/online-sessions/end', studentAuthRequired, async (req, re
     return res.status(500).json({ message: '结束在线会话失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
+  }
+})
+
+/** 小程序前台心跳：用于准确统计在线时长，避免未触发 onHide 时整段后台时间被计入 */
+app.post('/api/student/online-sessions/heartbeat', studentAuthRequired, async (req, res) => {
+  const studentId = req.studentAuth.studentId
+  const sessionId = Number(req.body?.session_id ?? req.body?.sessionId)
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ message: 'session_id 不合法' })
+  }
+  try {
+    const upd = await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET last_heartbeat_at = NOW()
+      WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+      RETURNING id
+      `,
+      [sessionId, studentId],
+    )
+    if (!upd.rows[0]) {
+      return res.status(404).json({ message: '会话不存在或已结束' })
+    }
+    return res.json({ data: { session_id: sessionId, ok: true } })
+  } catch (error) {
+    return res.status(500).json({ message: '心跳上报失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 
@@ -5598,13 +5653,11 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
     )
     const onlineOpenR = await client.query(
       `
-      SELECT COALESCE(SUM(
-        GREATEST(0, LEAST($2::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))
-      ), 0)::int AS open_seconds
-      FROM student_online_sessions
-      WHERE student_id = $1 AND ended_at IS NULL
+      SELECT COALESCE(SUM(${onlineSessionEffectiveSecondsSql}), 0)::int AS open_seconds
+      FROM student_online_sessions sos
+      WHERE sos.student_id = $1 AND sos.ended_at IS NULL
       `,
-      [studentId, ONLINE_SESSION_MAX_SECONDS],
+      [studentId],
     )
     const online30Seconds =
       Number(online30R.rows[0]?.total_seconds || 0) + Number(onlineOpenR.rows[0]?.open_seconds || 0)
@@ -6458,6 +6511,24 @@ const parseShanghaiCalendarDateInput = (raw) => {
 /** 将某日上海日历 00:00 转为 UTC 时刻（用于与 timestamptz 比较） */
 const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`
 
+const sessionEffectiveEndMs = (row, nowMs) => {
+  if (row.ended_at) return new Date(row.ended_at).getTime()
+  const startedMs = new Date(row.started_at).getTime()
+  const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
+  if (nowMs - hbMs > ONLINE_HEARTBEAT_STALE_SECONDS * 1000) {
+    return hbMs + ONLINE_HEARTBEAT_TAIL_SECONDS * 1000
+  }
+  return nowMs
+}
+
+const sessionIsActivelyOpen = (row, nowMs) => {
+  if (row.ended_at) return false
+  const hbMs = row.last_heartbeat_at
+    ? new Date(row.last_heartbeat_at).getTime()
+    : new Date(row.started_at).getTime()
+  return nowMs - hbMs <= ONLINE_HEARTBEAT_STALE_SECONDS * 1000
+}
+
 const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = new Date()) => {
   const dayStartMs = Date.parse(shanghaiDayStartParam(dayStr))
   const dayEndExclusiveMs = dayStartMs + 86400000
@@ -6484,7 +6555,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   const clipped = []
   for (const row of sessionRows || []) {
     const startedMs = new Date(row.started_at).getTime()
-    const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : nowMs
+    const endedMs = sessionEffectiveEndMs(row, nowMs)
     const clipStartMs = Math.max(startedMs, dayStartMs)
     const clipEndMs = Math.min(endedMs, dayCapEndMs)
     if (clipEndMs <= clipStartMs) continue
@@ -6492,7 +6563,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
       id: Number(row.id),
       started_at: row.started_at,
       ended_at: row.ended_at,
-      is_open: !row.ended_at,
+      is_open: sessionIsActivelyOpen(row, nowMs),
       duration_seconds: row.duration_seconds != null ? Number(row.duration_seconds) : null,
       clip_start: new Date(clipStartMs).toISOString(),
       clip_end: new Date(clipEndMs).toISOString(),
@@ -6621,7 +6692,7 @@ app.get('/api/dashboard/student-online-timeline', authRequired, async (req, res)
     const dayEndExclusive = `${dayStr}T24:00:00+08:00`
     const sessionsR = await pool.query(
       `
-      SELECT id, started_at, ended_at, duration_seconds
+      SELECT id, started_at, ended_at, duration_seconds, last_heartbeat_at
       FROM student_online_sessions
       WHERE student_id = $1
         AND started_at < $3::timestamptz

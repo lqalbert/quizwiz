@@ -480,6 +480,51 @@ const ensureStudentOnlineSchema = async () => {
     ON student_online_day (student_id, online_date DESC)
     `,
   )
+  await pool.query(
+    `ALTER TABLE student_online_sessions ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ`,
+  )
+  await pool.query(
+    `
+    UPDATE student_online_sessions
+    SET last_heartbeat_at = COALESCE(last_heartbeat_at, ended_at, started_at)
+    WHERE last_heartbeat_at IS NULL
+    `,
+  )
+  /** 一次性修复：旧版孤儿会话被 12h 上限写满 */
+  const badCapR = await pool.query(
+    `
+    SELECT 1
+    FROM student_online_sessions
+    WHERE ended_at IS NOT NULL
+      AND COALESCE(duration_seconds, 0) >= 43200
+    LIMIT 1
+    `,
+  )
+  if (badCapR.rows.length > 0) {
+    await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET duration_seconds = 0
+      WHERE ended_at IS NOT NULL
+        AND COALESCE(duration_seconds, 0) >= 43200
+      `,
+    )
+    await pool.query(`DELETE FROM student_online_day`)
+    await pool.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      SELECT
+        student_id,
+        online_date,
+        COALESCE(SUM(duration_seconds), 0)::int,
+        COUNT(*)::int
+      FROM student_online_sessions
+      WHERE ended_at IS NOT NULL
+        AND COALESCE(duration_seconds, 0) > 0
+      GROUP BY student_id, online_date
+      `,
+    )
+  }
 }
 
 /** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
