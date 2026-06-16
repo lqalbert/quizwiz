@@ -18,7 +18,8 @@
         <text class="rank-name">{{item.name}}</text>
       </view>
       <view class="rank-stats">
-        <text class="rank-stat">答题 {{item.practice_questions}}</text>
+        <text class="rank-stat">答对 {{item.correct_count}}</text>
+        <text class="rank-stat">练习 {{item.practice_questions}} 题</text>
         <text class="rank-stat">错题 {{item.wrong_count}}</text>
         <text class="rank-stat rank-stat--acc">{{item.accuracy_pct}}%</text>
       </view>

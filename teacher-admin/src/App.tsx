@@ -676,8 +676,11 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       name: string
       student_no: string
       practice_questions: number
+      correct_count: number
       wrong_count: number
+      total_attempts: number
       accuracy_pct: number
+      rank_score?: number
     }>
   >([])
   const [onlineStatsPeriod, setOnlineStatsPeriod] = useState<PracticeRankPeriod>('today')
@@ -1067,7 +1070,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         title="班级刷题排行榜"
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            排名规则：答题正确数 × 正确率（与小程序一致）
+            排名分 = 答对次数 × 正确率（与小程序一致）
           </Typography.Text>
         }
       >
@@ -1109,18 +1112,25 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             pagination={{ pageSize: 10, showSizeChanger: false }}
             dataSource={practiceRankRows}
             locale={{ emptyText: practiceRankClassId ? '本周期暂无同学作答记录' : '请先选择班级' }}
-            scroll={{ x: 640 }}
+            scroll={{ x: 800 }}
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
               { title: '姓名', dataIndex: 'name', width: 120 },
               { title: '学号', dataIndex: 'student_no', width: 120, render: (v: string) => v || '—' },
-              { title: '答题数', dataIndex: 'practice_questions', width: 90 },
+              { title: '答对次数', dataIndex: 'correct_count', width: 90 },
+              { title: '练习题数', dataIndex: 'practice_questions', width: 90 },
               { title: '错题数', dataIndex: 'wrong_count', width: 90 },
               {
                 title: '正确率',
                 dataIndex: 'accuracy_pct',
                 width: 90,
                 render: (v: number) => `${v}%`,
+              },
+              {
+                title: '排名分',
+                dataIndex: 'rank_score',
+                width: 90,
+                render: (v: number | undefined) => (v != null && !Number.isNaN(Number(v)) ? Number(v).toFixed(1) : '—'),
               },
             ]}
           />

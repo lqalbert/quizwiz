@@ -4583,6 +4583,8 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
   return {
     practice_questions,
     wrong_count: wrong,
+    correct_count: correct,
+    total_attempts: total,
     accuracy_pct,
     class_rank,
     rank_in_denominator,
@@ -4593,8 +4595,8 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
 }
 
 /**
- * 今日：答题数=当天练习过的题数（去重）；错题数=当天每题最后一次判题为错的题数。
- * 周/月/全部：按自然日先算当日 distinct 答题/错题再累加；正确率按本周期全部判题次数。
+ * 今日：练习题数=当天练习过的题数（去重）；错题数=当天每题最后一次判题为错的题数。
+ * 周/月：按自然日汇总（每日口径与「今日」一致后累加）；正确率/答对次数按本周期全部判题次数。
  */
 const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, period) => {
   const p = String(period || '').toLowerCase()
@@ -4642,13 +4644,30 @@ const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, pe
       FROM student_practice_events e
       WHERE ${base} AND ${periodPred}
     ),
-    daily AS (
-      SELECT ev.student_id,
+    daily_last AS (
+      SELECT DISTINCT ON (
+        ev.student_id,
+        ev.question_id,
+        (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date
+      )
+        ev.student_id,
+        ev.question_id,
         (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date AS d,
-        COUNT(DISTINCT ev.question_id)::int AS dq,
-        COUNT(DISTINCT CASE WHEN NOT ev.is_correct THEN ev.question_id END)::int AS dw
+        ev.is_correct
       FROM ev ev
-      GROUP BY ev.student_id, (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date
+      ORDER BY
+        ev.student_id,
+        ev.question_id,
+        (ev.created_at AT TIME ZONE 'Asia/Shanghai')::date,
+        ev.created_at DESC
+    ),
+    daily AS (
+      SELECT student_id,
+        d,
+        COUNT(*)::int AS dq,
+        COUNT(*) FILTER (WHERE NOT is_correct)::int AS dw
+      FROM daily_last
+      GROUP BY student_id, d
     ),
     summed AS (
       SELECT student_id,
@@ -4718,8 +4737,8 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
       const allStatsR = await pool.query(
         `
         SELECT student_id,
-          COALESCE(SUM(attempts), 0)::int AS practice_questions,
-          COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
+          COUNT(*) FILTER (WHERE attempts > 0)::int AS practice_questions,
+          COUNT(*) FILTER (WHERE wrong_count > 0)::int AS wrong_count,
           COALESCE(SUM(attempts), 0)::int AS total_attempts,
           COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
         FROM student_question_stats
@@ -4805,8 +4824,8 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
       const fallR = await executor.query(
         `
         SELECT student_id,
-          COALESCE(SUM(attempts), 0)::int AS practice_questions,
-          COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
+          COUNT(*) FILTER (WHERE attempts > 0)::int AS practice_questions,
+          COUNT(*) FILTER (WHERE wrong_count > 0)::int AS wrong_count,
           COALESCE(SUM(attempts), 0)::int AS total_attempts,
           COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
         FROM student_question_stats
@@ -4836,9 +4855,9 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
     ]),
   )
   const rows = active.map((r, i) => {
-    const t = r.total_attempts
-    const rw0 = rawWrongAttempts(r)
-    const accuracy_pct = t > 0 ? Math.round((100 * (t - rw0)) / t) : 0
+    const total = Number(r.total_attempts || 0)
+    const correct = practiceCorrectAttempts(r)
+    const accuracy_pct = total > 0 ? Math.round((100 * correct) / total) : 0
     const meta = nameMap.get(r.student_id) || { name: '同学', student_no: '' }
     return {
       rank: i + 1,
@@ -4846,8 +4865,11 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
       name: meta.name,
       student_no: meta.student_no,
       practice_questions: r.practice_questions,
+      correct_count: correct,
       wrong_count: r.wrong_count,
+      total_attempts: total,
       accuracy_pct,
+      rank_score: Math.round(practiceRankScore(r) * 100) / 100,
       is_me: meStudentId != null && r.student_id === meStudentId,
     }
   })

@@ -28,6 +28,7 @@ const GUEST_TODAY_DISPLAY = {
 
 const GUEST_PRACTICE_PANEL = {
   practice_questions: "—",
+  correct_count: "—",
   wrong_count: "—",
   accuracy_pct: "—",
   rank_main: "—",
@@ -242,6 +243,7 @@ withPageShare({
       return {
         practice_questions: 0,
         wrong_count: 0,
+        correct_count: 0,
         accuracy_pct: 0,
         rank_main: "—",
         rank_sub: "",
@@ -263,6 +265,7 @@ withPageShare({
     return {
       practice_questions: Number(p.practice_questions || 0),
       wrong_count: Number(p.wrong_count || 0),
+      correct_count: Number(p.correct_count || 0),
       accuracy_pct: Number(p.accuracy_pct || 0),
       rank_main,
       rank_sub,

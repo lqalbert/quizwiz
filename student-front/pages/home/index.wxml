@@ -128,8 +128,8 @@
     </view>
     <view class="home-practice-grid">
       <view class="home-practice-metric" hover-class="{{loggedIn ? 'home-practice-metric-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goQuiz' : ''}}">
-        <text class="home-practice-metric-val">{{practicePanel.practice_questions}}</text>
-        <text class="home-practice-metric-lab">答题数</text>
+        <text class="home-practice-metric-val">{{practicePanel.correct_count}}</text>
+        <text class="home-practice-metric-lab">答对次数</text>
       </view>
       <view class="home-practice-metric home-practice-metric--warn" hover-class="{{loggedIn ? 'home-practice-metric-hover' : ''}}" hover-stay-time="70" bindtap="{{loggedIn ? 'goWrongOrReviewToday' : ''}}">
         <text class="home-practice-metric-val home-practice-metric-val--warn">{{practicePanel.wrong_count}}</text>
