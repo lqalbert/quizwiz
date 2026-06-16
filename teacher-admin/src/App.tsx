@@ -736,6 +736,17 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       session_count: number
     }>
   >([])
+  const [onlineBarStatsRows, setOnlineBarStatsRows] = useState<
+    Array<{
+      rank: number
+      student_id: number
+      name: string
+      student_no: string
+      total_seconds: number
+      session_count: number
+    }>
+  >([])
+  const [onlineBarStatsLoading, setOnlineBarStatsLoading] = useState(false)
   const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
   const [onlineTimelineStudentId, setOnlineTimelineStudentId] = useState<number | undefined>(undefined)
   const [onlineTimelineDate, setOnlineTimelineDate] = useState(() => beijingCalendarDateKey())
@@ -956,6 +967,35 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   }, [authToken, onlineStatsClassId, onlineStatsPeriod])
 
   useEffect(() => {
+    const loadOnlineBarStats = async () => {
+      if (!CAN_USE_API || onlineStatsClassId == null) {
+        setOnlineBarStatsRows([])
+        return
+      }
+      try {
+        setOnlineBarStatsLoading(true)
+        const params = new URLSearchParams()
+        params.set('classId', String(onlineStatsClassId))
+        params.set('period', 'today')
+        params.set('date', onlineTimelineDate || beijingCalendarDateKey())
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload?.message || `加载柱状图数据失败(${response.status})`)
+        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+        setOnlineBarStatsRows(Array.isArray(data.rows) ? data.rows : [])
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '加载柱状图数据失败')
+        setOnlineBarStatsRows([])
+      } finally {
+        setOnlineBarStatsLoading(false)
+      }
+    }
+    void loadOnlineBarStats()
+  }, [authToken, onlineStatsClassId, onlineTimelineDate])
+
+  useEffect(() => {
     const loadTrend = async () => {
       if (!CAN_USE_API) {
         setTrendChartData([])
@@ -1002,7 +1042,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
 
   const onlineBarChartData = useMemo(
     () =>
-      onlineStatsRows
+      onlineBarStatsRows
         .filter((r) => r.total_seconds > 0)
         .map((r) => ({
           student_id: r.student_id,
@@ -1010,7 +1050,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           minutes: Math.round((r.total_seconds / 60) * 10) / 10,
           total_seconds: r.total_seconds,
         })),
-    [onlineStatsRows],
+    [onlineBarStatsRows],
   )
 
   const handleOnlineBarStudentSelect = (studentId: number) => {
@@ -1198,12 +1238,16 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           </div>
           <div className="dashboard-online-bar-section">
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              学生在线时长对比（本周期，仅展示有在线记录的学生；点击柱形可切换上方时间轴）
+              学生在线时长对比（{onlineTimelineDate || beijingCalendarDateKey()}，与时间轴同日；仅展示有在线记录的学生；点击柱形可切换上方时间轴）
             </Typography.Text>
             <div className="dashboard-online-bar-scroll">
               <div className="dashboard-online-bar-inner" style={{ minWidth: onlineBarChartMinWidth }}>
-                {onlineBarChartData.length === 0 ? (
-                  <Empty description="本周期暂无在线记录" style={{ padding: '48px 0' }} />
+                {onlineBarStatsLoading ? (
+                  <div style={{ padding: '48px 0', textAlign: 'center' }}>
+                    <Spin />
+                  </div>
+                ) : onlineBarChartData.length === 0 ? (
+                  <Empty description="所选日期暂无在线记录" style={{ padding: '48px 0' }} />
                 ) : (
                   <ResponsiveContainer width="100%" height={340}>
                     <BarChart data={onlineBarChartData} margin={{ top: 12, right: 16, left: 8, bottom: 88 }}>

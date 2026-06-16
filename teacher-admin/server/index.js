@@ -4901,6 +4901,55 @@ const onlineSessionEffectiveSecondsSql = `CASE
   ))
 END`
 
+const SHANGHAI_CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+const parseShanghaiCalendarDateInput = (raw) => {
+  const s = String(raw || '').trim()
+  return SHANGHAI_CALENDAR_DATE_RE.test(s) ? s : null
+}
+
+/** 统计窗口 [startSql, endSql) 的上海时区 timestamptz 表达式 */
+const getOnlineStatsWindowSql = (period, dayStr) => {
+  if (dayStr) {
+    return {
+      startSql: `('${dayStr}'::date::timestamp AT TIME ZONE 'Asia/Shanghai')`,
+      endSql: `(('${dayStr}'::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')`,
+    }
+  }
+  const p = String(period || 'today').toLowerCase()
+  if (p === 'all') {
+    return {
+      startSql: `'1970-01-01'::timestamptz`,
+      endSql: `NOW()`,
+    }
+  }
+  if (p === 'week') {
+    return {
+      startSql: `(date_trunc('week', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`,
+      endSql: `NOW()`,
+    }
+  }
+  if (p === 'month') {
+    return {
+      startSql: `(date_trunc('month', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`,
+      endSql: `NOW()`,
+    }
+  }
+  return {
+    startSql: `(date_trunc('day', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`,
+    endSql: `((date_trunc('day', timezone('Asia/Shanghai', now())) + interval '1 day') AT TIME ZONE 'Asia/Shanghai')`,
+  }
+}
+
+/** 会话在统计窗口内的有效重叠秒数（与时间轴裁剪口径一致） */
+const onlineSessionOverlapSecondsSql = (startSql, endSql) => `GREATEST(0, LEAST(
+  ${ONLINE_SESSION_MAX_SECONDS},
+  EXTRACT(EPOCH FROM (
+    LEAST((${onlineSessionEffectiveEndSql('sos')}), ${endSql})
+    - GREATEST(sos.started_at, ${startSql})
+  ))::int
+))`
+
 const closeStudentOnlineSession = async (client, sessionId, studentId, { atForegroundHide = false } = {}) => {
   const durationExpr = atForegroundHide
     ? `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))`
@@ -4935,17 +4984,24 @@ const closeStudentOnlineSession = async (client, sessionId, studentId, { atForeg
   return row
 }
 
-const onlinePeriodStartExpr = (period) => {
-  const p = String(period || 'today').toLowerCase()
-  if (p === 'week') {
-    return `(date_trunc('week', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
+const closeStaleStudentOnlineSessions = async (client) => {
+  const openR = await client.query(
+    `
+    SELECT id, student_id
+    FROM student_online_sessions
+    WHERE ended_at IS NULL
+      AND COALESCE(last_heartbeat_at, started_at) < NOW() - ($1::int * INTERVAL '1 second')
+    ORDER BY started_at ASC
+    `,
+    [ONLINE_HEARTBEAT_STALE_SECONDS],
+  )
+  for (const row of openR.rows) {
+    await closeStudentOnlineSession(client, Number(row.id), Number(row.student_id))
   }
-  if (p === 'month') {
-    return `(date_trunc('month', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
-  }
-  if (p === 'all') return null
-  return `(date_trunc('day', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')`
+  return openR.rows.length
 }
+
+const onlinePeriodStartExpr = (period) => getOnlineStatsWindowSql(period, null).startSql
 
 /** 小程序进入前台：开始在线会话 */
 app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, res) => {
@@ -6414,6 +6470,18 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
     return res.status(400).json({ message: 'classId 不合法' })
   }
   try {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await closeStaleStudentOnlineSessions(client)
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+
     const { accessSql, values } = buildVisibleClassesAccessSql(req)
     const checkValues = [...values, classId]
     const classIdPh = `$${checkValues.length}`
@@ -6427,8 +6495,9 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
       return res.status(404).json({ message: '班级不存在或无权查看' })
     }
 
-    const periodStart = onlinePeriodStartExpr(period)
-    const periodCond = periodStart ? `AND sos.started_at >= ${periodStart}` : ''
+    const dayStr = parseShanghaiCalendarDateInput(req.query.date)
+    const { startSql, endSql } = getOnlineStatsWindowSql(period, dayStr)
+    const overlapSecondsSql = onlineSessionOverlapSecondsSql(startSql, endSql)
 
     const statsResult = await pool.query(
       `
@@ -6436,13 +6505,18 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
         cm.student_id,
         COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
         s.student_no,
-        COALESCE(SUM(${onlineSessionEffectiveSecondsSql}), 0)::int AS total_seconds,
-        COUNT(sos.id)::int AS session_count
+        COALESCE(SUM(${overlapSecondsSql}), 0)::int AS total_seconds,
+        COUNT(sos.id) FILTER (
+          WHERE sos.id IS NOT NULL
+            AND sos.started_at < ${endSql}
+            AND (${onlineSessionEffectiveEndSql('sos')}) > ${startSql}
+        )::int AS session_count
       FROM class_members cm
       INNER JOIN students s ON s.id = cm.student_id
       LEFT JOIN student_online_sessions sos
         ON sos.student_id = cm.student_id
-        ${periodCond}
+        AND sos.started_at < ${endSql}
+        AND (${onlineSessionEffectiveEndSql('sos')}) > ${startSql}
       WHERE cm.class_id = $1
       GROUP BY cm.student_id, display_name, s.student_no
       ORDER BY total_seconds DESC, display_name ASC
@@ -6478,6 +6552,7 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
     return res.json({
       data: {
         period,
+        stats_date: dayStr || null,
         class_id: Number(classRow.id),
         class_name: String(classRow.name || ''),
         student_count: rows.length,
@@ -6494,13 +6569,6 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
     return res.status(500).json({ message: '加载在线时长统计失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
-
-const SHANGHAI_CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-const parseShanghaiCalendarDateInput = (raw) => {
-  const s = String(raw || '').trim()
-  return SHANGHAI_CALENDAR_DATE_RE.test(s) ? s : null
-}
 
 /** 将某日上海日历 00:00 转为 UTC 时刻（用于与 timestamptz 比较） */
 const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`

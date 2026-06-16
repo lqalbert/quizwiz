@@ -554,6 +554,48 @@ const ensureStudentOnlineSchema = async () => {
       `,
     )
   }
+  /** 关闭超过 3 分钟无心跳的孤儿会话，避免统计顶满 4 小时 */
+  const staleOpenR = await pool.query(
+    `
+    SELECT 1
+    FROM student_online_sessions
+    WHERE ended_at IS NULL
+      AND COALESCE(last_heartbeat_at, started_at) < NOW() - interval '180 seconds'
+    LIMIT 1
+    `,
+  )
+  if (staleOpenR.rows.length > 0) {
+    await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET
+        ended_at = COALESCE(last_heartbeat_at, started_at) + interval '90 seconds',
+        duration_seconds = GREATEST(0, LEAST(
+          14400,
+          EXTRACT(EPOCH FROM (
+            (COALESCE(last_heartbeat_at, started_at) + interval '90 seconds') - started_at
+          ))::int
+        ))
+      WHERE ended_at IS NULL
+        AND COALESCE(last_heartbeat_at, started_at) < NOW() - interval '180 seconds'
+      `,
+    )
+    await pool.query(`DELETE FROM student_online_day`)
+    await pool.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      SELECT
+        student_id,
+        online_date,
+        COALESCE(SUM(duration_seconds), 0)::int,
+        COUNT(*)::int
+      FROM student_online_sessions
+      WHERE ended_at IS NOT NULL
+        AND COALESCE(duration_seconds, 0) > 0
+      GROUP BY student_id, online_date
+      `,
+    )
+  }
 }
 
 /** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
