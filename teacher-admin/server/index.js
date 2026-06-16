@@ -6459,27 +6459,34 @@ const parseShanghaiCalendarDateInput = (raw) => {
 const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`
 
 const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = new Date()) => {
-  const rangeStartMs = Date.parse(shanghaiDayStartParam(dayStr))
-  const dayEndExclusiveMs = rangeStartMs + 86400000
-  const rangeEndMs = isToday ? Math.min(now.getTime(), dayEndExclusiveMs - 1) : dayEndExclusiveMs - 1
-  if (!Number.isFinite(rangeStartMs) || rangeEndMs <= rangeStartMs) {
-    return {
-      date: dayStr,
-      is_today: isToday,
-      range_start: new Date(rangeStartMs).toISOString(),
-      range_end: new Date(rangeEndMs).toISOString(),
-      sessions: [],
-      segments: [{ type: 'offline', start: new Date(rangeStartMs).toISOString(), end: new Date(rangeEndMs).toISOString() }],
-      events: [],
-    }
-  }
+  const dayStartMs = Date.parse(shanghaiDayStartParam(dayStr))
+  const dayEndExclusiveMs = dayStartMs + 86400000
+  const dayEndMs = dayEndExclusiveMs - 1
+  const nowMs = now.getTime()
+  const dayCapEndMs = isToday ? Math.min(nowMs, dayEndMs) : dayEndMs
+
+  const emptyPayload = () => ({
+    date: dayStr,
+    is_today: isToday,
+    range_start: null,
+    range_end: null,
+    first_online_at: null,
+    last_offline_at: null,
+    is_still_online: false,
+    span_seconds: 0,
+    sessions: [],
+    segments: [],
+    events: [],
+  })
+
+  if (!Number.isFinite(dayStartMs)) return emptyPayload()
 
   const clipped = []
   for (const row of sessionRows || []) {
     const startedMs = new Date(row.started_at).getTime()
-    const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : now.getTime()
-    const clipStartMs = Math.max(startedMs, rangeStartMs)
-    const clipEndMs = Math.min(endedMs, rangeEndMs)
+    const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : nowMs
+    const clipStartMs = Math.max(startedMs, dayStartMs)
+    const clipEndMs = Math.min(endedMs, dayCapEndMs)
     if (clipEndMs <= clipStartMs) continue
     clipped.push({
       id: Number(row.id),
@@ -6493,11 +6500,25 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   }
   clipped.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
 
+  if (clipped.length === 0) return emptyPayload()
+
+  const firstOnlineMs = new Date(clipped[0].started_at).getTime()
+  const lastSess = clipped[clipped.length - 1]
+  const isStillOnline = Boolean(lastSess.is_open && isToday)
+  const lastOfflineMs = lastSess.ended_at
+    ? new Date(lastSess.ended_at).getTime()
+    : isStillOnline
+      ? nowMs
+      : new Date(lastSess.clip_end).getTime()
+  const rangeStartMs = firstOnlineMs
+  const rangeEndMs = Math.max(lastOfflineMs, rangeStartMs + 1)
+
   const segments = []
   let cursor = rangeStartMs
   for (const sess of clipped) {
-    const s = new Date(sess.clip_start).getTime()
-    const e = new Date(sess.clip_end).getTime()
+    const s = Math.max(new Date(sess.clip_start).getTime(), rangeStartMs)
+    const e = Math.min(new Date(sess.clip_end).getTime(), rangeEndMs)
+    if (e <= s) continue
     if (s > cursor) {
       segments.push({
         type: 'offline',
@@ -6507,18 +6528,11 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     }
     segments.push({
       type: 'online',
-      start: sess.clip_start,
-      end: sess.clip_end,
+      start: new Date(s).toISOString(),
+      end: new Date(e).toISOString(),
       session_id: sess.id,
     })
     cursor = e
-  }
-  if (cursor < rangeEndMs) {
-    segments.push({
-      type: 'offline',
-      start: new Date(cursor).toISOString(),
-      end: new Date(rangeEndMs).toISOString(),
-    })
   }
 
   const events = []
@@ -6545,6 +6559,10 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     is_today: isToday,
     range_start: new Date(rangeStartMs).toISOString(),
     range_end: new Date(rangeEndMs).toISOString(),
+    first_online_at: clipped[0].started_at,
+    last_offline_at: lastSess.ended_at || null,
+    is_still_online: isStillOnline,
+    span_seconds: Math.max(0, Math.round((rangeEndMs - rangeStartMs) / 1000)),
     sessions: clipped,
     segments,
     events,

@@ -1,6 +1,6 @@
 import { Empty, Spin, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
-import { beijingCalendarDateKey, formatBeijingDateTime } from './beijingTime'
+import { formatBeijingDateTime } from './beijingTime'
 
 const API_BASE_URL = (() => {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
@@ -27,15 +27,19 @@ export type OnlineTimelinePayload = {
   student_name?: string
   date: string
   is_today: boolean
-  range_start: string
-  range_end: string
+  range_start: string | null
+  range_end: string | null
+  first_online_at: string | null
+  last_offline_at: string | null
+  is_still_online: boolean
+  span_seconds: number
   segments: OnlineTimelineSegment[]
   events: OnlineTimelineEvent[]
 }
 
-function formatTimelineClock(iso: string) {
-  const s = formatBeijingDateTime(iso, true)
-  return s.length >= 16 ? s.slice(11, 16) : s
+function formatTimelineClock(iso: string, withSeconds = true) {
+  const s = formatBeijingDateTime(iso, withSeconds)
+  return s.length >= 16 ? s.slice(11, withSeconds ? 19 : 16) : s
 }
 
 function formatDurationSeconds(totalSeconds: number): string {
@@ -54,6 +58,7 @@ type StudentOnlineTimelineProps = {
   date: string
   authToken: string
   studentName?: string
+  prominent?: boolean
 }
 
 export function StudentOnlineTimeline({
@@ -62,6 +67,7 @@ export function StudentOnlineTimeline({
   date,
   authToken,
   studentName,
+  prominent = false,
 }: StudentOnlineTimelineProps) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<OnlineTimelinePayload | null>(null)
@@ -100,7 +106,7 @@ export function StudentOnlineTimeline({
   }, [authToken, classId, studentId, date])
 
   const rangeMs = useMemo(() => {
-    if (!data) return { start: 0, end: 1 }
+    if (!data?.range_start || !data?.range_end) return { start: 0, end: 1 }
     const start = new Date(data.range_start).getTime()
     const end = new Date(data.range_end).getTime()
     return { start, end: Math.max(end, start + 1) }
@@ -113,7 +119,7 @@ export function StudentOnlineTimeline({
     const width = ((end - start) / (rangeMs.end - rangeMs.start)) * 100
     return {
       left: `${Math.max(0, Math.min(100, left))}%`,
-      width: `${Math.max(0.35, Math.min(100 - left, width))}%`,
+      width: `${Math.max(1.2, Math.min(100 - left, width))}%`,
     }
   }
 
@@ -139,25 +145,45 @@ export function StudentOnlineTimeline({
     return <Typography.Text type="danger">{error}</Typography.Text>
   }
 
-  if (!data) {
-    return <Empty description="暂无时间轴数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+  if (!data || !data.range_start || !data.range_end || data.segments.length === 0) {
+    return <Empty description="当日暂无上线记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
 
   const displayName = studentName || data.student_name || '学生'
-  const rangeLabelEnd = data.is_today ? '现在' : '24:00'
+  const startLabel = formatTimelineClock(data.first_online_at || data.range_start)
+  const endTimeIso = data.is_still_online ? data.range_end : data.last_offline_at || data.range_end
+  const endLabel = data.is_still_online
+    ? `${formatTimelineClock(endTimeIso)}（进行中）`
+    : formatTimelineClock(endTimeIso)
 
   return (
-    <div className="online-timeline">
+    <div className={`online-timeline ${prominent ? 'online-timeline--prominent' : ''}`}>
       <div className="online-timeline-head">
-        <Typography.Text strong>{displayName}</Typography.Text>
+        <Typography.Text strong style={{ fontSize: prominent ? 16 : 14 }}>
+          {displayName}
+        </Typography.Text>
         <Typography.Text type="secondary"> · {data.date}</Typography.Text>
-        <Typography.Text type="secondary" style={{ marginLeft: 12, fontSize: 12 }}>
-          绿=在线　红=离线（切出小程序即下线）
+      </div>
+      <div className="online-timeline-span">
+        <Typography.Text>
+          时间范围 <Typography.Text strong>{startLabel}</Typography.Text> 上线
+          <Typography.Text type="secondary"> ～ </Typography.Text>
+          <Typography.Text strong>{endLabel}</Typography.Text>
+          {data.is_still_online ? ' 仍在使用' : ' 末次切出'}
+        </Typography.Text>
+        <Typography.Text type="secondary" style={{ marginLeft: 12 }}>
+          跨度 {formatDurationSeconds(data.span_seconds)}
         </Typography.Text>
       </div>
       <div className="online-timeline-axis">
-        <span>{formatTimelineClock(data.range_start)}</span>
-        <span>{rangeLabelEnd}</span>
+        <span className="online-timeline-axis-point online-timeline-axis-point--start">
+          <em>上线</em>
+          {startLabel}
+        </span>
+        <span className="online-timeline-axis-point online-timeline-axis-point--end">
+          <em>{data.is_still_online ? '当前' : '切出'}</em>
+          {formatTimelineClock(endTimeIso)}
+        </span>
       </div>
       <div className="online-timeline-track" aria-label="在线时间轴">
         {data.segments.map((seg, index) => (
@@ -186,6 +212,9 @@ export function StudentOnlineTimeline({
           <i className="online-timeline-swatch online-timeline-swatch--offline" />
           离线
         </span>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          时间轴仅展示当日首次上线至末次切出区间
+        </Typography.Text>
       </div>
       {data.events.length > 0 ? (
         <div className="online-timeline-events">
@@ -204,13 +233,6 @@ export function StudentOnlineTimeline({
             ))}
           </ul>
         </div>
-      ) : (
-        <Typography.Text type="secondary">当日暂无上线记录</Typography.Text>
-      )}
-      {data.is_today && data.date === beijingCalendarDateKey() ? (
-        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-          时间轴右端为当前时刻；若学生正在使用小程序，末段绿色将持续延伸。
-        </Typography.Text>
       ) : null}
     </div>
   )

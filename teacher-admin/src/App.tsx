@@ -1182,6 +1182,39 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               <Typography.Text strong>{onlineStatsSummary.class_name || '—'}</Typography.Text>
             </Col>
           </Row>
+          <Card
+            size="small"
+            title="在线时间轴"
+            bordered
+            style={{ borderColor: '#b7eb8f', background: '#fcfff9' }}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space wrap>
+                <Select
+                  allowClear
+                  placeholder="选择学生"
+                  style={{ minWidth: 180 }}
+                  value={onlineTimelineStudentId}
+                  onChange={(value) => setOnlineTimelineStudentId(value == null ? undefined : Number(value))}
+                  options={onlineStatsRows.map((r) => ({ value: r.student_id, label: r.name }))}
+                />
+                <Input
+                  type="date"
+                  value={onlineTimelineDate}
+                  onChange={(e) => setOnlineTimelineDate(e.target.value || beijingCalendarDateKey())}
+                  style={{ width: 160 }}
+                />
+              </Space>
+              <StudentOnlineTimeline
+                prominent
+                classId={onlineStatsClassId}
+                studentId={onlineTimelineStudentId}
+                date={onlineTimelineDate}
+                authToken={authToken}
+                studentName={onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)?.name}
+              />
+            </Space>
+          </Card>
           <Row gutter={16}>
             <Col span={14}>
               <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
@@ -1273,33 +1306,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               },
             ]}
           />
-          <Card size="small" title="在线时间轴" style={{ marginTop: 4 }}>
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space wrap>
-                <Select
-                  allowClear
-                  placeholder="选择学生"
-                  style={{ minWidth: 160 }}
-                  value={onlineTimelineStudentId}
-                  onChange={(value) => setOnlineTimelineStudentId(value == null ? undefined : Number(value))}
-                  options={onlineStatsRows.map((r) => ({ value: r.student_id, label: r.name }))}
-                />
-                <Input
-                  type="date"
-                  value={onlineTimelineDate}
-                  onChange={(e) => setOnlineTimelineDate(e.target.value || beijingCalendarDateKey())}
-                  style={{ width: 160 }}
-                />
-              </Space>
-              <StudentOnlineTimeline
-                classId={onlineStatsClassId}
-                studentId={onlineTimelineStudentId}
-                date={onlineTimelineDate}
-                authToken={authToken}
-                studentName={onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)?.name}
-              />
-            </Space>
-          </Card>
         </Space>
       </Card>
       <Card title="近期成绩趋势（默认首个可见班级，最近 5 次考试均分）" loading={trendLoading}>
@@ -2314,6 +2320,7 @@ function ClassPage() {
               </Space>
               {selectedClassId && studentInsightData.student ? (
                 <StudentOnlineTimeline
+                  prominent
                   classId={selectedClassId}
                   studentId={studentInsightData.student.id}
                   date={insightOnlineDate}
