@@ -8,6 +8,7 @@ import {
   FolderOpenOutlined,
   HolderOutlined,
   LogoutOutlined,
+  MenuOutlined,
   ReadOutlined,
   TeamOutlined,
   UserOutlined,
@@ -72,6 +73,7 @@ import {
   isSubjectTeacherOnly,
 } from './roles'
 import { SortableOrderList, reorderById } from './SortableOrderList'
+import { useIsMobile } from './useIsMobile'
 
 const { Header, Sider, Content } = Layout
 
@@ -8966,6 +8968,8 @@ function AppLayout({
   const role = useMemo(() => resolveEffectiveRole(authUser.roles), [authUser.roles])
   const location = useLocation()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const currentTheme = themeOptions[themeIndex]
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const [profileOpen, setProfileOpen] = useState(false)
@@ -9166,41 +9170,85 @@ function AppLayout({
     </div>
   )
 
+  const closeMobileNav = () => setMobileNavOpen(false)
+
+  const appMenu = (
+    <Menu
+      mode="inline"
+      selectedKeys={[location.pathname]}
+      items={menuItems}
+      onClick={(e) => {
+        navigate(e.key)
+        closeMobileNav()
+      }}
+    />
+  )
+
   return (
     <Layout className="app-layout">
-      <Sider width={240} theme="light" className="app-sider">
-        <div className="logo-box">题灵智库管理系统</div>
-        <Menu mode="inline" selectedKeys={[location.pathname]} items={menuItems} onClick={(e) => navigate(e.key)} />
-      </Sider>
-      <Layout>
+      {!isMobile ? (
+        <Sider width={240} theme="light" className="app-sider">
+          <div className="logo-box">题灵智库管理系统</div>
+          {appMenu}
+        </Sider>
+      ) : (
+        <Drawer
+          placement="left"
+          open={mobileNavOpen}
+          onClose={closeMobileNav}
+          width={280}
+          className="app-mobile-nav-drawer"
+          styles={{ body: { padding: 0 } }}
+          title={null}
+          closable={false}
+        >
+          <div className="logo-box app-mobile-nav-logo">题灵智库管理系统</div>
+          {appMenu}
+        </Drawer>
+      )}
+      <Layout className="app-main">
         <Header className="app-header">
-          <Typography.Text strong>题灵智库管理系统 / {currentTitle}</Typography.Text>
-          <Space>
+          <div className="app-header-left">
+            {isMobile ? (
+              <Button
+                type="text"
+                className="app-menu-trigger"
+                icon={<MenuOutlined />}
+                aria-label="打开导航菜单"
+                onClick={() => setMobileNavOpen(true)}
+              />
+            ) : null}
+            <Typography.Text strong className="app-header-title">
+              {isMobile ? currentTitle : `题灵智库管理系统 / ${currentTitle}`}
+            </Typography.Text>
+          </div>
+          <Space className="app-header-actions" size={isMobile ? 4 : 8} align="center">
             <Popover
-              trigger="hover"
+              trigger={isMobile ? 'click' : 'hover'}
               placement="bottomRight"
               content={themePickerContent}
               title={`主题色：${currentTheme.name}`}
             >
-              <Button icon={<BgColorsOutlined />} onClick={onNextTheme}>
-                一键换肤
+              <Button icon={<BgColorsOutlined />} onClick={onNextTheme} className="app-theme-btn">
+                {isMobile ? null : '一键换肤'}
               </Button>
             </Popover>
-            <Popover trigger="hover" placement="bottomRight" content={userMenuPopover}>
-              <Space style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 8 }} align="center">
+            <Popover trigger={isMobile ? 'click' : 'hover'} placement="bottomRight" content={userMenuPopover}>
+              <Space className="app-user-trigger" style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 8 }} align="center">
                 <Avatar src={avatarSrc} icon={!avatarSrc ? <UserOutlined /> : undefined} />
-                <Typography.Text>{authUser.name}</Typography.Text>
-                <DownOutlined style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }} />
+                <Typography.Text className="app-header-username">{authUser.name}</Typography.Text>
+                {!isMobile ? <DownOutlined style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }} /> : null}
               </Space>
             </Popover>
           </Space>
         </Header>
         <Drawer
           title="个人中心"
-          width={420}
+          width={isMobile ? '100%' : 420}
           open={profileOpen}
           onClose={() => setProfileOpen(false)}
           destroyOnClose={false}
+          className="app-profile-drawer"
         >
           <Tabs
             items={[
