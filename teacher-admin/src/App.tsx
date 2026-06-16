@@ -47,7 +47,7 @@ import {
 import type { MenuProps, TabsProps, UploadFile, UploadProps } from 'antd'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Bar, BarChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
 import ExcelJS from 'exceljs'
 import type { DataValidation, Worksheet } from 'exceljs'
 import * as XLSX from 'xlsx'
@@ -671,9 +671,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   ] as const
   type PracticeRankPeriod = (typeof practicePeriodOptions)[number]['value']
   const [classStatsLoading, setClassStatsLoading] = useState(false)
-  const [pendingWarningCount, setPendingWarningCount] = useState(0)
-  const [qualityAvgScore, setQualityAvgScore] = useState(0)
-  const [qualityPassRate, setQualityPassRate] = useState(0)
   const [trendLoading, setTrendLoading] = useState(false)
   const [trendChartData, setTrendChartData] = useState<Array<{ name: string; score: number }>>([])
   const [overviewMetrics, setOverviewMetrics] = useState({
@@ -742,21 +739,16 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
   const [onlineTimelineStudentId, setOnlineTimelineStudentId] = useState<number | undefined>(undefined)
   const [onlineTimelineDate, setOnlineTimelineDate] = useState(() => beijingCalendarDateKey())
+  const onlineTimelineSectionRef = useRef<HTMLDivElement>(null)
 
   const cards =
     role === 'subject_teacher'
       ? [
           { title: '任教班级数', value: overviewMetrics.class_count },
           { title: '题目总量', value: overviewMetrics.question_total },
-          { title: '待批阅答卷', value: overviewMetrics.pending_grade_count },
           { title: '进行中考试', value: overviewMetrics.ongoing_exam_count },
         ]
-      : [
-          { title: '班级总数', value: overviewMetrics.class_count },
-          { title: '学生总数', value: overviewMetrics.student_members_total },
-          { title: '平均提交率（可见班级）', value: overviewMetrics.weighted_submission_rate, suffix: '%' as const },
-          { title: '待批阅答卷', value: overviewMetrics.pending_grade_count },
-        ]
+      : []
 
   useEffect(() => {
     const loadOverview = async () => {
@@ -1000,66 +992,20 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     void loadTrend()
   }, [authToken])
 
-  useEffect(() => {
-    const loadOverviewCards = async () => {
-      if (!CAN_USE_API) {
-        setPendingWarningCount(0)
-        setQualityAvgScore(0)
-        setQualityPassRate(0)
-        return
-      }
-      try {
-        const [warningRes, qualityRes] = await Promise.all([
-          teacherAdminFetch(`${API_BASE_URL}/api/analytics/student-warnings?handleStatus=pending`, {
-            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-          }),
-          teacherAdminFetch(`${API_BASE_URL}/api/analytics/exam-quality-overview`, {
-            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-          }),
-        ])
-        const warningPayload = await warningRes.json().catch(() => ({}))
-        const qualityPayload = await qualityRes.json().catch(() => ({}))
-        if (warningRes.ok) {
-          const rows = Array.isArray(warningPayload?.data?.rows) ? warningPayload.data.rows : []
-          setPendingWarningCount(rows.length)
-        } else {
-          setPendingWarningCount(0)
-        }
-        if (qualityRes.ok) {
-          setQualityAvgScore(Number(qualityPayload?.data?.summary?.avg_score || 0))
-          setQualityPassRate(Number(qualityPayload?.data?.summary?.pass_rate || 0))
-        } else {
-          setQualityAvgScore(0)
-          setQualityPassRate(0)
-        }
-      } catch {
-        setPendingWarningCount(0)
-        setQualityAvgScore(0)
-        setQualityPassRate(0)
-      }
-    }
-    void loadOverviewCards()
-  }, [authToken])
-
   const todoItems = useMemo(() => {
     const items: string[] = []
-    if (pendingWarningCount > 0) {
-      items.push(`学业预警待处理 ${pendingWarningCount} 条（请前往「学情分析」处理）`)
-    }
-    if (overviewMetrics.pending_grade_count > 0) {
-      items.push(`待批阅答卷 ${overviewMetrics.pending_grade_count} 份`)
-    }
     if (overviewMetrics.ongoing_exam_count > 0) {
       items.push(`进行中考试 ${overviewMetrics.ongoing_exam_count} 场`)
     }
     return items
-  }, [pendingWarningCount, overviewMetrics.pending_grade_count, overviewMetrics.ongoing_exam_count])
+  }, [overviewMetrics.ongoing_exam_count])
 
   const onlineBarChartData = useMemo(
     () =>
       onlineStatsRows
         .filter((r) => r.total_seconds > 0)
         .map((r) => ({
+          student_id: r.student_id,
           name: r.name,
           minutes: Math.round((r.total_seconds / 60) * 10) / 10,
           total_seconds: r.total_seconds,
@@ -1067,24 +1013,41 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     [onlineStatsRows],
   )
 
+  const handleOnlineBarStudentSelect = (studentId: number) => {
+    if (!Number.isInteger(studentId) || studentId <= 0) return
+    setOnlineTimelineStudentId(studentId)
+  }
+
+  const scrollToOnlineTimeline = () => {
+    onlineTimelineSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const openOnlineTimelineForStudent = (studentId: number, options?: { scroll?: boolean; resetDate?: boolean }) => {
+    if (!Number.isInteger(studentId) || studentId <= 0) return
+    setOnlineTimelineStudentId(studentId)
+    if (options?.resetDate !== false) {
+      setOnlineTimelineDate(beijingCalendarDateKey())
+    }
+    if (options?.scroll) {
+      requestAnimationFrame(() => scrollToOnlineTimeline())
+    }
+  }
+
   const onlineBarChartMinWidth = Math.max(720, onlineBarChartData.length * 80)
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Row gutter={16}>
-        {cards.map((item) => (
-          <Col span={6} key={item.title}>
-            <Card>
-              <Statistic
-                title={item.title}
-                value={item.value}
-                suffix={'suffix' in item ? item.suffix : undefined}
-                precision={item.title.includes('提交率') ? 2 : 0}
-              />
-            </Card>
-          </Col>
-        ))}
-      </Row>
+      {cards.length > 0 ? (
+        <Row gutter={16}>
+          {cards.map((item) => (
+            <Col span={6} key={item.title}>
+              <Card>
+                <Statistic title={item.title} value={item.value} precision={0} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      ) : null}
       <Card
         title="班级刷题排行榜"
         extra={
@@ -1198,6 +1161,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               <Typography.Text strong>{onlineStatsSummary.class_name || '—'}</Typography.Text>
             </Col>
           </Row>
+          <div ref={onlineTimelineSectionRef} className="dashboard-online-timeline-section">
           <Card
             size="small"
             title="在线时间轴"
@@ -1231,9 +1195,10 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               />
             </Space>
           </Card>
+          </div>
           <div className="dashboard-online-bar-section">
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              学生在线时长对比（本周期，仅展示有在线记录的学生）
+              学生在线时长对比（本周期，仅展示有在线记录的学生；点击柱形可切换上方时间轴）
             </Typography.Text>
             <div className="dashboard-online-bar-scroll">
               <div className="dashboard-online-bar-inner" style={{ minWidth: onlineBarChartMinWidth }}>
@@ -1263,7 +1228,27 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                           return [`${value} 分钟（${formatDurationSeconds(sec)}）`, row?.name || '学生']
                         }}
                       />
-                      <Bar dataKey="minutes" fill={themePrimary} radius={[6, 6, 0, 0]} maxBarSize={48} />
+                      <Bar
+                        dataKey="minutes"
+                        radius={[6, 6, 0, 0]}
+                        maxBarSize={48}
+                        className="dashboard-online-bar"
+                        cursor="pointer"
+                        onClick={(bar) => {
+                          const row = bar?.payload as { student_id?: number } | undefined
+                          handleOnlineBarStudentSelect(Number(row?.student_id))
+                        }}
+                      >
+                        {onlineBarChartData.map((entry) => (
+                          <Cell
+                            key={entry.student_id}
+                            fill={themePrimary}
+                            fillOpacity={entry.student_id === onlineTimelineStudentId ? 1 : 0.45}
+                            stroke={entry.student_id === onlineTimelineStudentId ? themePrimary : 'none'}
+                            strokeWidth={entry.student_id === onlineTimelineStudentId ? 2 : 0}
+                          />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -1320,8 +1305,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                     size="small"
                     style={{ padding: 0 }}
                     onClick={() => {
-                      setOnlineTimelineStudentId(Number(row.student_id))
-                      setOnlineTimelineDate(beijingCalendarDateKey())
+                      openOnlineTimelineForStudent(Number(row.student_id), { scroll: true, resetDate: true })
                     }}
                   >
                     查看
@@ -1332,23 +1316,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           />
         </Space>
       </Card>
-      <Row gutter={16}>
-        <Col span={8}>
-          <Card>
-            <Statistic title="待处理学业预警" value={pendingWarningCount} valueStyle={{ color: pendingWarningCount > 0 ? '#cf1322' : undefined }} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic title="最近考试质量平均分" value={qualityAvgScore} precision={2} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic title="最近考试质量及格率" value={qualityPassRate} suffix="%" precision={2} />
-          </Card>
-        </Col>
-      </Row>
       <Card title="班级维度统计（概览）">
         <Table
           loading={classStatsLoading}

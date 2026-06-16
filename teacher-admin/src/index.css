@@ -604,6 +604,10 @@ body {
   color: #cf1322;
 }
 
+.dashboard-online-timeline-section {
+  scroll-margin-top: 12px;
+}
+
 .dashboard-online-bar-section {
   width: 100%;
 }
@@ -616,6 +620,14 @@ body {
 
 .dashboard-online-bar-inner {
   width: 100%;
+}
+
+.dashboard-online-bar .recharts-bar-rectangle {
+  cursor: pointer;
+}
+
+.dashboard-online-bar .recharts-bar-rectangle:hover {
+  filter: brightness(1.08);
 }
 
 @media (max-width: 768px) {
