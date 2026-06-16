@@ -616,6 +616,13 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: (token: string, user: A
 function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: string }) {
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   const navigate = useNavigate()
+  const practicePeriodOptions = [
+    { label: '今日', value: 'today' },
+    { label: '本周', value: 'week' },
+    { label: '本月', value: 'month' },
+    { label: '全部', value: 'all' },
+  ] as const
+  type PracticeRankPeriod = (typeof practicePeriodOptions)[number]['value']
   const [classStatsLoading, setClassStatsLoading] = useState(false)
   const [pendingWarningCount, setPendingWarningCount] = useState(0)
   const [qualityAvgScore, setQualityAvgScore] = useState(0)
@@ -641,6 +648,26 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       avg_score: number
       max_score: number
       min_score: number
+    }>
+  >([])
+  const [practiceRankPeriod, setPracticeRankPeriod] = useState<PracticeRankPeriod>('today')
+  const [practiceRankClassId, setPracticeRankClassId] = useState<number | undefined>(undefined)
+  const [practiceRankLoading, setPracticeRankLoading] = useState(false)
+  const [practiceRankSummary, setPracticeRankSummary] = useState({
+    class_name: '',
+    student_count: 0,
+    active_count: 0,
+    total_practice_questions: 0,
+  })
+  const [practiceRankRows, setPracticeRankRows] = useState<
+    Array<{
+      rank: number
+      student_id: number
+      name: string
+      student_no: string
+      practice_questions: number
+      wrong_count: number
+      accuracy_pct: number
     }>
   >([])
 
@@ -753,6 +780,61 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     }
     void loadOverview()
   }, [authToken])
+
+  useEffect(() => {
+    if (practiceRankClassId == null && classStats.length > 0) {
+      setPracticeRankClassId(Number(classStats[0].class_id))
+    }
+    if (practiceRankClassId != null && !classStats.some((c) => Number(c.class_id) === practiceRankClassId)) {
+      setPracticeRankClassId(classStats[0] ? Number(classStats[0].class_id) : undefined)
+    }
+  }, [classStats, practiceRankClassId])
+
+  useEffect(() => {
+    const loadPracticeRank = async () => {
+      if (!CAN_USE_API || practiceRankClassId == null) {
+        setPracticeRankRows([])
+        setPracticeRankSummary({
+          class_name: '',
+          student_count: 0,
+          active_count: 0,
+          total_practice_questions: 0,
+        })
+        return
+      }
+      try {
+        setPracticeRankLoading(true)
+        const params = new URLSearchParams()
+        params.set('classId', String(practiceRankClassId))
+        params.set('period', practiceRankPeriod)
+        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/practice-class-rank?${params.toString()}`, {
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload?.message || `加载刷题排行失败(${response.status})`)
+        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+        setPracticeRankRows(Array.isArray(data.rows) ? data.rows : [])
+        setPracticeRankSummary({
+          class_name: String(data.class_name || ''),
+          student_count: Number(data.student_count || 0),
+          active_count: Number(data.active_count || 0),
+          total_practice_questions: Number(data.total_practice_questions || 0),
+        })
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '加载班级刷题排行失败')
+        setPracticeRankRows([])
+        setPracticeRankSummary({
+          class_name: '',
+          student_count: 0,
+          active_count: 0,
+          total_practice_questions: 0,
+        })
+      } finally {
+        setPracticeRankLoading(false)
+      }
+    }
+    void loadPracticeRank()
+  }, [authToken, practiceRankClassId, practiceRankPeriod])
 
   useEffect(() => {
     const loadTrend = async () => {
@@ -895,6 +977,69 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             { title: '最低分', dataIndex: 'min_score', width: 90 },
           ]}
         />
+      </Card>
+      <Card
+        title="班级刷题排行榜"
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            排名规则与小程序一致
+          </Typography.Text>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space wrap>
+            <Segmented
+              value={practiceRankPeriod}
+              options={practicePeriodOptions.map((o) => ({ label: o.label, value: o.value }))}
+              onChange={(value) => setPracticeRankPeriod(value as PracticeRankPeriod)}
+            />
+            <Select
+              placeholder="选择班级"
+              style={{ minWidth: 180 }}
+              value={practiceRankClassId}
+              onChange={(value) => setPracticeRankClassId(Number(value))}
+              options={classStats.map((c) => ({ value: Number(c.class_id), label: c.class_name }))}
+            />
+          </Space>
+          <Row gutter={12}>
+            <Col span={6}>
+              <Statistic title="班级人数" value={practiceRankSummary.student_count} />
+            </Col>
+            <Col span={6}>
+              <Statistic title="本周期有作答" value={practiceRankSummary.active_count} suffix="人" />
+            </Col>
+            <Col span={6}>
+              <Statistic title="本周期答题数合计" value={practiceRankSummary.total_practice_questions} />
+            </Col>
+            <Col span={6}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                当前班级
+              </Typography.Text>
+              <Typography.Text strong>{practiceRankSummary.class_name || '—'}</Typography.Text>
+            </Col>
+          </Row>
+          <Table
+            loading={practiceRankLoading || classStatsLoading}
+            rowKey="student_id"
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            dataSource={practiceRankRows}
+            locale={{ emptyText: practiceRankClassId ? '本周期暂无同学作答记录' : '请先选择班级' }}
+            scroll={{ x: 640 }}
+            columns={[
+              { title: '排名', dataIndex: 'rank', width: 72 },
+              { title: '姓名', dataIndex: 'name', width: 120 },
+              { title: '学号', dataIndex: 'student_no', width: 120, render: (v: string) => v || '—' },
+              { title: '答题数', dataIndex: 'practice_questions', width: 90 },
+              { title: '错题数', dataIndex: 'wrong_count', width: 90 },
+              {
+                title: '正确率',
+                dataIndex: 'accuracy_pct',
+                width: 90,
+                render: (v: number) => `${v}%`,
+              },
+            ]}
+          />
+        </Space>
       </Card>
       <Card title="近期成绩趋势（默认首个可见班级，最近 5 次考试均分）" loading={trendLoading}>
         <div style={{ width: '100%', height: 280 }}>

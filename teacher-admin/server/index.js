@@ -4766,6 +4766,92 @@ app.get('/api/student/stats/home-summary', studentAuthRequired, async (req, res)
   }
 })
 
+/** 班级刷题排名行（与小程序 practice-class-rank 同一套排序口径） */
+const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudentId = null } = {}) => {
+  const p = String(period || 'today').toLowerCase()
+  const classPeerIds = (peerIds || []).filter((id) => Number.isInteger(id) && id > 0)
+  if (classPeerIds.length === 0) return { period: p, rows: [] }
+
+  let aggRows = (await loadPracticePeerAggregatesForPeriod(executor, classPeerIds, p)).rows
+  if (p === 'all') {
+    let useStatsFallback = false
+    if (meStudentId != null) {
+      const evSelfR = await executor.query(
+        `SELECT 1 FROM student_practice_events WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
+        [meStudentId],
+      )
+      useStatsFallback = !evSelfR.rows[0]
+    } else {
+      const evAnyR = await executor.query(
+        `SELECT 1 FROM student_practice_events WHERE student_id = ANY($1::bigint[]) AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
+        [classPeerIds],
+      )
+      useStatsFallback = !evAnyR.rows[0]
+    }
+    if (useStatsFallback) {
+      const fallR = await executor.query(
+        `
+        SELECT student_id,
+          COALESCE(SUM(attempts), 0)::int AS practice_questions,
+          COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
+          COALESCE(SUM(attempts), 0)::int AS total_attempts,
+          COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
+        FROM student_question_stats
+        WHERE student_id = ANY($1::bigint[])
+        GROUP BY student_id
+        `,
+        [classPeerIds],
+      )
+      aggRows = fallR.rows
+    }
+  }
+
+  const merged = mergePeerPracticeRows(classPeerIds, aggRows)
+  const rankProduct = (r) => {
+    const t = r.total_attempts
+    if (t <= 0) return -1
+    const rw0 = rawWrongAttempts(r)
+    return (r.practice_questions * (t - rw0)) / t
+  }
+  const active = merged.filter((r) => r.total_attempts > 0)
+  active.sort((a, b) => {
+    const d = rankProduct(b) - rankProduct(a)
+    if (Math.abs(d) > 1e-9) return d
+    if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
+    return a.wrong_count - b.wrong_count
+  })
+  const nameR = await executor.query(
+    `SELECT id, name, real_name, student_no, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name FROM students WHERE id = ANY($1::bigint[])`,
+    [classPeerIds],
+  )
+  const nameMap = new Map(
+    nameR.rows.map((row) => [
+      Number(row.id),
+      {
+        name: String(row.display_name || row.name || '').trim() || '同学',
+        student_no: String(row.student_no || '').trim(),
+      },
+    ]),
+  )
+  const rows = active.map((r, i) => {
+    const t = r.total_attempts
+    const rw0 = rawWrongAttempts(r)
+    const accuracy_pct = t > 0 ? Math.round((100 * (t - rw0)) / t) : 0
+    const meta = nameMap.get(r.student_id) || { name: '同学', student_no: '' }
+    return {
+      rank: i + 1,
+      student_id: r.student_id,
+      name: meta.name,
+      student_no: meta.student_no,
+      practice_questions: r.practice_questions,
+      wrong_count: r.wrong_count,
+      accuracy_pct,
+      is_me: meStudentId != null && r.student_id === meStudentId,
+    }
+  })
+  return { period: p, rows }
+}
+
 /** 本周期班级刷题排名列表（含姓名），period=today|week|month|all */
 app.get('/api/student/stats/practice-class-rank', studentAuthRequired, async (req, res) => {
   const period = String(req.query.period || 'today').toLowerCase()
@@ -4778,72 +4864,7 @@ app.get('/api/student/stats/practice-class-rank', studentAuthRequired, async (re
     if (classPeerIds.length === 0) {
       return res.json({ data: { period, rows: [] } })
     }
-    let aggRows = (await loadPracticePeerAggregatesForPeriod(pool, classPeerIds, period)).rows
-    if (period === 'all') {
-      const evSelfR = await pool.query(
-        `SELECT 1 FROM student_practice_events WHERE student_id = $1 AND source IN ${PRACTICE_EVENT_SOURCES} LIMIT 1`,
-        [studentId],
-      )
-      if (!evSelfR.rows[0]) {
-        const fallR = await pool.query(
-          `
-          SELECT student_id,
-            COALESCE(SUM(attempts), 0)::int AS practice_questions,
-            COALESCE(SUM(wrong_count), 0)::int AS wrong_count,
-            COALESCE(SUM(attempts), 0)::int AS total_attempts,
-            COALESCE(SUM(wrong_count), 0)::int AS wrong_attempts
-          FROM student_question_stats
-          WHERE student_id = ANY($1::bigint[])
-          GROUP BY student_id
-          `,
-          [classPeerIds],
-        )
-        aggRows = fallR.rows
-      }
-    }
-    let merged = mergePeerPracticeRows(classPeerIds, aggRows)
-    const rankProduct = (r) => {
-      const t = r.total_attempts
-      if (t <= 0) return -1
-      const rw0 = rawWrongAttempts(r)
-      return (r.practice_questions * (t - rw0)) / t
-    }
-    const active = merged.filter((r) => r.total_attempts > 0)
-    active.sort((a, b) => {
-      const d = rankProduct(b) - rankProduct(a)
-      if (Math.abs(d) > 1e-9) return d
-      if (b.practice_questions !== a.practice_questions) return b.practice_questions - a.practice_questions
-      return a.wrong_count - b.wrong_count
-    })
-    const nameR = await pool.query(
-      `SELECT id, name, real_name, student_no, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name FROM students WHERE id = ANY($1::bigint[])`,
-      [classPeerIds],
-    )
-    const nameMap = new Map(
-      nameR.rows.map((row) => [
-        Number(row.id),
-        {
-          name: String(row.display_name || row.name || '').trim() || '同学',
-          student_no: String(row.student_no || '').trim(),
-        },
-      ]),
-    )
-    const rows = active.map((r, i) => {
-      const t = r.total_attempts
-      const rw0 = rawWrongAttempts(r)
-      const accuracy_pct = t > 0 ? Math.round((100 * (t - rw0)) / t) : 0
-      const meta = nameMap.get(r.student_id) || { name: '同学', student_no: '' }
-      return {
-        rank: i + 1,
-        student_id: r.student_id,
-        name: meta.name,
-        student_no: meta.student_no,
-        practice_questions: r.practice_questions,
-        wrong_count: r.wrong_count,
-        accuracy_pct,
-        is_me: r.student_id === studentId,
-      }
-    })
+    const { rows } = await buildPracticeClassRankRows(pool, classPeerIds, period, { meStudentId: studentId })
     return res.json({ data: { period, rows } })
   } catch (error) {
     return res.status(500).json({ message: '加载班级排名失败', detail: error instanceof Error ? error.message : String(error) })
@@ -6113,6 +6134,55 @@ app.get('/api/dashboard/class-stats', authRequired, async (req, res) => {
     return res.json({ data })
   } catch (error) {
     return res.status(500).json({ message: '班级维度统计查询失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** 教师端：指定班级的刷题排行榜（口径与小程序 practice-class-rank 一致） */
+app.get('/api/dashboard/practice-class-rank', authRequired, async (req, res) => {
+  const period = String(req.query.period || 'today').toLowerCase()
+  const classId = Number(req.query.classId ?? req.query.class_id)
+  if (!['today', 'week', 'month', 'all'].includes(period)) {
+    return res.status(400).json({ message: 'period 仅支持 today、week、month、all' })
+  }
+  if (!Number.isInteger(classId) || classId <= 0) {
+    return res.status(400).json({ message: 'classId 不合法' })
+  }
+  try {
+    const { accessSql, values } = buildVisibleClassesAccessSql(req)
+    const checkValues = [...values, classId]
+    const classIdPh = `$${checkValues.length}`
+    const classWhere = accessSql ? `${accessSql} AND c.id = ${classIdPh}` : `WHERE c.id = ${classIdPh}`
+    const classResult = await pool.query(
+      `SELECT c.id, c.name FROM classes c ${classWhere} LIMIT 1`,
+      checkValues,
+    )
+    const classRow = classResult.rows[0]
+    if (!classRow) {
+      return res.status(404).json({ message: '班级不存在或无权查看' })
+    }
+    const membersResult = await pool.query(
+      `SELECT student_id FROM class_members WHERE class_id = $1`,
+      [classId],
+    )
+    const peerIds = membersResult.rows
+      .map((row) => Number(row.student_id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+    const { rows } = await buildPracticeClassRankRows(pool, peerIds, period)
+    const activeCount = rows.length
+    const totalPracticeQuestions = rows.reduce((sum, row) => sum + Number(row.practice_questions || 0), 0)
+    return res.json({
+      data: {
+        period,
+        class_id: Number(classRow.id),
+        class_name: String(classRow.name || ''),
+        student_count: peerIds.length,
+        active_count: activeCount,
+        total_practice_questions: totalPracticeQuestions,
+        rows,
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载班级刷题排行失败', detail: error instanceof Error ? error.message : String(error) })
   }
 })
 
