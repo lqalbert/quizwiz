@@ -4885,21 +4885,26 @@ const ONLINE_HEARTBEAT_TAIL_SECONDS = 90
 
 const onlineSessionEffectiveEndSql = (alias = 'sos') => `CASE
   WHEN ${alias}.ended_at IS NOT NULL THEN ${alias}.ended_at
-  WHEN ${alias}.last_heartbeat_at IS NOT NULL
-    AND ${alias}.last_heartbeat_at < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
-    THEN ${alias}.last_heartbeat_at + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
+    THEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
   ELSE NOW()
+END`
+
+const onlineSessionEffectiveSecondsSql = `CASE
+  WHEN sos.ended_at IS NOT NULL THEN GREATEST(0, LEAST(
+    ${ONLINE_SESSION_MAX_SECONDS},
+    EXTRACT(EPOCH FROM (sos.ended_at - sos.started_at))::int
+  ))
+  ELSE GREATEST(0, LEAST(
+    ${ONLINE_SESSION_MAX_SECONDS},
+    EXTRACT(EPOCH FROM (${onlineSessionEffectiveEndSql('sos')} - sos.started_at))::int
+  ))
 END`
 
 const closeStudentOnlineSession = async (client, sessionId, studentId, { atForegroundHide = false } = {}) => {
   const durationExpr = atForegroundHide
     ? `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))`
-    : `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (
-        LEAST(
-          NOW(),
-          COALESCE(last_heartbeat_at, started_at) + ($4::int * INTERVAL '1 second')
-        ) - started_at
-      ))::int))`
+    : `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${onlineSessionEffectiveEndSql('student_online_sessions')}) - started_at))::int))`
   const upd = await client.query(
     `
     UPDATE student_online_sessions
@@ -4910,7 +4915,7 @@ const closeStudentOnlineSession = async (client, sessionId, studentId, { atForeg
     `,
     atForegroundHide
       ? [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS]
-      : [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS, ONLINE_HEARTBEAT_TAIL_SECONDS],
+      : [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
   )
   const row = upd.rows[0]
   if (!row) return null
@@ -4929,17 +4934,6 @@ const closeStudentOnlineSession = async (client, sessionId, studentId, { atForeg
   }
   return row
 }
-
-const onlineSessionEffectiveSecondsSql = `CASE
-  WHEN sos.ended_at IS NOT NULL THEN COALESCE(sos.duration_seconds, 0)
-  ELSE GREATEST(
-    0,
-    LEAST(
-      ${ONLINE_SESSION_MAX_SECONDS},
-      EXTRACT(EPOCH FROM (${onlineSessionEffectiveEndSql('sos')} - sos.started_at))::int
-    )
-  )
-END`
 
 const onlinePeriodStartExpr = (period) => {
   const p = String(period || 'today').toLowerCase()

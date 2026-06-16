@@ -500,13 +500,42 @@ const ensureStudentOnlineSchema = async () => {
     LIMIT 1
     `,
   )
-  if (badCapR.rows.length > 0) {
+  /** 修复 duration_seconds 与真实上下线时间不一致（含 4h 顶满） */
+  const badDurationR = await pool.query(
+    `
+    SELECT 1
+    FROM student_online_sessions
+    WHERE ended_at IS NOT NULL
+      AND (
+        COALESCE(duration_seconds, 0) >= 14400
+        OR COALESCE(duration_seconds, 0) > GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int + 120)
+      )
+    LIMIT 1
+    `,
+  )
+  if (badCapR.rows.length > 0 || badDurationR.rows.length > 0) {
+    if (badCapR.rows.length > 0) {
+      await pool.query(
+        `
+        UPDATE student_online_sessions
+        SET duration_seconds = 0
+        WHERE ended_at IS NOT NULL
+          AND COALESCE(duration_seconds, 0) >= 43200
+        `,
+      )
+    }
     await pool.query(
       `
       UPDATE student_online_sessions
-      SET duration_seconds = 0
+      SET duration_seconds = GREATEST(0, LEAST(
+        14400,
+        EXTRACT(EPOCH FROM (ended_at - started_at))::int
+      ))
       WHERE ended_at IS NOT NULL
-        AND COALESCE(duration_seconds, 0) >= 43200
+        AND (
+          COALESCE(duration_seconds, 0) >= 14400
+          OR COALESCE(duration_seconds, 0) > GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int + 120)
+        )
       `,
     )
     await pool.query(`DELETE FROM student_online_day`)
