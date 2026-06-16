@@ -73,6 +73,7 @@ import {
   isSubjectTeacherOnly,
 } from './roles'
 import { SortableOrderList, reorderById } from './SortableOrderList'
+import { StudentOnlineTimeline } from './StudentOnlineTimeline'
 import { useIsMobile } from './useIsMobile'
 
 const { Header, Sider, Content } = Layout
@@ -703,6 +704,8 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     }>
   >([])
   const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
+  const [onlineTimelineStudentId, setOnlineTimelineStudentId] = useState<number | undefined>(undefined)
+  const [onlineTimelineDate, setOnlineTimelineDate] = useState(() => beijingCalendarDateKey())
 
   const cards =
     role === 'subject_teacher'
@@ -1250,8 +1253,53 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                 render: (v: number) => formatDurationSeconds(v),
               },
               { title: '会话次数', dataIndex: 'session_count', width: 100 },
+              {
+                title: '时间轴',
+                key: 'timeline',
+                width: 88,
+                render: (_: unknown, row: { student_id: number; name: string }) => (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={() => {
+                      setOnlineTimelineStudentId(Number(row.student_id))
+                      setOnlineTimelineDate(beijingCalendarDateKey())
+                    }}
+                  >
+                    查看
+                  </Button>
+                ),
+              },
             ]}
           />
+          <Card size="small" title="在线时间轴" style={{ marginTop: 4 }}>
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space wrap>
+                <Select
+                  allowClear
+                  placeholder="选择学生"
+                  style={{ minWidth: 160 }}
+                  value={onlineTimelineStudentId}
+                  onChange={(value) => setOnlineTimelineStudentId(value == null ? undefined : Number(value))}
+                  options={onlineStatsRows.map((r) => ({ value: r.student_id, label: r.name }))}
+                />
+                <Input
+                  type="date"
+                  value={onlineTimelineDate}
+                  onChange={(e) => setOnlineTimelineDate(e.target.value || beijingCalendarDateKey())}
+                  style={{ width: 160 }}
+                />
+              </Space>
+              <StudentOnlineTimeline
+                classId={onlineStatsClassId}
+                studentId={onlineTimelineStudentId}
+                date={onlineTimelineDate}
+                authToken={authToken}
+                studentName={onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)?.name}
+              />
+            </Space>
+          </Card>
         </Space>
       </Card>
       <Card title="近期成绩趋势（默认首个可见班级，最近 5 次考试均分）" loading={trendLoading}>
@@ -1391,6 +1439,7 @@ function ClassPage() {
   const [studentInsightLoading, setStudentInsightLoading] = useState(false)
   const [studentInsightTitle, setStudentInsightTitle] = useState('')
   const [studentInsightData, setStudentInsightData] = useState<ClassStudentInsightPayload | null>(null)
+  const [insightOnlineDate, setInsightOnlineDate] = useState(() => beijingCalendarDateKey())
 
   const loadClasses = async () => {
     if (!CAN_USE_API) return
@@ -1506,6 +1555,7 @@ function ClassPage() {
     setStudentInsightLoading(true)
     setStudentInsightTitle(displayName)
     setStudentInsightData(null)
+    setInsightOnlineDate(beijingCalendarDateKey())
     try {
       const response = await teacherAdminFetch(
         `${API_BASE_URL}/api/classes/${selectedClassId}/students/${studentId}/insights`,
@@ -2253,10 +2303,36 @@ function ClassPage() {
               <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
                 近 30 日累计在线：{formatDurationSeconds(studentInsightData.online_summary?.total_seconds_30d || 0)}
               </Typography.Paragraph>
+              <Space wrap style={{ marginBottom: 12 }}>
+                <Typography.Text type="secondary">查看日期</Typography.Text>
+                <Input
+                  type="date"
+                  value={insightOnlineDate}
+                  onChange={(e) => setInsightOnlineDate(e.target.value || beijingCalendarDateKey())}
+                  style={{ width: 160 }}
+                />
+              </Space>
+              {selectedClassId && studentInsightData.student ? (
+                <StudentOnlineTimeline
+                  classId={selectedClassId}
+                  studentId={studentInsightData.student.id}
+                  date={insightOnlineDate}
+                  authToken={authToken}
+                  studentName={studentInsightData.student.name}
+                />
+              ) : null}
               <Table
                 size="small"
                 pagination={false}
-                dataSource={(studentInsightData.online_daily || []).map((r) => ({ ...r, key: r.online_date }))}
+                style={{ marginTop: 16 }}
+                dataSource={(studentInsightData.online_daily || []).map((r) => ({
+                  ...r,
+                  key: r.online_date,
+                }))}
+                onRow={(row) => ({
+                  onClick: () => setInsightOnlineDate(row.online_date),
+                  style: { cursor: 'pointer' },
+                })}
                 columns={[
                   { title: '日期', dataIndex: 'online_date', width: 140 },
                   {
@@ -2269,6 +2345,9 @@ function ClassPage() {
                 ]}
                 locale={{ emptyText: '暂无在线记录（学生登录并使用小程序后才有数据）' }}
               />
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                点击上表日期可切换时间轴；绿=在线、红=离线。
+              </Typography.Text>
             </Card>
             <Card size="small" title="与本班关联的考试（含未参与，最多 100 场）">
               <Table

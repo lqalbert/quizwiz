@@ -6448,6 +6448,186 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
   }
 })
 
+const SHANGHAI_CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+const parseShanghaiCalendarDateInput = (raw) => {
+  const s = String(raw || '').trim()
+  return SHANGHAI_CALENDAR_DATE_RE.test(s) ? s : null
+}
+
+/** 将某日上海日历 00:00 转为 UTC 时刻（用于与 timestamptz 比较） */
+const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`
+
+const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = new Date()) => {
+  const rangeStartMs = Date.parse(shanghaiDayStartParam(dayStr))
+  const dayEndExclusiveMs = rangeStartMs + 86400000
+  const rangeEndMs = isToday ? Math.min(now.getTime(), dayEndExclusiveMs - 1) : dayEndExclusiveMs - 1
+  if (!Number.isFinite(rangeStartMs) || rangeEndMs <= rangeStartMs) {
+    return {
+      date: dayStr,
+      is_today: isToday,
+      range_start: new Date(rangeStartMs).toISOString(),
+      range_end: new Date(rangeEndMs).toISOString(),
+      sessions: [],
+      segments: [{ type: 'offline', start: new Date(rangeStartMs).toISOString(), end: new Date(rangeEndMs).toISOString() }],
+      events: [],
+    }
+  }
+
+  const clipped = []
+  for (const row of sessionRows || []) {
+    const startedMs = new Date(row.started_at).getTime()
+    const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : now.getTime()
+    const clipStartMs = Math.max(startedMs, rangeStartMs)
+    const clipEndMs = Math.min(endedMs, rangeEndMs)
+    if (clipEndMs <= clipStartMs) continue
+    clipped.push({
+      id: Number(row.id),
+      started_at: row.started_at,
+      ended_at: row.ended_at,
+      is_open: !row.ended_at,
+      duration_seconds: row.duration_seconds != null ? Number(row.duration_seconds) : null,
+      clip_start: new Date(clipStartMs).toISOString(),
+      clip_end: new Date(clipEndMs).toISOString(),
+    })
+  }
+  clipped.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+
+  const segments = []
+  let cursor = rangeStartMs
+  for (const sess of clipped) {
+    const s = new Date(sess.clip_start).getTime()
+    const e = new Date(sess.clip_end).getTime()
+    if (s > cursor) {
+      segments.push({
+        type: 'offline',
+        start: new Date(cursor).toISOString(),
+        end: new Date(s).toISOString(),
+      })
+    }
+    segments.push({
+      type: 'online',
+      start: sess.clip_start,
+      end: sess.clip_end,
+      session_id: sess.id,
+    })
+    cursor = e
+  }
+  if (cursor < rangeEndMs) {
+    segments.push({
+      type: 'offline',
+      start: new Date(cursor).toISOString(),
+      end: new Date(rangeEndMs).toISOString(),
+    })
+  }
+
+  const events = []
+  for (const sess of clipped) {
+    const startMs = new Date(sess.started_at).getTime()
+    if (startMs >= rangeStartMs && startMs <= rangeEndMs) {
+      events.push({
+        kind: 'online',
+        at: sess.started_at,
+        label: sess.is_open && isToday ? '上线（进行中）' : '上线',
+      })
+    }
+    if (sess.ended_at) {
+      const endMs = new Date(sess.ended_at).getTime()
+      if (endMs >= rangeStartMs && endMs <= rangeEndMs) {
+        events.push({ kind: 'offline', at: sess.ended_at, label: '切出' })
+      }
+    }
+  }
+  events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+
+  return {
+    date: dayStr,
+    is_today: isToday,
+    range_start: new Date(rangeStartMs).toISOString(),
+    range_end: new Date(rangeEndMs).toISOString(),
+    sessions: clipped,
+    segments,
+    events,
+  }
+}
+
+/** 教师端：学生某日在线时间轴（绿=在线，红=离线，标注上下线时刻） */
+app.get('/api/dashboard/student-online-timeline', authRequired, async (req, res) => {
+  const classId = Number(req.query.classId ?? req.query.class_id)
+  const studentId = Number(req.query.studentId ?? req.query.student_id)
+  if (!Number.isInteger(classId) || classId <= 0) {
+    return res.status(400).json({ message: 'classId 不合法' })
+  }
+  if (!Number.isInteger(studentId) || studentId <= 0) {
+    return res.status(400).json({ message: 'studentId 不合法' })
+  }
+  try {
+    const todayR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
+    const todayStr = String(todayR.rows[0]?.d || '')
+    let dayStr = parseShanghaiCalendarDateInput(req.query.date) || todayStr
+    const isToday = dayStr === todayStr
+
+    const { accessSql, values } = buildVisibleClassesAccessSql(req)
+    const checkValues = [...values, classId]
+    const classIdPh = `$${checkValues.length}`
+    const classWhere = accessSql ? `${accessSql} AND c.id = ${classIdPh}` : `WHERE c.id = ${classIdPh}`
+    const classResult = await pool.query(
+      `SELECT c.id, c.name FROM classes c ${classWhere} LIMIT 1`,
+      checkValues,
+    )
+    if (!classResult.rows[0]) {
+      return res.status(404).json({ message: '班级不存在或无权查看' })
+    }
+
+    const mem = await pool.query(
+      `SELECT 1 FROM class_members WHERE class_id = $1 AND student_id = $2 LIMIT 1`,
+      [classId, studentId],
+    )
+    if (!mem.rows[0]) {
+      return res.status(404).json({ message: '该学生不在当前班级中' })
+    }
+
+    const studentR = await pool.query(
+      `
+      SELECT id, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name
+      FROM students WHERE id = $1 LIMIT 1
+      `,
+      [studentId],
+    )
+    const studentRow = studentR.rows[0]
+    if (!studentRow) {
+      return res.status(404).json({ message: '学生不存在' })
+    }
+
+    const dayStart = shanghaiDayStartParam(dayStr)
+    const dayEndExclusive = `${dayStr}T24:00:00+08:00`
+    const sessionsR = await pool.query(
+      `
+      SELECT id, started_at, ended_at, duration_seconds
+      FROM student_online_sessions
+      WHERE student_id = $1
+        AND started_at < $3::timestamptz
+        AND (ended_at IS NULL OR ended_at > $2::timestamptz)
+      ORDER BY started_at ASC
+      `,
+      [studentId, dayStart, dayEndExclusive],
+    )
+
+    const timeline = buildStudentOnlineTimelinePayload(sessionsR.rows, dayStr, isToday)
+    return res.json({
+      data: {
+        class_id: classId,
+        class_name: String(classResult.rows[0].name || ''),
+        student_id: studentId,
+        student_name: String(studentRow.display_name || '').trim() || '同学',
+        ...timeline,
+      },
+    })
+  } catch (error) {
+    return res.status(500).json({ message: '加载在线时间轴失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
 /** 兼容旧前端；新前端请用 GET /api/dashboard/class-stats?withOverview=1 */
 app.get('/api/dashboard/overview', authRequired, async (req, res) => {
   try {
