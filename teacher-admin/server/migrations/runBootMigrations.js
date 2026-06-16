@@ -513,7 +513,43 @@ const ensureStudentOnlineSchema = async () => {
     LIMIT 1
     `,
   )
-  if (badCapR.rows.length > 0 || badDurationR.rows.length > 0) {
+  /** 日汇总表被 4h 顶满、或会话时长字段异常：按真实上下线时间重建 */
+  const badSodR = await pool.query(
+    `
+    SELECT 1
+    FROM student_online_day
+    WHERE COALESCE(total_seconds, 0) >= 14400
+    LIMIT 1
+    `,
+  )
+  const rebuildOnlineDayFromSessions = async () => {
+    await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET duration_seconds = GREATEST(0, LEAST(
+        14400,
+        EXTRACT(EPOCH FROM (ended_at - started_at))::int
+      ))
+      WHERE ended_at IS NOT NULL
+      `,
+    )
+    await pool.query(`DELETE FROM student_online_day`)
+    await pool.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      SELECT
+        student_id,
+        online_date,
+        COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int)), 0)::int,
+        COUNT(*)::int
+      FROM student_online_sessions
+      WHERE ended_at IS NOT NULL
+        AND EXTRACT(EPOCH FROM (ended_at - started_at))::int > 0
+      GROUP BY student_id, online_date
+      `,
+    )
+  }
+  if (badCapR.rows.length > 0 || badDurationR.rows.length > 0 || badSodR.rows.length > 0) {
     if (badCapR.rows.length > 0) {
       await pool.query(
         `
@@ -538,21 +574,7 @@ const ensureStudentOnlineSchema = async () => {
         )
       `,
     )
-    await pool.query(`DELETE FROM student_online_day`)
-    await pool.query(
-      `
-      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
-      SELECT
-        student_id,
-        online_date,
-        COALESCE(SUM(duration_seconds), 0)::int,
-        COUNT(*)::int
-      FROM student_online_sessions
-      WHERE ended_at IS NOT NULL
-        AND COALESCE(duration_seconds, 0) > 0
-      GROUP BY student_id, online_date
-      `,
-    )
+    await rebuildOnlineDayFromSessions()
   }
   /** 关闭超过 3 分钟无心跳的孤儿会话，避免统计顶满 4 小时 */
   const staleOpenR = await pool.query(
@@ -580,21 +602,7 @@ const ensureStudentOnlineSchema = async () => {
         AND COALESCE(last_heartbeat_at, started_at) < NOW() - interval '180 seconds'
       `,
     )
-    await pool.query(`DELETE FROM student_online_day`)
-    await pool.query(
-      `
-      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
-      SELECT
-        student_id,
-        online_date,
-        COALESCE(SUM(duration_seconds), 0)::int,
-        COUNT(*)::int
-      FROM student_online_sessions
-      WHERE ended_at IS NOT NULL
-        AND COALESCE(duration_seconds, 0) > 0
-      GROUP BY student_id, online_date
-      `,
-    )
+    await rebuildOnlineDayFromSessions()
   }
 }
 
