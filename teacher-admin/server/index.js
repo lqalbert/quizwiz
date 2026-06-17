@@ -8564,7 +8564,7 @@ app.post('/api/users', authRequired, async (req, res) => {
   if (roles.length === 0) {
     return res.status(400).json({ message: '至少选择一个角色' })
   }
-  if (requesterIsClassTeacher && (!roles.every((r) => r === 'subject_teacher') || roles.length !== 1)) {
+  if (!requesterIsAdmin && requesterIsClassTeacher && (!roles.every((r) => r === 'subject_teacher') || roles.length !== 1)) {
     return res.status(403).json({ message: '班主任仅可新增科任老师账号' })
   }
   if (roles.includes('subject_teacher') && subjectIds.length === 0) {
