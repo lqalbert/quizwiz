@@ -6934,6 +6934,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     last_offline_at: null,
     is_still_online: false,
     span_seconds: 0,
+    online_seconds: 0,
     sessions: [],
     segments: [],
     events: [],
@@ -6988,16 +6989,16 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
 
   if (merged.length === 0) return emptyPayload()
 
-  const firstOnlineMs = new Date(merged[0].started_at).getTime()
+  const rangeStartMs = new Date(merged[0].clip_start).getTime()
   const lastSess = merged[merged.length - 1]
   const isStillOnline = Boolean(lastSess.is_open && isToday)
+  const lastClipEndMs = new Date(lastSess.clip_end).getTime()
   const lastOfflineMs = lastSess.ended_at
     ? new Date(lastSess.ended_at).getTime()
     : isStillOnline
       ? nowMs
-      : new Date(lastSess.clip_end).getTime()
-  const rangeStartMs = firstOnlineMs
-  const rangeEndMs = Math.max(lastOfflineMs, rangeStartMs + 1)
+      : lastClipEndMs
+  const rangeEndMs = Math.max(lastOfflineMs, lastClipEndMs, rangeStartMs + 1)
 
   const segments = []
   let cursor = rangeStartMs
@@ -7020,15 +7021,38 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     })
     cursor = e
   }
+  if (cursor < rangeEndMs) {
+    segments.push({
+      type: 'offline',
+      start: new Date(cursor).toISOString(),
+      end: new Date(rangeEndMs).toISOString(),
+    })
+  }
+
+  let onlineSeconds = 0
+  for (const seg of segments) {
+    if (seg.type !== 'online') continue
+    onlineSeconds += Math.max(
+      0,
+      Math.round((new Date(seg.end).getTime() - new Date(seg.start).getTime()) / 1000),
+    )
+  }
 
   const events = []
   for (const sess of merged) {
-    const startMs = new Date(sess.started_at).getTime()
-    if (startMs >= rangeStartMs && startMs <= rangeEndMs) {
+    const clipStartMs = new Date(sess.clip_start).getTime()
+    const startedMs = new Date(sess.started_at).getTime()
+    const onlineAtMs = startedMs >= dayStartMs && startedMs <= rangeEndMs ? startedMs : clipStartMs
+    if (onlineAtMs >= rangeStartMs && onlineAtMs <= rangeEndMs) {
       events.push({
         kind: 'online',
-        at: sess.started_at,
-        label: sess.is_open && isToday ? '上线（进行中）' : '上线',
+        at: new Date(onlineAtMs).toISOString(),
+        label:
+          startedMs < dayStartMs
+            ? '上线（续）'
+            : sess.is_open && isToday
+              ? '上线（进行中）'
+              : '上线',
       })
     }
     if (sess.ended_at) {
@@ -7045,10 +7069,11 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     is_today: isToday,
     range_start: new Date(rangeStartMs).toISOString(),
     range_end: new Date(rangeEndMs).toISOString(),
-    first_online_at: merged[0].started_at,
+    first_online_at: new Date(rangeStartMs).toISOString(),
     last_offline_at: lastSess.ended_at || null,
     is_still_online: isStillOnline,
     span_seconds: Math.max(0, Math.round((rangeEndMs - rangeStartMs) / 1000)),
+    online_seconds: onlineSeconds,
     sessions: merged,
     segments,
     events,

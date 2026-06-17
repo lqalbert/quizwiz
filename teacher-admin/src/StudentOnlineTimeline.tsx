@@ -33,6 +33,7 @@ export type OnlineTimelinePayload = {
   last_offline_at: string | null
   is_still_online: boolean
   span_seconds: number
+  online_seconds: number
   segments: OnlineTimelineSegment[]
   events: OnlineTimelineEvent[]
 }
@@ -172,7 +173,8 @@ export function StudentOnlineTimeline({
           {data.is_still_online ? ' 仍在使用' : ' 末次切出'}
         </Typography.Text>
         <Typography.Text type="secondary" style={{ marginLeft: 12 }}>
-          跨度 {formatDurationSeconds(data.span_seconds)}
+          在线 {formatDurationSeconds(data.online_seconds ?? 0)}
+          <Typography.Text type="secondary"> · 跨度 {formatDurationSeconds(data.span_seconds)}</Typography.Text>
         </Typography.Text>
       </div>
       <div className="online-timeline-axis">
