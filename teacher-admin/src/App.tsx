@@ -275,6 +275,7 @@ type TeacherAccountRow = {
   phone: string
   roles: string[]
   subjects: string[]
+  subjectIds: number[]
   status: number
   created_at?: string
 }
@@ -1460,6 +1461,7 @@ function ClassPage() {
     }
   }, [authUserRaw])
   const canCreateClassFlag = canCreateClass(authUser?.roles)
+  const isAdmin = hasRole(authUser?.roles, 'admin')
   const [openCreate, setOpenCreate] = useState(false)
   const [openDetail, setOpenDetail] = useState(false)
   const [openAddStudent, setOpenAddStudent] = useState(false)
@@ -1475,8 +1477,13 @@ function ClassPage() {
       inviteExpiresAt?: string
       joinAuditMode?: string
       canManage: boolean
+      ownerId: number
+      ownerName: string
     }>
   >([])
+  const [classTeacherOptions, setClassTeacherOptions] = useState<Array<{ label: string; value: number }>>([])
+  const [ownerDraftId, setOwnerDraftId] = useState<number | null>(null)
+  const [ownerSaving, setOwnerSaving] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
   const [students, setStudents] = useState<ClassRosterStudentRow[]>([])
   const [teacherRows, setTeacherRows] = useState<
@@ -1533,6 +1540,8 @@ function ClassPage() {
         inviteExpiresAt: String(item.invite_expires_at ?? ''),
         joinAuditMode: String(item.join_audit_mode ?? 'auto'),
         canManage: Boolean(item.can_manage),
+        ownerId: Number(item.owner_id ?? 0),
+        ownerName: String(item.owner_name ?? ''),
       }))
       setClassRows(rows)
     } catch (error) {
@@ -1574,11 +1583,62 @@ function ClassPage() {
     })
   }
 
-  const selectedClassCanManage = useMemo(
-    () =>
-      selectedClassId != null ? Boolean(classRows.find((r) => r.id === selectedClassId)?.canManage) : false,
+  const selectedClass = useMemo(
+    () => (selectedClassId != null ? classRows.find((r) => r.id === selectedClassId) ?? null : null),
     [classRows, selectedClassId],
   )
+
+  const selectedClassCanManage = useMemo(
+    () => Boolean(selectedClass?.canManage),
+    [selectedClass],
+  )
+
+  const loadClassTeacherOptions = async () => {
+    if (!CAN_USE_API || !isAdmin) return
+    try {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/users`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载班主任列表失败(${response.status})`)
+      setClassTeacherOptions(
+        (Array.isArray(payload?.data) ? payload.data : [])
+          .filter((item: Record<string, unknown>) => {
+            const roles = item.roles
+            return Number(item.status ?? 0) === 1 && Array.isArray(roles) && roles.includes('class_teacher')
+          })
+          .map((item: Record<string, unknown>) => ({
+            label: `${String(item.name ?? '')}（${String(item.phone ?? '')}）`,
+            value: Number(item.id),
+          })),
+      )
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载班主任列表失败')
+    }
+  }
+
+  const saveClassOwner = async () => {
+    if (!CAN_USE_API || !selectedClassId || !ownerDraftId) return
+    try {
+      setOwnerSaving(true)
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/owner`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ ownerId: ownerDraftId }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `分配班主任失败(${response.status})`)
+      message.success('班主任已更新')
+      await loadClasses()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '分配班主任失败')
+    } finally {
+      setOwnerSaving(false)
+    }
+  }
 
   const loadInviteConfig = async (classId: number) => {
     if (!CAN_USE_API) return
@@ -1706,8 +1766,13 @@ function ClassPage() {
 
   useEffect(() => {
     void loadClasses()
+    if (isAdmin) void loadClassTeacherOptions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    setOwnerDraftId(selectedClass?.ownerId ?? null)
+  }, [selectedClass])
 
   return (
     <Card
@@ -1731,7 +1796,13 @@ function ClassPage() {
             查看班级详情
           </Button>
           {canCreateClassFlag ? (
-            <Button type="primary" onClick={() => setOpenCreate(true)}>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (isAdmin) void loadClassTeacherOptions()
+                setOpenCreate(true)
+              }}
+            >
               创建班级
             </Button>
           ) : null}
@@ -1742,6 +1813,9 @@ function ClassPage() {
         loading={loading}
         columns={[
           ...classColumns,
+          ...(isAdmin
+            ? [{ title: '班主任', dataIndex: 'ownerName', render: (v: string) => v || '—' }]
+            : []),
           {
             title: '操作',
             key: 'actions',
@@ -1782,16 +1856,18 @@ function ClassPage() {
           <Form
             form={createForm}
             layout="vertical"
-            onFinish={async (values: { name: string }) => {
+            onFinish={async (values: { name: string; ownerId?: number }) => {
               if (!CAN_USE_API) return
               try {
+                const body: { name: string; ownerId?: number } = { name: String(values?.name || '').trim() }
+                if (isAdmin && values?.ownerId) body.ownerId = Number(values.ownerId)
                 const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
                   },
-                  body: JSON.stringify({ name: String(values?.name || '').trim() }),
+                  body: JSON.stringify(body),
                 })
                 const payload = await response.json().catch(() => ({}))
                 if (!response.ok) throw new Error(payload?.message || `创建失败(${response.status})`)
@@ -1807,6 +1883,16 @@ function ClassPage() {
             <Form.Item name="name" label="班级名称" rules={[{ required: true, message: '请输入班级名称' }]}>
               <Input placeholder="例如：高三(3)班" />
             </Form.Item>
+            {isAdmin ? (
+              <Form.Item name="ownerId" label="班主任" rules={[{ required: true, message: '请选择班主任' }]}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择班主任"
+                  options={classTeacherOptions}
+                />
+              </Form.Item>
+            ) : null}
           </Form>
         </Modal>
       ) : null}
@@ -1824,6 +1910,32 @@ function ClassPage() {
           ) : null
         }
       >
+        {isAdmin && selectedClass ? (
+          <Card size="small" title="班主任" style={{ marginBottom: 16 }}>
+            <Space wrap>
+              <Typography.Text type="secondary">
+                当前：{selectedClass.ownerName || '未分配'}
+              </Typography.Text>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 280 }}
+                placeholder="选择班主任"
+                value={ownerDraftId ?? undefined}
+                onChange={(value: number) => setOwnerDraftId(value)}
+                options={classTeacherOptions}
+              />
+              <Button
+                type="primary"
+                loading={ownerSaving}
+                disabled={!ownerDraftId || ownerDraftId === selectedClass.ownerId}
+                onClick={() => void saveClassOwner()}
+              >
+                保存班主任
+              </Button>
+            </Space>
+          </Card>
+        ) : null}
         <Tabs
           items={[
             {
@@ -8211,9 +8323,12 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
   const allowed = canAccessTeacherAccounts(authUser.roles)
   const [loading, setLoading] = useState(false)
   const [openCreate, setOpenCreate] = useState(false)
+  const [openEditRoles, setOpenEditRoles] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<TeacherAccountRow | null>(null)
   const [rows, setRows] = useState<TeacherAccountRow[]>([])
   const [subjectOptions, setSubjectOptions] = useState<Array<{ label: string; value: number }>>([])
   const [form] = Form.useForm()
+  const [editRolesForm] = Form.useForm()
 
   const loadData = async () => {
     if (!CAN_USE_API) return
@@ -8238,6 +8353,7 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
         phone: String(item.phone ?? ''),
         roles: Array.isArray(item.roles) ? (item.roles as string[]) : [],
         subjects: Array.isArray(item.subjects) ? (item.subjects as string[]) : [],
+        subjectIds: Array.isArray(item.subject_ids) ? (item.subject_ids as number[]).map(Number) : [],
         status: Number(item.status ?? 1),
         created_at: String(item.created_at ?? ''),
       }))
@@ -8298,6 +8414,34 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
       await loadData()
     } catch (error) {
       message.error(error instanceof Error ? error.message : '账号创建失败')
+    }
+  }
+
+  const handleUpdateRoles = async (values: { roles: string[]; subjectIds?: number[] }) => {
+    if (!CAN_USE_API || !editingAccount) return
+    try {
+      const roles = normalizeRoleList(values.roles || [])
+      const payload = {
+        roles,
+        subjectIds: roles.includes('subject_teacher') ? values.subjectIds || [] : [],
+      }
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/users/${editingAccount.id}/roles`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result?.message || `更新失败(${response.status})`)
+      message.success('角色已更新')
+      setOpenEditRoles(false)
+      setEditingAccount(null)
+      editRolesForm.resetFields()
+      await loadData()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '更新角色失败')
     }
   }
 
@@ -8395,10 +8539,24 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
                   title: '操作',
                   key: 'actions',
                   render: (_: unknown, record: TeacherAccountRow) => (
-                    <Button
-                      type="link"
-                      danger
-                      onClick={() => {
+                    <Space>
+                      <Button
+                        type="link"
+                        onClick={() => {
+                          setEditingAccount(record)
+                          editRolesForm.setFieldsValue({
+                            roles: normalizeRoleList(record.roles),
+                            subjectIds: record.subjectIds,
+                          })
+                          setOpenEditRoles(true)
+                        }}
+                      >
+                        分配角色
+                      </Button>
+                      <Button
+                        type="link"
+                        danger
+                        onClick={() => {
                         Modal.confirm({
                           title: '确认重置密码',
                           content: `将 ${record.name} 的密码重置为 123456，是否继续？`,
@@ -8425,6 +8583,7 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
                     >
                       重置密码
                     </Button>
+                    </Space>
                   ),
                 },
               ]
@@ -8451,6 +8610,35 @@ function TeacherAccountsPage({ authUser }: { authUser: AuthUser }) {
               const roles: string[] = getFieldValue('roles') || []
               const showSubjects = !isAdmin || roles.includes('subject_teacher')
               if (!showSubjects) return null
+              return (
+                <Form.Item name="subjectIds" label="授课科目" rules={[{ required: true, message: '请选择至少一个科目' }]}>
+                  <Select mode="multiple" options={subjectOptions} />
+                </Form.Item>
+              )
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={openEditRoles}
+        title={editingAccount ? `分配角色 — ${editingAccount.name}` : '分配角色'}
+        onCancel={() => {
+          setOpenEditRoles(false)
+          setEditingAccount(null)
+          editRolesForm.resetFields()
+        }}
+        onOk={() => editRolesForm.submit()}
+        okText="保存"
+      >
+        <Form form={editRolesForm} layout="vertical" onFinish={handleUpdateRoles}>
+          <Form.Item name="roles" label="角色" rules={[{ required: true, message: '请选择角色' }]}>
+            <Select mode="multiple" options={roleOptions} />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate>
+            {({ getFieldValue }) => {
+              const roles: string[] = getFieldValue('roles') || []
+              if (!roles.includes('subject_teacher')) return null
               return (
                 <Form.Item name="subjectIds" label="授课科目" rules={[{ required: true, message: '请选择至少一个科目' }]}>
                   <Select mode="multiple" options={subjectOptions} />

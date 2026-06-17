@@ -679,6 +679,21 @@ const getWarningRuleConfig = async (client) => {
   }
 }
 
+const assertUserIsActiveClassTeacher = async (client, userId) => {
+  const result = await client.query(
+    `
+    SELECT u.id, u.name
+    FROM users u
+    JOIN user_roles ur ON ur.user_id = u.id
+    JOIN roles r ON r.id = ur.role_id AND r.code = 'class_teacher'
+    WHERE u.id = $1 AND u.status = 1
+    LIMIT 1
+    `,
+    [userId],
+  )
+  return result.rows[0] || null
+}
+
 const assertClassManageAccess = async (client, classId, auth) => {
   const classResult = await client.query('SELECT id, owner_id FROM classes WHERE id = $1 LIMIT 1', [classId])
   const classRow = classResult.rows[0]
@@ -1689,6 +1704,7 @@ app.get('/api/users', authRequired, async (req, res) => {
         u.status,
         u.created_at,
         COALESCE(array_remove(array_agg(DISTINCT r.code), NULL), '{}') AS roles,
+        COALESCE(array_remove(array_agg(DISTINCT s.id), NULL), '{}') AS subject_ids,
         COALESCE(array_remove(array_agg(DISTINCT s.name), NULL), '{}') AS subjects
       FROM users u
       LEFT JOIN user_roles ur ON ur.user_id = u.id
@@ -1696,6 +1712,7 @@ app.get('/api/users', authRequired, async (req, res) => {
       LEFT JOIN teacher_subjects ts ON ts.teacher_id = u.id
       LEFT JOIN subjects s ON s.id = ts.subject_id
       GROUP BY u.id
+      ORDER BY u.created_at DESC
     `
       : `
       SELECT
@@ -1705,6 +1722,7 @@ app.get('/api/users', authRequired, async (req, res) => {
         u.status,
         u.created_at,
         COALESCE(array_remove(array_agg(DISTINCT r.code), NULL), '{}') AS roles,
+        COALESCE(array_remove(array_agg(DISTINCT s.id), NULL), '{}') AS subject_ids,
         COALESCE(array_remove(array_agg(DISTINCT s.name), NULL), '{}') AS subjects
       FROM users u
       INNER JOIN user_roles ur ON ur.user_id = u.id
@@ -1762,9 +1780,11 @@ app.get('/api/classes', authRequired, async (req, res) => {
         c.invite_expires_at,
         c.join_audit_mode,
         c.owner_id,
+        MAX(ou.name) AS owner_name,
         c.created_at,
         COALESCE(COUNT(cm.student_id), 0)::int AS student_count
       FROM classes c
+      LEFT JOIN users ou ON ou.id = c.owner_id
       LEFT JOIN class_members cm ON cm.class_id = c.id
       ${whereClause}
       GROUP BY c.id
@@ -1796,6 +1816,17 @@ app.post('/api/classes', authRequired, async (req, res) => {
   }
   const grade = String(req.body?.grade ?? '').trim()
   const inviteCode = Math.random().toString(36).slice(2, 8).toUpperCase()
+  let ownerId = Number(req.auth.userId)
+  if (hasRole(req, 'admin')) {
+    const requestedOwnerId = Number(req.body?.ownerId ?? req.body?.owner_id)
+    if (Number.isInteger(requestedOwnerId) && requestedOwnerId > 0) {
+      const ownerUser = await assertUserIsActiveClassTeacher(pool, requestedOwnerId)
+      if (!ownerUser) {
+        return res.status(400).json({ message: '班主任账号不存在或未具备班主任角色' })
+      }
+      ownerId = requestedOwnerId
+    }
+  }
   try {
     const result = await pool.query(
       `
@@ -1803,7 +1834,7 @@ app.post('/api/classes', authRequired, async (req, res) => {
       VALUES ($1, $2, $3, $4, NOW())
       RETURNING id, name, grade, invite_code, invite_enabled, invite_expires_at, join_audit_mode, owner_id, created_at
       `,
-      [name, grade, inviteCode, req.auth.userId],
+      [name, grade, inviteCode, ownerId],
     )
     const row = result.rows[0] || {}
     const { grade: _omitGrade, ...createdPublic } = row
@@ -1813,6 +1844,80 @@ app.post('/api/classes', authRequired, async (req, res) => {
       return res.status(400).json({ message: '班级名称已存在，请使用其他名称' })
     }
     res.status(500).json({ message: '创建班级失败', detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.patch('/api/classes/:id/owner', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可分配班主任' })
+  }
+  const classId = Number(req.params.id)
+  const ownerId = Number(req.body?.ownerId ?? req.body?.owner_id)
+  if (!Number.isInteger(classId) || classId <= 0) {
+    return res.status(400).json({ message: '班级ID不合法' })
+  }
+  if (!Number.isInteger(ownerId) || ownerId <= 0) {
+    return res.status(400).json({ message: '请选择班主任' })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const classResult = await client.query('SELECT id, name, owner_id FROM classes WHERE id = $1 LIMIT 1', [classId])
+    const classRow = classResult.rows[0]
+    if (!classRow) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '班级不存在' })
+    }
+    const ownerUser = await assertUserIsActiveClassTeacher(client, ownerId)
+    if (!ownerUser) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ message: '班主任账号不存在或未具备班主任角色' })
+    }
+    if (Number(classRow.owner_id) === ownerId) {
+      await client.query('ROLLBACK')
+      return res.json({
+        data: {
+          id: classId,
+          owner_id: ownerId,
+          owner_name: ownerUser.name,
+        },
+      })
+    }
+    const updated = await client.query(
+      `
+      UPDATE classes
+      SET owner_id = $2
+      WHERE id = $1
+      RETURNING id, name, owner_id
+      `,
+      [classId, ownerId],
+    )
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'class.assign_owner',
+      targetType: 'class',
+      targetId: String(classId),
+      detail: {
+        class_name: classRow.name,
+        from_owner_id: Number(classRow.owner_id),
+        to_owner_id: ownerId,
+        to_owner_name: ownerUser.name,
+      },
+    })
+    await client.query('COMMIT')
+    return res.json({
+      data: {
+        id: updated.rows[0]?.id,
+        owner_id: ownerId,
+        owner_name: ownerUser.name,
+      },
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '分配班主任失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
   }
 })
 
@@ -8752,6 +8857,139 @@ app.patch('/api/users/:id/status', authRequired, async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK')
     return res.status(500).json({ message: '更新账号状态失败', detail: error instanceof Error ? error.message : String(error) })
+  } finally {
+    client.release()
+  }
+})
+
+app.patch('/api/users/:id/roles', authRequired, async (req, res) => {
+  if (!hasRole(req, 'admin')) {
+    return res.status(403).json({ message: '仅管理员可修改教师角色' })
+  }
+  const targetUserId = Number(req.params.id)
+  const requestedRoles = Array.isArray(req.body?.roles) ? req.body.roles.map((r) => String(r)) : []
+  const subjectIds = Array.isArray(req.body?.subjectIds)
+    ? req.body.subjectIds.map((id) => Number(id)).filter((n) => !Number.isNaN(n))
+    : []
+
+  if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+    return res.status(400).json({ message: '用户ID不合法' })
+  }
+
+  const allowedRoleSet = new Set(['admin', 'class_teacher', 'subject_teacher'])
+  const roles = requestedRoles.filter((role) => allowedRoleSet.has(role))
+  if (roles.length === 0) {
+    return res.status(400).json({ message: '至少选择一个角色' })
+  }
+  if (roles.includes('subject_teacher') && subjectIds.length === 0) {
+    return res.status(400).json({ message: '科任老师账号必须绑定至少一个科目' })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const userResult = await client.query(
+      'SELECT id, name, phone FROM users WHERE id = $1 FOR UPDATE',
+      [targetUserId],
+    )
+    const user = userResult.rows[0]
+    if (!user) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '用户不存在' })
+    }
+
+    const currentRolesResult = await client.query(
+      `
+      SELECT r.code
+      FROM user_roles ur
+      JOIN roles r ON r.id = ur.role_id
+      WHERE ur.user_id = $1
+      `,
+      [targetUserId],
+    )
+    const currentRoles = currentRolesResult.rows.map((row) => row.code)
+
+    if (currentRoles.includes('admin') && !roles.includes('admin')) {
+      const activeAdminResult = await client.query(
+        `
+        SELECT COUNT(*)::int AS count
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE r.code = 'admin' AND u.status = 1
+        `,
+      )
+      const activeAdminCount = Number(activeAdminResult.rows[0]?.count || 0)
+      if (activeAdminCount <= 1) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: '不能移除最后一个管理员的角色' })
+      }
+    }
+
+    if (currentRoles.includes('class_teacher') && !roles.includes('class_teacher')) {
+      const ownedClassesResult = await client.query(
+        'SELECT COUNT(*)::int AS count FROM classes WHERE owner_id = $1',
+        [targetUserId],
+      )
+      if (Number(ownedClassesResult.rows[0]?.count || 0) > 0) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ message: '该用户仍为部分班级的班主任，请先在班级管理中重新分配班主任' })
+      }
+    }
+
+    await client.query('DELETE FROM user_roles WHERE user_id = $1', [targetUserId])
+    for (const roleCode of roles) {
+      const roleResult = await client.query('SELECT id FROM roles WHERE code = $1 LIMIT 1', [roleCode])
+      const roleId = roleResult.rows[0]?.id
+      if (!roleId) {
+        throw new Error(`角色不存在: ${roleCode}`)
+      }
+      await client.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)', [targetUserId, roleId])
+    }
+
+    await client.query('DELETE FROM teacher_subjects WHERE teacher_id = $1', [targetUserId])
+    if (roles.includes('subject_teacher')) {
+      for (const subjectId of subjectIds) {
+        await client.query(
+          `
+          INSERT INTO teacher_subjects (teacher_id, subject_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING
+          `,
+          [targetUserId, subjectId],
+        )
+      }
+    }
+
+    if (currentRoles.includes('subject_teacher') && !roles.includes('subject_teacher')) {
+      await client.query('DELETE FROM class_teachers WHERE teacher_id = $1', [targetUserId])
+    }
+
+    await writeOperationLog({
+      client,
+      operatorId: req.auth?.userId,
+      action: 'user.update_roles',
+      targetType: 'user',
+      targetId: String(targetUserId),
+      detail: {
+        name: user.name,
+        phone: user.phone,
+        from_roles: currentRoles,
+        to_roles: roles,
+        subject_ids: roles.includes('subject_teacher') ? subjectIds : [],
+      },
+    })
+    await client.query('COMMIT')
+    return res.json({
+      data: {
+        id: targetUserId,
+        roles,
+        subjectIds: roles.includes('subject_teacher') ? subjectIds : [],
+      },
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    return res.status(500).json({ message: '更新教师角色失败', detail: error instanceof Error ? error.message : String(error) })
   } finally {
     client.release()
   }
