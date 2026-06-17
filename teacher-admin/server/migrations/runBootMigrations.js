@@ -490,103 +490,11 @@ const ensureStudentOnlineSchema = async () => {
     WHERE last_heartbeat_at IS NULL
     `,
   )
-  /** 一次性修复：旧版孤儿会话被 12h 上限写满 */
-  const badCapR = await pool.query(
-    `
-    SELECT 1
-    FROM student_online_sessions
-    WHERE ended_at IS NOT NULL
-      AND COALESCE(duration_seconds, 0) >= 43200
-    LIMIT 1
-    `,
+  /** v2：按日历日切分会话重建日汇总，修复「有 4h 汇总但当日无上线」 */
+  const v2R = await pool.query(
+    `SELECT 1 FROM system_configs WHERE config_key = 'student_online_day_overlap_v2' LIMIT 1`,
   )
-  /** 修复 duration_seconds 与真实上下线时间不一致（含 4h 顶满） */
-  const badDurationR = await pool.query(
-    `
-    SELECT 1
-    FROM student_online_sessions
-    WHERE ended_at IS NOT NULL
-      AND (
-        COALESCE(duration_seconds, 0) >= 14400
-        OR COALESCE(duration_seconds, 0) > GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int + 120)
-      )
-    LIMIT 1
-    `,
-  )
-  /** 日汇总表被 4h 顶满、或会话时长字段异常：按真实上下线时间重建 */
-  const badSodR = await pool.query(
-    `
-    SELECT 1
-    FROM student_online_day
-    WHERE COALESCE(total_seconds, 0) >= 14400
-    LIMIT 1
-    `,
-  )
-  const rebuildOnlineDayFromSessions = async () => {
-    await pool.query(
-      `
-      UPDATE student_online_sessions
-      SET duration_seconds = GREATEST(0, LEAST(
-        14400,
-        EXTRACT(EPOCH FROM (ended_at - started_at))::int
-      ))
-      WHERE ended_at IS NOT NULL
-      `,
-    )
-    await pool.query(`DELETE FROM student_online_day`)
-    await pool.query(
-      `
-      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
-      SELECT
-        student_id,
-        online_date,
-        COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int)), 0)::int,
-        COUNT(*)::int
-      FROM student_online_sessions
-      WHERE ended_at IS NOT NULL
-        AND EXTRACT(EPOCH FROM (ended_at - started_at))::int > 0
-      GROUP BY student_id, online_date
-      `,
-    )
-  }
-  if (badCapR.rows.length > 0 || badDurationR.rows.length > 0 || badSodR.rows.length > 0) {
-    if (badCapR.rows.length > 0) {
-      await pool.query(
-        `
-        UPDATE student_online_sessions
-        SET duration_seconds = 0
-        WHERE ended_at IS NOT NULL
-          AND COALESCE(duration_seconds, 0) >= 43200
-        `,
-      )
-    }
-    await pool.query(
-      `
-      UPDATE student_online_sessions
-      SET duration_seconds = GREATEST(0, LEAST(
-        14400,
-        EXTRACT(EPOCH FROM (ended_at - started_at))::int
-      ))
-      WHERE ended_at IS NOT NULL
-        AND (
-          COALESCE(duration_seconds, 0) >= 14400
-          OR COALESCE(duration_seconds, 0) > GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int + 120)
-        )
-      `,
-    )
-    await rebuildOnlineDayFromSessions()
-  }
-  /** 关闭超过 3 分钟无心跳的孤儿会话，避免统计顶满 4 小时 */
-  const staleOpenR = await pool.query(
-    `
-    SELECT 1
-    FROM student_online_sessions
-    WHERE ended_at IS NULL
-      AND COALESCE(last_heartbeat_at, started_at) < NOW() - interval '180 seconds'
-    LIMIT 1
-    `,
-  )
-  if (staleOpenR.rows.length > 0) {
+  if (!v2R.rows.length) {
     await pool.query(
       `
       UPDATE student_online_sessions
@@ -602,7 +510,68 @@ const ensureStudentOnlineSchema = async () => {
         AND COALESCE(last_heartbeat_at, started_at) < NOW() - interval '180 seconds'
       `,
     )
-    await rebuildOnlineDayFromSessions()
+    await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET duration_seconds = GREATEST(0, LEAST(
+        14400,
+        EXTRACT(EPOCH FROM (ended_at - started_at))::int
+      ))
+      WHERE ended_at IS NOT NULL
+      `,
+    )
+    await pool.query(`DELETE FROM student_online_day`)
+    await pool.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      SELECT
+        sos.student_id,
+        d.online_date,
+        SUM(
+          GREATEST(0, EXTRACT(EPOCH FROM (
+            LEAST(
+              sos.ended_at,
+              ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+            )
+            - GREATEST(
+              sos.started_at,
+              (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+            )
+          ))::int)
+        )::int AS total_seconds,
+        COUNT(*)::int AS session_count
+      FROM student_online_sessions sos
+      CROSS JOIN LATERAL (
+        SELECT generate_series(
+          (timezone('Asia/Shanghai', sos.started_at))::date,
+          (timezone('Asia/Shanghai', sos.ended_at))::date,
+          interval '1 day'
+        )::date AS online_date
+      ) d
+      WHERE sos.ended_at IS NOT NULL
+        AND sos.ended_at > sos.started_at
+      GROUP BY sos.student_id, d.online_date
+      HAVING SUM(
+        GREATEST(0, EXTRACT(EPOCH FROM (
+          LEAST(
+            sos.ended_at,
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+          - GREATEST(
+            sos.started_at,
+            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+        ))::int)
+      ) > 0
+      `,
+    )
+    await pool.query(
+      `
+      INSERT INTO system_configs (config_key, config_value, updated_at)
+      VALUES ('student_online_day_overlap_v2', 'true'::jsonb, NOW())
+      ON CONFLICT (config_key) DO NOTHING
+      `,
+    )
   }
 }
 

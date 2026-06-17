@@ -213,7 +213,7 @@ export function StudentOnlineTimeline({
           离线
         </span>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          时间轴仅展示当日首次上线至末次切出区间
+          时间轴仅展示当日首次上线至末次切出区间；间隔 90 秒内的多次切出/进入会合并展示
         </Typography.Text>
       </div>
       {data.events.length > 0 ? (

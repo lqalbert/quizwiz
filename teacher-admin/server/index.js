@@ -4882,6 +4882,10 @@ const ONLINE_SESSION_MAX_SECONDS = 4 * 3600
 const ONLINE_HEARTBEAT_STALE_SECONDS = 180
 /** 末次心跳后再计入的缓冲秒数（覆盖一次心跳间隔） */
 const ONLINE_HEARTBEAT_TAIL_SECONDS = 90
+/** 切出后该秒数内再次进入，视为同一会话（续接而非新建） */
+const ONLINE_SESSION_RESUME_SECONDS = 90
+/** 时间轴展示：相邻会话间隔小于该值则合并为一段在线 */
+const ONLINE_SESSION_TIMELINE_MERGE_GAP_SECONDS = 90
 
 const onlineSessionEffectiveEndSql = (alias = 'sos', windowEndSql = 'NOW()') => `CASE
   WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(${alias}.ended_at, ${windowEndSql})
@@ -4908,13 +4912,10 @@ END`
 const onlineSessionOverlapSecondsSql = (startSql, endSql) => `CASE
   WHEN sos.ended_at IS NULL AND NOW() >= ${endSql} THEN 0
   WHEN sos.ended_at IS NULL AND NOW() < ${startSql} THEN 0
-  ELSE GREATEST(0, LEAST(
-    ${ONLINE_SESSION_MAX_SECONDS},
-    EXTRACT(EPOCH FROM (
-      LEAST((${onlineSessionEffectiveEndSql('sos', endSql)}), ${endSql})
-      - GREATEST(sos.started_at, ${startSql})
-    ))::int
-  ))
+  ELSE GREATEST(0, EXTRACT(EPOCH FROM (
+    LEAST((${onlineSessionEffectiveEndSql('sos', endSql)}), ${endSql})
+    - GREATEST(sos.started_at, ${startSql})
+  ))::int)
 END`
 
 const onlineSessionIntersectsWindowSql = (startSql, endSql) => `(
@@ -4971,88 +4972,18 @@ const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
   const todayStr = String(todayR.rows[0]?.d || '')
   const p = String(period || 'today').toLowerCase()
 
-  if (dayStr && dayStr !== todayStr) {
-    return pool.query(
-      `
-      SELECT
-        cm.student_id,
-        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
-        s.student_no,
-        COALESCE(sod.total_seconds, 0)::int AS total_seconds,
-        COALESCE(sod.session_count, 0)::int AS session_count
-      FROM class_members cm
-      INNER JOIN students s ON s.id = cm.student_id
-      LEFT JOIN student_online_day sod
-        ON sod.student_id = cm.student_id
-        AND sod.online_date = $2::date
-      WHERE cm.class_id = $1
-      ORDER BY total_seconds DESC, display_name ASC
-      `,
-      [classId, dayStr],
-    )
+  let startSql
+  let endSql
+  if (dayStr) {
+    ;({ startSql, endSql } = getOnlineStatsWindowSql('today', dayStr))
+  } else if (p === 'week' || p === 'month' || p === 'all') {
+    ;({ startSql, endSql } = getOnlineStatsWindowSql(p, null))
+  } else {
+    ;({ startSql, endSql } = getOnlineStatsWindowSql('today', todayStr))
   }
 
-  const { startSql: todayStartSql, endSql: todayEndSql } = getOnlineStatsWindowSql('today', todayStr)
-  const todayOverlapSql = onlineSessionOverlapSecondsSql(todayStartSql, todayEndSql)
-  const todayIntersectSql = onlineSessionIntersectsWindowSql(todayStartSql, todayEndSql)
-
-  const todayOpenSelect = `
-    (
-      COALESCE(sod.total_seconds, 0)
-      + COALESCE(SUM(
-        CASE WHEN sos.ended_at IS NULL THEN ${todayOverlapSql} ELSE 0 END
-      ), 0)
-    )::int AS total_seconds,
-    (
-      COALESCE(sod.session_count, 0)
-      + COUNT(sos.id) FILTER (WHERE sos.ended_at IS NULL AND ${todayIntersectSql})
-    )::int AS session_count
-  `
-
-  if (!dayStr && (p === 'week' || p === 'month' || p === 'all')) {
-    let periodDateCond = ''
-    if (p === 'week') {
-      periodDateCond = `sod.online_date >= (date_trunc('week', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')::date
-        AND sod.online_date <= '${todayStr}'::date`
-    } else if (p === 'month') {
-      periodDateCond = `sod.online_date >= (date_trunc('month', timezone('Asia/Shanghai', now())) AT TIME ZONE 'Asia/Shanghai')::date
-        AND sod.online_date <= '${todayStr}'::date`
-    } else {
-      periodDateCond = `sod.online_date <= '${todayStr}'::date`
-    }
-
-    return pool.query(
-      `
-      SELECT
-        cm.student_id,
-        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
-        s.student_no,
-        (
-          COALESCE(SUM(sod.total_seconds), 0)
-          + COALESCE(SUM(
-            CASE WHEN sos.ended_at IS NULL THEN ${todayOverlapSql} ELSE 0 END
-          ), 0)
-        )::int AS total_seconds,
-        (
-          COALESCE(SUM(sod.session_count), 0)
-          + COUNT(sos.id) FILTER (WHERE sos.ended_at IS NULL AND ${todayIntersectSql})
-        )::int AS session_count
-      FROM class_members cm
-      INNER JOIN students s ON s.id = cm.student_id
-      LEFT JOIN student_online_day sod
-        ON sod.student_id = cm.student_id
-        AND ${periodDateCond}
-      LEFT JOIN student_online_sessions sos
-        ON sos.student_id = cm.student_id
-        AND sos.ended_at IS NULL
-        AND ${todayIntersectSql}
-      WHERE cm.class_id = $1
-      GROUP BY cm.student_id, display_name, s.student_no
-      ORDER BY total_seconds DESC, display_name ASC
-      `,
-      [classId],
-    )
-  }
+  const overlapSecondsSql = onlineSessionOverlapSecondsSql(startSql, endSql)
+  const intersectSql = onlineSessionIntersectsWindowSql(startSql, endSql)
 
   return pool.query(
     `
@@ -5060,21 +4991,117 @@ const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
       cm.student_id,
       COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
       s.student_no,
-      ${todayOpenSelect}
+      COALESCE(SUM(${overlapSecondsSql}), 0)::int AS total_seconds,
+      COUNT(sos.id) FILTER (WHERE sos.id IS NOT NULL AND ${intersectSql})::int AS session_count
     FROM class_members cm
     INNER JOIN students s ON s.id = cm.student_id
-    LEFT JOIN student_online_day sod
-      ON sod.student_id = cm.student_id
-      AND sod.online_date = $2::date
     LEFT JOIN student_online_sessions sos
       ON sos.student_id = cm.student_id
-      AND sos.ended_at IS NULL
-      AND ${todayIntersectSql}
+      AND ${intersectSql}
     WHERE cm.class_id = $1
-    GROUP BY cm.student_id, display_name, s.student_no, sod.total_seconds, sod.session_count
+    GROUP BY cm.student_id, display_name, s.student_no
     ORDER BY total_seconds DESC, display_name ASC
     `,
-    [classId, todayStr],
+    [classId],
+  )
+}
+
+/** 按上海日历日切分会话，重建 student_online_day（仅已结束会话） */
+const rebuildAllStudentOnlineDayFromSessions = async (client) => {
+  await client.query(`DELETE FROM student_online_day`)
+  await client.query(
+    `
+    INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+    SELECT
+      sos.student_id,
+      d.online_date,
+      SUM(
+        GREATEST(0, EXTRACT(EPOCH FROM (
+          LEAST(
+            sos.ended_at,
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+          - GREATEST(
+            sos.started_at,
+            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+        ))::int)
+      )::int AS total_seconds,
+      COUNT(*)::int AS session_count
+    FROM student_online_sessions sos
+    CROSS JOIN LATERAL (
+      SELECT generate_series(
+        (timezone('Asia/Shanghai', sos.started_at))::date,
+        (timezone('Asia/Shanghai', sos.ended_at))::date,
+        interval '1 day'
+      )::date AS online_date
+    ) d
+    WHERE sos.ended_at IS NOT NULL
+      AND sos.ended_at > sos.started_at
+    GROUP BY sos.student_id, d.online_date
+    HAVING SUM(
+      GREATEST(0, EXTRACT(EPOCH FROM (
+        LEAST(
+          sos.ended_at,
+          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+        )
+        - GREATEST(
+          sos.started_at,
+          (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        )
+      ))::int)
+    ) > 0
+    `,
+  )
+}
+
+const refreshStudentOnlineDayForStudent = async (client, studentId) => {
+  await client.query(`DELETE FROM student_online_day WHERE student_id = $1`, [studentId])
+  await client.query(
+    `
+    INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+    SELECT
+      sos.student_id,
+      d.online_date,
+      SUM(
+        GREATEST(0, EXTRACT(EPOCH FROM (
+          LEAST(
+            sos.ended_at,
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+          - GREATEST(
+            sos.started_at,
+            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+        ))::int)
+      )::int AS total_seconds,
+      COUNT(*)::int AS session_count
+    FROM student_online_sessions sos
+    CROSS JOIN LATERAL (
+      SELECT generate_series(
+        (timezone('Asia/Shanghai', sos.started_at))::date,
+        (timezone('Asia/Shanghai', sos.ended_at))::date,
+        interval '1 day'
+      )::date AS online_date
+    ) d
+    WHERE sos.student_id = $1
+      AND sos.ended_at IS NOT NULL
+      AND sos.ended_at > sos.started_at
+    GROUP BY sos.student_id, d.online_date
+    HAVING SUM(
+      GREATEST(0, EXTRACT(EPOCH FROM (
+        LEAST(
+          sos.ended_at,
+          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+        )
+        - GREATEST(
+          sos.started_at,
+          (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+        )
+      ))::int)
+    ) > 0
+    `,
+    [studentId],
   )
 }
 
@@ -5096,19 +5123,7 @@ const closeStudentOnlineSession = async (client, sessionId, studentId, { atForeg
   )
   const row = upd.rows[0]
   if (!row) return null
-  const duration = Number(row.duration_seconds || 0)
-  if (duration > 0) {
-    await client.query(
-      `
-      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
-      VALUES ($1, $2, $3, 1)
-      ON CONFLICT (student_id, online_date) DO UPDATE SET
-        total_seconds = student_online_day.total_seconds + EXCLUDED.total_seconds,
-        session_count = student_online_day.session_count + 1
-      `,
-      [studentId, row.online_date, duration],
-    )
-  }
+  await refreshStudentOnlineDayForStudent(client, studentId)
   return row
 }
 
@@ -5143,6 +5158,33 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
     )
     for (const row of openR.rows) {
       await closeStudentOnlineSession(client, Number(row.id), studentId)
+    }
+    const recentR = await client.query(
+      `
+      SELECT id
+      FROM student_online_sessions
+      WHERE student_id = $1
+        AND ended_at IS NOT NULL
+        AND ended_at > NOW() - ($2::int * INTERVAL '1 second')
+      ORDER BY ended_at DESC
+      LIMIT 1
+      `,
+      [studentId, ONLINE_SESSION_RESUME_SECONDS],
+    )
+    const recentId = recentR.rows[0] ? Number(recentR.rows[0].id) : 0
+    if (recentId > 0) {
+      await client.query(
+        `
+        UPDATE student_online_sessions
+        SET ended_at = NULL,
+            duration_seconds = NULL,
+            last_heartbeat_at = NOW()
+        WHERE id = $1 AND student_id = $2
+        `,
+        [recentId, studentId],
+      )
+      await client.query('COMMIT')
+      return res.json({ data: { session_id: recentId, resumed: true } })
     }
     const dateR = await client.query(`SELECT (timezone('Asia/Shanghai', now()))::date AS d`)
     const onlineDate = dateR.rows[0]?.d
@@ -6739,10 +6781,27 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   }
   clipped.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
 
-  if (clipped.length === 0) return emptyPayload()
+  const mergeGapMs = ONLINE_SESSION_TIMELINE_MERGE_GAP_SECONDS * 1000
+  const merged = []
+  for (const sess of clipped) {
+    const prev = merged[merged.length - 1]
+    const gapMs = prev
+      ? new Date(sess.clip_start).getTime() - new Date(prev.clip_end).getTime()
+      : Infinity
+    if (prev && gapMs >= 0 && gapMs <= mergeGapMs) {
+      prev.clip_end = sess.clip_end
+      prev.ended_at = sess.ended_at
+      prev.is_open = sess.is_open
+      if (sess.is_open) prev.ended_at = null
+    } else {
+      merged.push({ ...sess })
+    }
+  }
 
-  const firstOnlineMs = new Date(clipped[0].started_at).getTime()
-  const lastSess = clipped[clipped.length - 1]
+  if (merged.length === 0) return emptyPayload()
+
+  const firstOnlineMs = new Date(merged[0].started_at).getTime()
+  const lastSess = merged[merged.length - 1]
   const isStillOnline = Boolean(lastSess.is_open && isToday)
   const lastOfflineMs = lastSess.ended_at
     ? new Date(lastSess.ended_at).getTime()
@@ -6754,7 +6813,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
 
   const segments = []
   let cursor = rangeStartMs
-  for (const sess of clipped) {
+  for (const sess of merged) {
     const s = Math.max(new Date(sess.clip_start).getTime(), rangeStartMs)
     const e = Math.min(new Date(sess.clip_end).getTime(), rangeEndMs)
     if (e <= s) continue
@@ -6775,7 +6834,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   }
 
   const events = []
-  for (const sess of clipped) {
+  for (const sess of merged) {
     const startMs = new Date(sess.started_at).getTime()
     if (startMs >= rangeStartMs && startMs <= rangeEndMs) {
       events.push({
@@ -6798,11 +6857,11 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
     is_today: isToday,
     range_start: new Date(rangeStartMs).toISOString(),
     range_end: new Date(rangeEndMs).toISOString(),
-    first_online_at: clipped[0].started_at,
+    first_online_at: merged[0].started_at,
     last_offline_at: lastSess.ended_at || null,
     is_still_online: isStillOnline,
     span_seconds: Math.max(0, Math.round((rangeEndMs - rangeStartMs) / 1000)),
-    sessions: clipped,
+    sessions: merged,
     segments,
     events,
   }
