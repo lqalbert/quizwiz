@@ -1448,6 +1448,21 @@ type ClassStudentInsightPayload = {
   }>
 }
 
+type ClassListRow = {
+  key: string
+  id: number
+  name: string
+  studentCount: number
+  inviteCode: string
+  inviteEnabled: boolean
+  inviteExpiresAt?: string
+  joinAuditMode?: string
+  canManage: boolean
+  ownerId: number
+  ownerName: string
+  ownerIsClassTeacher: boolean
+}
+
 function ClassPage() {
   const navigate = useNavigate()
   const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
@@ -1466,22 +1481,7 @@ function ClassPage() {
   const [openDetail, setOpenDetail] = useState(false)
   const [openAddStudent, setOpenAddStudent] = useState(false)
   const [openAddTeacher, setOpenAddTeacher] = useState(false)
-  const [classRows, setClassRows] = useState<
-    Array<{
-      key: string
-      id: number
-      name: string
-      studentCount: number
-      inviteCode: string
-      inviteEnabled: boolean
-      inviteExpiresAt?: string
-      joinAuditMode?: string
-      canManage: boolean
-      ownerId: number
-      ownerName: string
-      ownerIsClassTeacher: boolean
-    }>
-  >([])
+  const [classRows, setClassRows] = useState<ClassListRow[]>([])
   const [classTeacherOptions, setClassTeacherOptions] = useState<Array<{ label: string; value: number }>>([])
   const [ownerDraftId, setOwnerDraftId] = useState<number | null>(null)
   const [ownerSaving, setOwnerSaving] = useState(false)
@@ -1648,12 +1648,7 @@ function ClassPage() {
     }
   }
 
-  const openAssignOwnerModal = (record: {
-    id: number
-    name: string
-    ownerId: number
-    ownerIsClassTeacher: boolean
-  }) => {
+  const openAssignOwnerModal = (record: ClassListRow) => {
     void loadClassTeacherOptions()
     setAssignOwnerTarget(record)
     assignOwnerForm.setFieldsValue({
@@ -1835,7 +1830,7 @@ function ClassPage() {
         </Space>
       }
     >
-      <Table
+      <Table<ClassListRow>
         loading={loading}
         columns={[
           ...classColumns,
@@ -1844,7 +1839,7 @@ function ClassPage() {
                 {
                   title: '班主任',
                   dataIndex: 'ownerName',
-                  render: (_: string, record: { ownerName: string; ownerIsClassTeacher: boolean }) =>
+                  render: (_: string, record: ClassListRow) =>
                     record.ownerIsClassTeacher ? (
                       record.ownerName || '—'
                     ) : (
@@ -1856,10 +1851,7 @@ function ClassPage() {
           {
             title: '操作',
             key: 'actions',
-            render: (
-              _: unknown,
-              record: { id: number; name: string; canManage: boolean; ownerId: number; ownerIsClassTeacher: boolean },
-            ) => (
+            render: (_: unknown, record: ClassListRow) => (
               <Space wrap>
                 {isAdmin ? (
                   <Button type="link" style={{ padding: 0 }} onClick={() => openAssignOwnerModal(record)}>
