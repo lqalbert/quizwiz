@@ -1138,7 +1138,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
               { title: '姓名', dataIndex: 'name', width: 120 },
-              { title: '学号', dataIndex: 'student_no', width: 120, render: (v: string) => v || '—' },
               { title: '答对次数', dataIndex: 'correct_count', width: 90 },
               { title: '练习题数', dataIndex: 'practice_questions', width: 90 },
               { title: '错题数', dataIndex: 'wrong_count', width: 90 },
@@ -1331,7 +1330,6 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
               { title: '姓名', dataIndex: 'name', width: 120 },
-              { title: '学号', dataIndex: 'student_no', width: 120, render: (v: string) => v || '—' },
               {
                 title: '在线时长',
                 dataIndex: 'total_seconds',
