@@ -1781,6 +1781,14 @@ app.get('/api/classes', authRequired, async (req, res) => {
         c.join_audit_mode,
         c.owner_id,
         MAX(ou.name) AS owner_name,
+        BOOL_OR(
+          EXISTS (
+            SELECT 1
+            FROM user_roles our
+            JOIN roles orr ON orr.id = our.role_id AND orr.code = 'class_teacher'
+            WHERE our.user_id = c.owner_id
+          )
+        ) AS owner_is_class_teacher,
         c.created_at,
         COALESCE(COUNT(cm.student_id), 0)::int AS student_count
       FROM classes c

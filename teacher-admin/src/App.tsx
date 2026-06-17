@@ -1479,11 +1479,15 @@ function ClassPage() {
       canManage: boolean
       ownerId: number
       ownerName: string
+      ownerIsClassTeacher: boolean
     }>
   >([])
   const [classTeacherOptions, setClassTeacherOptions] = useState<Array<{ label: string; value: number }>>([])
   const [ownerDraftId, setOwnerDraftId] = useState<number | null>(null)
   const [ownerSaving, setOwnerSaving] = useState(false)
+  const [openAssignOwner, setOpenAssignOwner] = useState(false)
+  const [assignOwnerTarget, setAssignOwnerTarget] = useState<{ id: number; name: string; ownerId: number; ownerIsClassTeacher: boolean } | null>(null)
+  const [assignOwnerForm] = Form.useForm()
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null)
   const [students, setStudents] = useState<ClassRosterStudentRow[]>([])
   const [teacherRows, setTeacherRows] = useState<
@@ -1542,6 +1546,7 @@ function ClassPage() {
         canManage: Boolean(item.can_manage),
         ownerId: Number(item.owner_id ?? 0),
         ownerName: String(item.owner_name ?? ''),
+        ownerIsClassTeacher: Boolean(item.owner_is_class_teacher),
       }))
       setClassRows(rows)
     } catch (error) {
@@ -1617,27 +1622,44 @@ function ClassPage() {
     }
   }
 
-  const saveClassOwner = async () => {
-    if (!CAN_USE_API || !selectedClassId || !ownerDraftId) return
+  const saveClassOwner = async (classId: number, ownerId: number) => {
+    if (!CAN_USE_API || !ownerId) return
     try {
       setOwnerSaving(true)
-      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${selectedClassId}/owner`, {
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/classes/${classId}/owner`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ ownerId: ownerDraftId }),
+        body: JSON.stringify({ ownerId }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message || `分配班主任失败(${response.status})`)
       message.success('班主任已更新')
+      setOpenAssignOwner(false)
+      setAssignOwnerTarget(null)
+      assignOwnerForm.resetFields()
       await loadClasses()
     } catch (error) {
       message.error(error instanceof Error ? error.message : '分配班主任失败')
     } finally {
       setOwnerSaving(false)
     }
+  }
+
+  const openAssignOwnerModal = (record: {
+    id: number
+    name: string
+    ownerId: number
+    ownerIsClassTeacher: boolean
+  }) => {
+    void loadClassTeacherOptions()
+    setAssignOwnerTarget(record)
+    assignOwnerForm.setFieldsValue({
+      ownerId: record.ownerIsClassTeacher ? record.ownerId : undefined,
+    })
+    setOpenAssignOwner(true)
   }
 
   const loadInviteConfig = async (classId: number) => {
@@ -1771,7 +1793,11 @@ function ClassPage() {
   }, [])
 
   useEffect(() => {
-    setOwnerDraftId(selectedClass?.ownerId ?? null)
+    if (!selectedClass) {
+      setOwnerDraftId(null)
+      return
+    }
+    setOwnerDraftId(selectedClass.ownerIsClassTeacher ? selectedClass.ownerId : null)
   }, [selectedClass])
 
   return (
@@ -1814,20 +1840,41 @@ function ClassPage() {
         columns={[
           ...classColumns,
           ...(isAdmin
-            ? [{ title: '班主任', dataIndex: 'ownerName', render: (v: string) => v || '—' }]
+            ? [
+                {
+                  title: '班主任',
+                  dataIndex: 'ownerName',
+                  render: (_: string, record: { ownerName: string; ownerIsClassTeacher: boolean }) =>
+                    record.ownerIsClassTeacher ? (
+                      record.ownerName || '—'
+                    ) : (
+                      <Tag color="orange">待分配</Tag>
+                    ),
+                },
+              ]
             : []),
           {
             title: '操作',
             key: 'actions',
-            render: (_: unknown, record: { id: number; canManage: boolean }) => (
-              <Space>
+            render: (
+              _: unknown,
+              record: { id: number; name: string; canManage: boolean; ownerId: number; ownerIsClassTeacher: boolean },
+            ) => (
+              <Space wrap>
+                {isAdmin ? (
+                  <Button type="link" style={{ padding: 0 }} onClick={() => openAssignOwnerModal(record)}>
+                    分配班主任
+                  </Button>
+                ) : null}
                 <Button
                   type="link"
+                  style={{ padding: 0 }}
                   onClick={() => {
                     setSelectedClassId(record.id)
                     void loadStudents(record.id)
                     void loadTeachers(record.id)
                     void loadInviteConfig(record.id)
+                    if (isAdmin) void loadClassTeacherOptions()
                     setOpenDetail(true)
                   }}
                 >
@@ -1897,6 +1944,44 @@ function ClassPage() {
         </Modal>
       ) : null}
 
+      {isAdmin ? (
+        <Modal
+          open={openAssignOwner}
+          title={assignOwnerTarget ? `分配班主任 — ${assignOwnerTarget.name}` : '分配班主任'}
+          onCancel={() => {
+            setOpenAssignOwner(false)
+            setAssignOwnerTarget(null)
+            assignOwnerForm.resetFields()
+          }}
+          onOk={() => assignOwnerForm.submit()}
+          confirmLoading={ownerSaving}
+          okText="保存"
+        >
+          <Form
+            form={assignOwnerForm}
+            layout="vertical"
+            onFinish={async (values: { ownerId: number }) => {
+              if (!assignOwnerTarget) return
+              await saveClassOwner(assignOwnerTarget.id, Number(values.ownerId))
+            }}
+          >
+            {assignOwnerTarget && !assignOwnerTarget.ownerIsClassTeacher ? (
+              <Typography.Paragraph type="secondary">
+                该班级目前由管理员代管，请选择班主任后保存。
+              </Typography.Paragraph>
+            ) : null}
+            <Form.Item name="ownerId" label="班主任" rules={[{ required: true, message: '请选择班主任' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="选择班主任"
+                options={classTeacherOptions}
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
+      ) : null}
+
       <Drawer
         open={openDetail}
         title="班级详情"
@@ -1914,7 +1999,8 @@ function ClassPage() {
           <Card size="small" title="班主任" style={{ marginBottom: 16 }}>
             <Space wrap>
               <Typography.Text type="secondary">
-                当前：{selectedClass.ownerName || '未分配'}
+                当前：
+                {selectedClass.ownerIsClassTeacher ? selectedClass.ownerName || '—' : '待分配（创建时未指定班主任）'}
               </Typography.Text>
               <Select
                 showSearch
@@ -1928,8 +2014,14 @@ function ClassPage() {
               <Button
                 type="primary"
                 loading={ownerSaving}
-                disabled={!ownerDraftId || ownerDraftId === selectedClass.ownerId}
-                onClick={() => void saveClassOwner()}
+                disabled={
+                  !ownerDraftId ||
+                  (selectedClass.ownerIsClassTeacher && ownerDraftId === selectedClass.ownerId)
+                }
+                onClick={() => {
+                  if (!selectedClassId || !ownerDraftId) return
+                  void saveClassOwner(selectedClassId, ownerDraftId)
+                }}
               >
                 保存班主任
               </Button>
