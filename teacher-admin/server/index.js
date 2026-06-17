@@ -4909,12 +4909,25 @@ const onlineSessionEffectiveSecondsSql = (windowEndSql = 'NOW()') => `CASE
 END`
 
 /** 会话与统计窗口 [startSql, endSql) 的重叠秒数；未结束会话仅在窗口包含当前时刻时计入 */
+const onlineSessionOverlapStartSql = (startSql, endSql) => `CASE
+  WHEN sos.ended_at IS NOT NULL THEN GREATEST(sos.started_at, ${startSql})
+  WHEN sos.started_at >= ${startSql} THEN sos.started_at
+  WHEN COALESCE(sos.last_heartbeat_at, sos.started_at) >= ${startSql} THEN GREATEST(
+    ${startSql},
+    COALESCE(sos.last_heartbeat_at, sos.started_at) - (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+  )
+  ELSE ${endSql}
+END`
+
 const onlineSessionOverlapSecondsSql = (startSql, endSql) => `CASE
   WHEN sos.ended_at IS NULL AND NOW() >= ${endSql} THEN 0
   WHEN sos.ended_at IS NULL AND NOW() < ${startSql} THEN 0
+  WHEN sos.ended_at IS NULL
+    AND sos.started_at < ${startSql}
+    AND COALESCE(sos.last_heartbeat_at, sos.started_at) < ${startSql} THEN 0
   ELSE GREATEST(0, EXTRACT(EPOCH FROM (
     LEAST((${onlineSessionEffectiveEndSql('sos', endSql)}), ${endSql})
-    - GREATEST(sos.started_at, ${startSql})
+    - (${onlineSessionOverlapStartSql(startSql, endSql)})
   ))::int)
 END`
 
@@ -4923,7 +4936,14 @@ const onlineSessionIntersectsWindowSql = (startSql, endSql) => `(
   AND (${onlineSessionEffectiveEndSql('sos', endSql)}) > ${startSql}
   AND (
     sos.ended_at IS NOT NULL
-    OR (NOW() >= ${startSql} AND NOW() < ${endSql})
+    OR (
+      NOW() >= ${startSql}
+      AND NOW() < ${endSql}
+      AND (
+        sos.started_at >= ${startSql}
+        OR COALESCE(sos.last_heartbeat_at, sos.started_at) >= ${startSql}
+      )
+    )
   )
 )`
 
@@ -5128,6 +5148,7 @@ const closeStudentOnlineSession = async (client, sessionId, studentId, { atForeg
 }
 
 const closeStaleStudentOnlineSessions = async (client) => {
+  await closePriorDayOpenStudentOnlineSessions(client)
   const openR = await client.query(
     `
     SELECT id, student_id
@@ -5144,6 +5165,24 @@ const closeStaleStudentOnlineSessions = async (client) => {
   return openR.rows.length
 }
 
+/** 跨自然日仍未结束的会话：按末次心跳收口，避免从今天 0 点误计到当前时刻 */
+const closePriorDayOpenStudentOnlineSessions = async (client) => {
+  const openR = await client.query(
+    `
+    SELECT id, student_id
+    FROM student_online_sessions
+    WHERE ended_at IS NULL
+      AND (timezone('Asia/Shanghai', started_at))::date
+        < (timezone('Asia/Shanghai', now()))::date
+    ORDER BY started_at ASC
+    `,
+  )
+  for (const row of openR.rows) {
+    await closeStudentOnlineSession(client, Number(row.id), Number(row.student_id))
+  }
+  return openR.rows.length
+}
+
 const onlinePeriodStartExpr = (period) => getOnlineStatsWindowSql(period, null).startSql
 
 /** 小程序进入前台：开始在线会话 */
@@ -5152,6 +5191,32 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    const openTodayR = await client.query(
+      `
+      SELECT id
+      FROM student_online_sessions
+      WHERE student_id = $1
+        AND ended_at IS NULL
+        AND (timezone('Asia/Shanghai', started_at))::date = (timezone('Asia/Shanghai', now()))::date
+      ORDER BY started_at DESC
+      LIMIT 1
+      `,
+      [studentId],
+    )
+    const openTodayId = openTodayR.rows[0] ? Number(openTodayR.rows[0].id) : 0
+    if (openTodayId > 0) {
+      await client.query(
+        `
+        UPDATE student_online_sessions
+        SET last_heartbeat_at = NOW()
+        WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+        `,
+        [openTodayId, studentId],
+      )
+      await client.query('COMMIT')
+      return res.json({ data: { session_id: openTodayId, resumed: true } })
+    }
+    await closePriorDayOpenStudentOnlineSessions(client)
     const openR = await client.query(
       `SELECT id FROM student_online_sessions WHERE student_id = $1 AND ended_at IS NULL ORDER BY started_at ASC`,
       [studentId],
@@ -5166,6 +5231,7 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
       WHERE student_id = $1
         AND ended_at IS NOT NULL
         AND ended_at > NOW() - ($2::int * INTERVAL '1 second')
+        AND (timezone('Asia/Shanghai', ended_at))::date = (timezone('Asia/Shanghai', now()))::date
       ORDER BY ended_at DESC
       LIMIT 1
       `,
@@ -6766,7 +6832,16 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   for (const row of sessionRows || []) {
     const startedMs = new Date(row.started_at).getTime()
     const endedMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
-    const clipStartMs = Math.max(startedMs, dayStartMs)
+    let clipStartMs
+    if (row.ended_at) {
+      clipStartMs = Math.max(startedMs, dayStartMs)
+    } else if (startedMs >= dayStartMs) {
+      clipStartMs = startedMs
+    } else {
+      const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
+      if (hbMs < dayStartMs) continue
+      clipStartMs = Math.max(dayStartMs, hbMs - ONLINE_HEARTBEAT_TAIL_SECONDS * 1000)
+    }
     const clipEndMs = Math.min(endedMs, dayCapEndMs)
     if (clipEndMs <= clipStartMs) continue
     clipped.push({

@@ -573,6 +573,77 @@ const ensureStudentOnlineSchema = async () => {
       `,
     )
   }
+  /** v3：收口跨自然日未结束会话，修复全员「今日在线 ≈ 当前时刻」 */
+  const v3R = await pool.query(
+    `SELECT 1 FROM system_configs WHERE config_key = 'student_online_cross_day_close_v3' LIMIT 1`,
+  )
+  if (!v3R.rows.length) {
+    await pool.query(
+      `
+      UPDATE student_online_sessions
+      SET
+        ended_at = COALESCE(last_heartbeat_at, started_at) + interval '90 seconds',
+        duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM (
+          (COALESCE(last_heartbeat_at, started_at) + interval '90 seconds') - started_at
+        ))::int)
+      WHERE ended_at IS NULL
+        AND (timezone('Asia/Shanghai', started_at))::date
+          < (timezone('Asia/Shanghai', now()))::date
+      `,
+    )
+    await pool.query(`DELETE FROM student_online_day`)
+    await pool.query(
+      `
+      INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
+      SELECT
+        sos.student_id,
+        d.online_date,
+        SUM(
+          GREATEST(0, EXTRACT(EPOCH FROM (
+            LEAST(
+              sos.ended_at,
+              ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+            )
+            - GREATEST(
+              sos.started_at,
+              (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+            )
+          ))::int)
+        )::int AS total_seconds,
+        COUNT(*)::int AS session_count
+      FROM student_online_sessions sos
+      CROSS JOIN LATERAL (
+        SELECT generate_series(
+          (timezone('Asia/Shanghai', sos.started_at))::date,
+          (timezone('Asia/Shanghai', sos.ended_at))::date,
+          interval '1 day'
+        )::date AS online_date
+      ) d
+      WHERE sos.ended_at IS NOT NULL
+        AND sos.ended_at > sos.started_at
+      GROUP BY sos.student_id, d.online_date
+      HAVING SUM(
+        GREATEST(0, EXTRACT(EPOCH FROM (
+          LEAST(
+            sos.ended_at,
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+          - GREATEST(
+            sos.started_at,
+            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+          )
+        ))::int)
+      ) > 0
+      `,
+    )
+    await pool.query(
+      `
+      INSERT INTO system_configs (config_key, config_value, updated_at)
+      VALUES ('student_online_cross_day_close_v3', 'true'::jsonb, NOW())
+      ON CONFLICT (config_key) DO NOTHING
+      `,
+    )
+  }
 }
 
 /** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
