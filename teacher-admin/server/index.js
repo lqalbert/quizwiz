@@ -4711,8 +4711,9 @@ const calcPracticeRankPayload = (studentId, merged, inClassPeerCount) => {
  * 今日：练习题数=当天练习过的题数（去重）；错题数=当天每题最后一次判题为错的题数。
  * 周/月：按自然日汇总（每日口径与「今日」一致后累加）；正确率/答对次数按本周期全部判题次数。
  */
-const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, period) => {
+const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, period, dayStr = null) => {
   const p = String(period || '').toLowerCase()
+  const calendarDay = parseShanghaiCalendarDateInput(dayStr)
   const base = `
     e.source IN ${PRACTICE_EVENT_SOURCES}
     AND e.student_id = ANY($1::bigint[])
@@ -4720,6 +4721,35 @@ const loadPracticePeerAggregatesForPeriod = async (executor, peerIdsForQuery, pe
   const todayEq = `(e.created_at AT TIME ZONE 'Asia/Shanghai')::date = (now() AT TIME ZONE 'Asia/Shanghai')::date`
   const weekEq = `date_trunc('week', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('week', (now() AT TIME ZONE 'Asia/Shanghai'))`
   const monthEq = `date_trunc('month', (e.created_at AT TIME ZONE 'Asia/Shanghai')) = date_trunc('month', (now() AT TIME ZONE 'Asia/Shanghai'))`
+
+  if (calendarDay) {
+    return executor.query(
+      `
+      WITH today_ev AS (
+        SELECT e.student_id, e.question_id, e.is_correct, e.created_at
+        FROM student_practice_events e
+        WHERE ${base}
+          AND (e.created_at AT TIME ZONE 'Asia/Shanghai')::date = $2::date
+      ),
+      last_try AS (
+        SELECT DISTINCT ON (student_id, question_id)
+          student_id,
+          question_id,
+          is_correct
+        FROM today_ev
+        ORDER BY student_id, question_id, created_at DESC
+      )
+      SELECT ev.student_id,
+        (SELECT COUNT(DISTINCT question_id)::int FROM today_ev t WHERE t.student_id = ev.student_id) AS practice_questions,
+        (SELECT COUNT(*)::int FROM last_try l WHERE l.student_id = ev.student_id AND NOT l.is_correct) AS wrong_count,
+        COUNT(*)::int AS total_attempts,
+        COUNT(*) FILTER (WHERE NOT ev.is_correct)::int AS wrong_attempts
+      FROM today_ev ev
+      GROUP BY ev.student_id
+      `,
+      [peerIdsForQuery, calendarDay],
+    )
+  }
 
   if (p === 'today') {
     return executor.query(
@@ -5001,7 +5031,11 @@ const ONLINE_SESSION_RESUME_SECONDS = 90
 const ONLINE_SESSION_TIMELINE_MERGE_GAP_SECONDS = 90
 
 const onlineSessionEffectiveEndSql = (alias = 'sos', windowEndSql = 'NOW()') => `CASE
-  WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(${alias}.ended_at, ${windowEndSql})
+  WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(
+    ${alias}.ended_at,
+    ${windowEndSql},
+    COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+  )
   WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) < LEAST(NOW(), ${windowEndSql}) - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
     THEN LEAST(
       COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second'),
@@ -5100,6 +5134,59 @@ const getOnlineStatsWindowSql = (period, dayStr) => {
   }
 }
 
+/** 关闭会话时写入 ended_at：用户主动结束用 NOW()，僵尸会话用心跳收口时刻 */
+const onlineSessionCloseEndedAtSql = (alias = 'sos') => `CASE
+  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
+    < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
+    THEN LEAST(
+      NOW(),
+      COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+    )
+  ELSE NOW()
+END`
+
+/** 某学生在指定上海日历日的在线秒数（实时 overlap，含进行中会话） */
+const queryStudentDayOnlineLive = async (executor, studentId, dayStr) => {
+  const { startSql, endSql } = getOnlineStatsWindowSql('today', dayStr)
+  const overlapSecondsSql = onlineSessionOverlapSecondsSql(startSql, endSql)
+  const intersectSql = onlineSessionIntersectsWindowSql(startSql, endSql)
+  const r = await executor.query(
+    `
+    SELECT
+      COALESCE(SUM(${overlapSecondsSql}), 0)::int AS total_seconds,
+      COUNT(sos.id) FILTER (WHERE ${intersectSql})::int AS session_count,
+      COUNT(sos.id) FILTER (WHERE sos.ended_at IS NULL AND ${intersectSql})::int AS open_session_count
+    FROM student_online_sessions sos
+    WHERE sos.student_id = $1
+      AND ${intersectSql}
+    `,
+    [studentId],
+  )
+  const row = r.rows[0] || {}
+  return {
+    total_seconds: Number(row.total_seconds || 0),
+    session_count: Number(row.session_count || 0),
+    has_open_session: Number(row.open_session_count || 0) > 0,
+  }
+}
+
+/** 班级在某日的在线总秒数（实时 overlap） */
+const queryClassDayOnlineLiveTotal = async (executor, classId, dayStr) => {
+  const { startSql, endSql } = getOnlineStatsWindowSql('today', dayStr)
+  const overlapSecondsSql = onlineSessionOverlapSecondsSql(startSql, endSql)
+  const intersectSql = onlineSessionIntersectsWindowSql(startSql, endSql)
+  const r = await executor.query(
+    `
+    SELECT COALESCE(SUM(${overlapSecondsSql}), 0)::int AS total_seconds
+    FROM student_online_sessions sos
+    INNER JOIN class_members cm ON cm.student_id = sos.student_id AND cm.class_id = $1
+    WHERE ${intersectSql}
+    `,
+    [classId],
+  )
+  return Number(r.rows[0]?.total_seconds || 0)
+}
+
 const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
   const todayR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
   const todayStr = String(todayR.rows[0]?.d || '')
@@ -5152,7 +5239,8 @@ const rebuildAllStudentOnlineDayFromSessions = async (client) => {
         GREATEST(0, EXTRACT(EPOCH FROM (
           LEAST(
             sos.ended_at,
-            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
+            COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
           )
           - GREATEST(
             sos.started_at,
@@ -5165,7 +5253,10 @@ const rebuildAllStudentOnlineDayFromSessions = async (client) => {
     CROSS JOIN LATERAL (
       SELECT generate_series(
         (timezone('Asia/Shanghai', sos.started_at))::date,
-        (timezone('Asia/Shanghai', sos.ended_at))::date,
+        (timezone('Asia/Shanghai', LEAST(
+          sos.ended_at,
+          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+        )))::date,
         interval '1 day'
       )::date AS online_date
     ) d
@@ -5176,7 +5267,8 @@ const rebuildAllStudentOnlineDayFromSessions = async (client) => {
       GREATEST(0, EXTRACT(EPOCH FROM (
         LEAST(
           sos.ended_at,
-          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
+          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
         )
         - GREATEST(
           sos.started_at,
@@ -5200,7 +5292,8 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
         GREATEST(0, EXTRACT(EPOCH FROM (
           LEAST(
             sos.ended_at,
-            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
+            COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
           )
           - GREATEST(
             sos.started_at,
@@ -5213,7 +5306,10 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
     CROSS JOIN LATERAL (
       SELECT generate_series(
         (timezone('Asia/Shanghai', sos.started_at))::date,
-        (timezone('Asia/Shanghai', sos.ended_at))::date,
+        (timezone('Asia/Shanghai', LEAST(
+          sos.ended_at,
+          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
+        )))::date,
         interval '1 day'
       )::date AS online_date
     ) d
@@ -5225,7 +5321,8 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
       GREATEST(0, EXTRACT(EPOCH FROM (
         LEAST(
           sos.ended_at,
-          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
+          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
         )
         - GREATEST(
           sos.started_at,
@@ -5238,21 +5335,18 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
   )
 }
 
-const closeStudentOnlineSession = async (client, sessionId, studentId, { atForegroundHide = false } = {}) => {
-  const durationExpr = atForegroundHide
-    ? `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM (NOW() - started_at))::int))`
-    : `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${onlineSessionEffectiveEndSql('student_online_sessions')}) - started_at))::int))`
+const closeStudentOnlineSession = async (client, sessionId, studentId) => {
+  const endedAtExpr = onlineSessionCloseEndedAtSql('student_online_sessions')
+  const durationExpr = `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${onlineSessionEffectiveEndSql('student_online_sessions')}) - started_at))::int))`
   const upd = await client.query(
     `
     UPDATE student_online_sessions
-    SET ended_at = NOW(),
+    SET ended_at = ${endedAtExpr},
         duration_seconds = ${durationExpr}
     WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
     RETURNING duration_seconds, online_date
     `,
-    atForegroundHide
-      ? [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS]
-      : [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
+    [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
   )
   const row = upd.rows[0]
   if (!row) return null
@@ -5294,6 +5388,47 @@ const closePriorDayOpenStudentOnlineSessions = async (client) => {
     await closeStudentOnlineSession(client, Number(row.id), Number(row.student_id))
   }
   return openR.rows.length
+}
+
+/** 学情日表：历史日用 student_online_day，今日用实时 overlap（避免续接会话双计） */
+const loadStudentOnlineDailyRowsWithOpen = async (executor, studentId, { limit = 21 } = {}) => {
+  const todayR = await executor.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
+  const todayStr = String(todayR.rows[0]?.d || '')
+  const onlineDailyR = await executor.query(
+    `
+    SELECT online_date::text AS online_date, total_seconds::int AS total_seconds, session_count::int AS session_count
+    FROM student_online_day
+    WHERE student_id = $1
+      AND online_date < (timezone('Asia/Shanghai', now()))::date
+    ORDER BY online_date DESC
+    LIMIT $2
+    `,
+    [studentId, Math.max(limit - 1, 0)],
+  )
+
+  const byDate = new Map(
+    onlineDailyR.rows.map((row) => [
+      String(row.online_date),
+      {
+        online_date: String(row.online_date),
+        total_seconds: Number(row.total_seconds || 0),
+        session_count: Number(row.session_count || 0),
+        has_open_session: false,
+      },
+    ]),
+  )
+
+  const todayLive = await queryStudentDayOnlineLive(executor, studentId, todayStr)
+  if (todayLive.total_seconds > 0 || todayLive.session_count > 0 || todayLive.has_open_session) {
+    byDate.set(todayStr, {
+      online_date: todayStr,
+      total_seconds: todayLive.total_seconds,
+      session_count: todayLive.session_count,
+      has_open_session: todayLive.has_open_session,
+    })
+  }
+
+  return Array.from(byDate.values()).sort((a, b) => (a.online_date < b.online_date ? 1 : -1))
 }
 
 const onlinePeriodStartExpr = (period) => getOnlineStatsWindowSql(period, null).startSql
@@ -5362,6 +5497,7 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
         `,
         [recentId, studentId],
       )
+      await refreshStudentOnlineDayForStudent(client, studentId)
       await client.query('COMMIT')
       return res.json({ data: { session_id: recentId, resumed: true } })
     }
@@ -5395,7 +5531,31 @@ app.post('/api/student/online-sessions/end', studentAuthRequired, async (req, re
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const row = await closeStudentOnlineSession(client, sessionId, studentId, { atForegroundHide: true })
+    const existingR = await client.query(
+      `
+      SELECT id, duration_seconds, ended_at
+      FROM student_online_sessions
+      WHERE id = $1 AND student_id = $2
+      LIMIT 1
+      `,
+      [sessionId, studentId],
+    )
+    const existing = existingR.rows[0]
+    if (!existing) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ message: '会话不存在或已结束' })
+    }
+    if (existing.ended_at) {
+      await client.query('COMMIT')
+      return res.json({
+        data: {
+          session_id: sessionId,
+          duration_seconds: Number(existing.duration_seconds || 0),
+          already_ended: true,
+        },
+      })
+    }
+    const row = await closeStudentOnlineSession(client, sessionId, studentId)
     if (!row) {
       await client.query('ROLLBACK')
       return res.status(404).json({ message: '会话不存在或已结束' })
@@ -5423,12 +5583,24 @@ app.post('/api/student/online-sessions/heartbeat', studentAuthRequired, async (r
       UPDATE student_online_sessions
       SET last_heartbeat_at = NOW()
       WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+        AND COALESCE(last_heartbeat_at, started_at) <= NOW() - INTERVAL '10 seconds'
       RETURNING id
       `,
       [sessionId, studentId],
     )
     if (!upd.rows[0]) {
-      return res.status(404).json({ message: '会话不存在或已结束' })
+      const stillOpen = await pool.query(
+        `
+        SELECT id FROM student_online_sessions
+        WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+        LIMIT 1
+        `,
+        [sessionId, studentId],
+      )
+      if (!stillOpen.rows[0]) {
+        return res.status(404).json({ message: '会话不存在或已结束' })
+      }
+      return res.json({ data: { session_id: sessionId, ok: true, throttled: true } })
     }
     return res.json({ data: { session_id: sessionId, ok: true } })
   } catch (error) {
@@ -5965,6 +6137,14 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
   }
   const client = await pool.connect()
   try {
+    try {
+      await client.query('BEGIN')
+      await closeStaleStudentOnlineSessions(client)
+      await client.query('COMMIT')
+    } catch (staleError) {
+      await client.query('ROLLBACK')
+      throw staleError
+    }
     const access = await assertClassReadAccess(client, classId, req.auth)
     if (!access.ok) return res.status(access.code).json({ message: access.message })
     const mem = await client.query(
@@ -6031,39 +6211,21 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
       [studentId],
     )
 
-    const onlineDailyR = await client.query(
-      `
-      SELECT online_date::text AS online_date, total_seconds::int AS total_seconds, session_count::int AS session_count
-      FROM student_online_day
-      WHERE student_id = $1
-      ORDER BY online_date DESC
-      LIMIT 21
-      `,
-      [studentId],
-    )
+    const onlineDailyRows = await loadStudentOnlineDailyRowsWithOpen(client, studentId, { limit: 21 })
+    const todayStrR = await client.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
+    const insightTodayStr = String(todayStrR.rows[0]?.d || '')
     const online30R = await client.query(
       `
       SELECT COALESCE(SUM(total_seconds), 0)::int AS total_seconds
       FROM student_online_day
       WHERE student_id = $1
         AND online_date >= ((timezone('Asia/Shanghai', now()))::date - 29)
+        AND online_date < (timezone('Asia/Shanghai', now()))::date
       `,
       [studentId],
     )
-    const todayWindow = getOnlineStatsWindowSql('today', null)
-    const todayOverlapForOpen = onlineSessionOverlapSecondsSql(todayWindow.startSql, todayWindow.endSql)
-    const onlineOpenR = await client.query(
-      `
-      SELECT COALESCE(SUM(${todayOverlapForOpen}), 0)::int AS open_seconds
-      FROM student_online_sessions sos
-      WHERE sos.student_id = $1
-        AND sos.ended_at IS NULL
-        AND ${onlineSessionIntersectsWindowSql(todayWindow.startSql, todayWindow.endSql)}
-      `,
-      [studentId],
-    )
-    const online30Seconds =
-      Number(online30R.rows[0]?.total_seconds || 0) + Number(onlineOpenR.rows[0]?.open_seconds || 0)
+    const todayLiveFor30 = await queryStudentDayOnlineLive(client, studentId, insightTodayStr)
+    const online30Seconds = Number(online30R.rows[0]?.total_seconds || 0) + todayLiveFor30.total_seconds
 
     const examsR = await client.query(
       `
@@ -6131,10 +6293,11 @@ app.get('/api/classes/:id/students/:studentId/insights', authRequired, async (re
         online_summary: {
           total_seconds_30d: online30Seconds,
         },
-        online_daily: onlineDailyR.rows.map((r) => ({
+        online_daily: onlineDailyRows.map((r) => ({
           online_date: r.online_date,
           total_seconds: Number(r.total_seconds || 0),
           session_count: Number(r.session_count || 0),
+          has_open_session: Boolean(r.has_open_session),
         })),
         exams: examsR.rows.map((row) => ({
           exam_id: Number(row.exam_id),
@@ -6849,7 +7012,20 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
     }
 
     const dayStr = parseShanghaiCalendarDateInput(req.query.date)
+    const todayR = await pool.query(`SELECT (timezone('Asia/Shanghai', now()))::date::text AS d`)
+    const todayStr = String(todayR.rows[0]?.d || '')
     const statsResult = await queryClassOnlineStatsRows(pool, classId, { period, dayStr })
+
+    const membersResult = await pool.query(`SELECT student_id FROM class_members WHERE class_id = $1`, [classId])
+    const peerIds = membersResult.rows
+      .map((row) => Number(row.student_id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+    const practiceAgg = await loadPracticePeerAggregatesForPeriod(pool, peerIds, period, dayStr)
+    const practiceActiveIds = new Set(
+      practiceAgg.rows
+        .filter((row) => Number(row.total_attempts || 0) > 0)
+        .map((row) => Number(row.student_id)),
+    )
 
     const dailyResult = await pool.query(
       `
@@ -6859,11 +7035,20 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
       FROM student_online_day sod
       INNER JOIN class_members cm ON cm.student_id = sod.student_id AND cm.class_id = $1
       WHERE sod.online_date >= ((timezone('Asia/Shanghai', now()))::date - 13)
+        AND sod.online_date < (timezone('Asia/Shanghai', now()))::date
       GROUP BY sod.online_date
       ORDER BY sod.online_date ASC
       `,
       [classId],
     )
+    const todayLiveTotal = await queryClassDayOnlineLiveTotal(pool, classId, todayStr)
+    const dailyMap = new Map(dailyResult.rows.map((row) => [String(row.day), Number(row.total_seconds || 0)]))
+    if (todayLiveTotal > 0 || dailyMap.has(todayStr)) {
+      dailyMap.set(todayStr, todayLiveTotal)
+    }
+    const dailyTotals = Array.from(dailyMap.entries())
+      .map(([day, total_seconds]) => ({ day, total_seconds }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1))
 
     const rows = statsResult.rows.map((row, index) => ({
       rank: index + 1,
@@ -6874,7 +7059,10 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
       session_count: Number(row.session_count || 0),
     }))
     const classTotalSeconds = rows.reduce((sum, row) => sum + row.total_seconds, 0)
-    const activeCount = rows.filter((row) => row.total_seconds > 0).length
+    const onlineActiveCount = rows.filter((row) => row.total_seconds > 0).length
+    const activeCount = rows.filter(
+      (row) => row.total_seconds > 0 || practiceActiveIds.has(row.student_id),
+    ).length
 
     return res.json({
       data: {
@@ -6884,12 +7072,11 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
         class_name: String(classRow.name || ''),
         student_count: rows.length,
         active_count: activeCount,
+        online_active_count: onlineActiveCount,
+        practice_active_count: practiceActiveIds.size,
         class_total_seconds: classTotalSeconds,
         rows,
-        daily_totals: dailyResult.rows.map((row) => ({
-          day: row.day,
-          total_seconds: Number(row.total_seconds || 0),
-        })),
+        daily_totals: dailyTotals,
       },
     })
   } catch (error) {
@@ -6901,7 +7088,14 @@ app.get('/api/dashboard/student-online-stats', authRequired, async (req, res) =>
 const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`
 
 const sessionEffectiveEndMs = (row, nowMs, dayCapEndMs) => {
-  if (row.ended_at) return Math.min(new Date(row.ended_at).getTime(), dayCapEndMs)
+  if (row.ended_at) {
+    const endedMs = new Date(row.ended_at).getTime()
+    const hbMs = row.last_heartbeat_at
+      ? new Date(row.last_heartbeat_at).getTime()
+      : new Date(row.started_at).getTime()
+    const cappedMs = Math.min(endedMs, hbMs + ONLINE_HEARTBEAT_TAIL_SECONDS * 1000)
+    return Math.min(cappedMs, dayCapEndMs)
+  }
   const startedMs = new Date(row.started_at).getTime()
   const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
   if (nowMs - hbMs > ONLINE_HEARTBEAT_STALE_SECONDS * 1000) {
@@ -7056,9 +7250,11 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
       })
     }
     if (sess.ended_at) {
-      const endMs = new Date(sess.ended_at).getTime()
-      if (endMs >= rangeStartMs && endMs <= rangeEndMs) {
-        events.push({ kind: 'offline', at: sess.ended_at, label: '切出' })
+      const rawEndMs = new Date(sess.ended_at).getTime()
+      const clipEndMs = new Date(sess.clip_end).getTime()
+      const offlineAtMs = Math.min(rawEndMs, clipEndMs)
+      if (offlineAtMs >= rangeStartMs && offlineAtMs <= rangeEndMs) {
+        events.push({ kind: 'offline', at: new Date(offlineAtMs).toISOString(), label: '切出' })
       }
     }
   }
@@ -7095,6 +7291,18 @@ app.get('/api/dashboard/student-online-timeline', authRequired, async (req, res)
     const todayStr = String(todayR.rows[0]?.d || '')
     let dayStr = parseShanghaiCalendarDateInput(req.query.date) || todayStr
     const isToday = dayStr === todayStr
+
+    const janitorClient = await pool.connect()
+    try {
+      await janitorClient.query('BEGIN')
+      await closeStaleStudentOnlineSessions(janitorClient)
+      await janitorClient.query('COMMIT')
+    } catch (staleErr) {
+      await janitorClient.query('ROLLBACK')
+      throw staleErr
+    } finally {
+      janitorClient.release()
+    }
 
     const { accessSql, values } = buildVisibleClassesAccessSql(req)
     const checkValues = [...values, classId]
@@ -11469,6 +11677,26 @@ if (isMainModule) {
             API_REVISION +
             '；GET /api/auth/me 无 Token 时应为 401 而非 404',
         )
+        const ONLINE_JANITOR_MS = Number(process.env.ONLINE_SESSION_JANITOR_MS || 60_000)
+        setInterval(() => {
+          void (async () => {
+            const client = await pool.connect()
+            try {
+              await client.query('BEGIN')
+              const closed = await closeStaleStudentOnlineSessions(client)
+              await client.query('COMMIT')
+              if (closed > 0) {
+                console.log(`[online-janitor] 已收口 ${closed} 个僵尸在线会话`)
+              }
+            } catch (err) {
+              await client.query('ROLLBACK').catch(() => {})
+              console.error('[online-janitor] 扫描失败', err)
+            } finally {
+              client.release()
+            }
+          })()
+        }, ONLINE_JANITOR_MS)
+        console.log(`[online-janitor] 已启动，间隔 ${ONLINE_JANITOR_MS}ms`)
       })
     })
     .catch((error) => {

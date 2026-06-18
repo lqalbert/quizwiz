@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 const { setNeedJoinClass } = require("../../utils/joinClass.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 const withPageShare = require("../../utils/withPageShare.js");
 
 withPageShare({
@@ -42,6 +43,7 @@ withPageShare({
       wx.setStorageSync("student_token", token);
       getApp().globalData.token = token;
       setNeedJoinClass(Boolean(r.data && r.data.need_join_class));
+      void ensureOnlineSession();
       wx.hideLoading();
       const pages = getCurrentPages();
       if (pages.length > 1) {

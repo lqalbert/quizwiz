@@ -8,6 +8,7 @@ const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
 const { clearPracticeDraft, savePracticeDraft, loadPracticeDraft, OPEN_RESUME_DRAFT_KEY } = require("../../utils/practiceDraft.js");
 const { showPostSessionDailyFeedback } = require("../../utils/dailyFeedback.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 
 /** API 的 id 可能是字符串；点击 data-id 会变成 number，必须与列表 id 类型一致，否则选中态 `===` 失效 */
 function normalizePositiveInt(v) {
@@ -85,6 +86,7 @@ withPageShare({
   },
 
   onShow() {
+    if (wx.getStorageSync("student_token")) void ensureOnlineSession();
     if (typeof this.getTabBar === "function" && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
     }

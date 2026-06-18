@@ -5,6 +5,7 @@ const withPageShare = require("../../utils/withPageShare.js");
 const { catalogPaths, catalogUsesStudentApi } = require("../../utils/catalogApi.js");
 const { enrichRecordRowsWithOptions } = require("../../utils/recordListFormat.js");
 const { defaultStudentSubjectId } = require("../../utils/defaultSubject.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 
 const LIST_PAGE_SIZE = 25;
 
@@ -69,6 +70,7 @@ withPageShare({
   },
 
   onShow() {
+    if (wx.getStorageSync("student_token")) void ensureOnlineSession();
     const subjects = this.data.subjects || [];
     if (this.data.step === "catalog" && subjects.length === 0) {
       this.bootstrap();

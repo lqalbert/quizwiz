@@ -1,6 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { getApiBase } = require("../../utils/config.js");
 const studyLocalCache = require("../../utils/studyLocalCache.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 const withPageShare = require("../../utils/withPageShare.js");
 
 function absFileUrl(u) {
@@ -277,6 +278,7 @@ withPageShare({
       void this.loadPublicResources();
       return;
     }
+    void ensureOnlineSession();
     if (this.data.classId && Array.isArray(this.data.sections) && this.data.sections.length > 0) {
       this.refreshSectionsLocalFlags();
     }

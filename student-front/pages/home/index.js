@@ -1,7 +1,7 @@
 const { request } = require("../../utils/request.js");
 const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
-const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
 const withPageShare = require("../../utils/withPageShare.js");
 
@@ -79,6 +79,7 @@ withPageShare({
     const token = wx.getStorageSync("student_token");
     this.setData({ loggedIn: Boolean(token) });
     if (token) {
+      void ensureOnlineSession();
       void (async () => {
         await this.syncNeedJoinStatus();
         this.loadHomeSummary();

@@ -718,8 +718,8 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       rank_score?: number
     }>
   >([])
-  const [onlineStatsPeriod, setOnlineStatsPeriod] = useState<PracticeRankPeriod>('today')
   const [onlineStatsClassId, setOnlineStatsClassId] = useState<number | undefined>(undefined)
+  const [onlineStatsDate, setOnlineStatsDate] = useState(() => beijingCalendarDateKey())
   const [onlineStatsLoading, setOnlineStatsLoading] = useState(false)
   const [onlineStatsSummary, setOnlineStatsSummary] = useState({
     class_name: '',
@@ -737,20 +737,8 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       session_count: number
     }>
   >([])
-  const [onlineBarStatsRows, setOnlineBarStatsRows] = useState<
-    Array<{
-      rank: number
-      student_id: number
-      name: string
-      student_no: string
-      total_seconds: number
-      session_count: number
-    }>
-  >([])
-  const [onlineBarStatsLoading, setOnlineBarStatsLoading] = useState(false)
   const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
   const [onlineTimelineStudentId, setOnlineTimelineStudentId] = useState<number | undefined>(undefined)
-  const [onlineTimelineDate, setOnlineTimelineDate] = useState(() => beijingCalendarDateKey())
   const onlineTimelineSectionRef = useRef<HTMLDivElement>(null)
 
   const cards =
@@ -935,7 +923,8 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         setOnlineStatsLoading(true)
         const params = new URLSearchParams()
         params.set('classId', String(onlineStatsClassId))
-        params.set('period', onlineStatsPeriod)
+        params.set('period', 'today')
+        params.set('date', onlineStatsDate || beijingCalendarDateKey())
         const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
         })
@@ -965,36 +954,12 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       }
     }
     void loadOnlineStats()
-  }, [authToken, onlineStatsClassId, onlineStatsPeriod])
+  }, [authToken, onlineStatsClassId, onlineStatsDate])
 
-  useEffect(() => {
-    const loadOnlineBarStats = async () => {
-      if (!CAN_USE_API || onlineStatsClassId == null) {
-        setOnlineBarStatsRows([])
-        return
-      }
-      try {
-        setOnlineBarStatsLoading(true)
-        const params = new URLSearchParams()
-        params.set('classId', String(onlineStatsClassId))
-        params.set('period', 'today')
-        params.set('date', onlineTimelineDate || beijingCalendarDateKey())
-        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        })
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(payload?.message || `加载柱状图数据失败(${response.status})`)
-        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
-        setOnlineBarStatsRows(Array.isArray(data.rows) ? data.rows : [])
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '加载柱状图数据失败')
-        setOnlineBarStatsRows([])
-      } finally {
-        setOnlineBarStatsLoading(false)
-      }
-    }
-    void loadOnlineBarStats()
-  }, [authToken, onlineStatsClassId, onlineTimelineDate])
+  const onlineBarChartSubtitle = useMemo(
+    () => `${onlineStatsDate || beijingCalendarDateKey()}（仅展示有在线记录的学生）`,
+    [onlineStatsDate],
+  )
 
   useEffect(() => {
     const loadTrend = async () => {
@@ -1043,7 +1008,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
 
   const onlineBarChartData = useMemo(
     () =>
-      onlineBarStatsRows
+      onlineStatsRows
         .filter((r) => r.total_seconds > 0)
         .map((r) => ({
           student_id: r.student_id,
@@ -1051,7 +1016,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           minutes: Math.round((r.total_seconds / 60) * 10) / 10,
           total_seconds: r.total_seconds,
         })),
-    [onlineBarStatsRows],
+    [onlineStatsRows],
   )
 
   const handleOnlineBarStudentSelect = (studentId: number) => {
@@ -1063,12 +1028,9 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     onlineTimelineSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  const openOnlineTimelineForStudent = (studentId: number, options?: { scroll?: boolean; resetDate?: boolean }) => {
+  const openOnlineTimelineForStudent = (studentId: number, options?: { scroll?: boolean }) => {
     if (!Number.isInteger(studentId) || studentId <= 0) return
     setOnlineTimelineStudentId(studentId)
-    if (options?.resetDate !== false) {
-      setOnlineTimelineDate(beijingCalendarDateKey())
-    }
     if (options?.scroll) {
       requestAnimationFrame(() => scrollToOnlineTimeline())
     }
@@ -1108,7 +1070,11 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               placeholder="选择班级"
               style={{ minWidth: 180 }}
               value={practiceRankClassId}
-              onChange={(value) => setPracticeRankClassId(Number(value))}
+              onChange={(value) => {
+                const id = Number(value)
+                setPracticeRankClassId(id)
+                setOnlineStatsClassId(id)
+              }}
               options={classStats.map((c) => ({ value: Number(c.class_id), label: c.class_name }))}
             />
           </Space>
@@ -1162,22 +1128,28 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
         title="班级在线时长"
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            切出小程序即断开
+            活跃=有在线记录或刷题作答；时长仅统计在线会话
           </Typography.Text>
         }
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Space wrap>
-            <Segmented
-              value={onlineStatsPeriod}
-              options={practicePeriodOptions.map((o) => ({ label: o.label, value: o.value }))}
-              onChange={(value) => setOnlineStatsPeriod(value as PracticeRankPeriod)}
+            <Input
+              type="date"
+              value={onlineStatsDate}
+              max={beijingCalendarDateKey()}
+              onChange={(e) => setOnlineStatsDate(e.target.value || beijingCalendarDateKey())}
+              style={{ width: 160 }}
             />
             <Select
               placeholder="选择班级"
               style={{ minWidth: 180 }}
               value={onlineStatsClassId}
-              onChange={(value) => setOnlineStatsClassId(Number(value))}
+              onChange={(value) => {
+                const id = Number(value)
+                setOnlineStatsClassId(id)
+                setPracticeRankClassId(id)
+              }}
               options={classStats.map((c) => ({ value: Number(c.class_id), label: c.class_name }))}
             />
           </Space>
@@ -1186,11 +1158,11 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
               <Statistic title="班级人数" value={onlineStatsSummary.student_count} />
             </Col>
             <Col span={6}>
-              <Statistic title="本周期有在线" value={onlineStatsSummary.active_count} suffix="人" />
+              <Statistic title="当日活跃" value={onlineStatsSummary.active_count} suffix="人" />
             </Col>
             <Col span={6}>
               <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                本周期班级总时长
+                当日班级总时长
               </Typography.Text>
               <Typography.Text strong>{formatDurationSeconds(onlineStatsSummary.class_total_seconds)}</Typography.Text>
             </Col>
@@ -1218,18 +1190,12 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                   onChange={(value) => setOnlineTimelineStudentId(value == null ? undefined : Number(value))}
                   options={onlineStatsRows.map((r) => ({ value: r.student_id, label: r.name }))}
                 />
-                <Input
-                  type="date"
-                  value={onlineTimelineDate}
-                  onChange={(e) => setOnlineTimelineDate(e.target.value || beijingCalendarDateKey())}
-                  style={{ width: 160 }}
-                />
               </Space>
               <StudentOnlineTimeline
                 prominent
                 classId={onlineStatsClassId}
                 studentId={onlineTimelineStudentId}
-                date={onlineTimelineDate}
+                date={onlineStatsDate}
                 authToken={authToken}
                 studentName={onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)?.name}
               />
@@ -1238,16 +1204,19 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           </div>
           <div className="dashboard-online-bar-section">
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              学生在线时长对比（{onlineTimelineDate || beijingCalendarDateKey()}，与时间轴同日；仅展示有在线记录的学生；点击柱形可切换上方时间轴）
+              学生在线时长对比（{onlineBarChartSubtitle}；点击柱形可切换上方时间轴学生）
             </Typography.Text>
             <div className="dashboard-online-bar-scroll">
               <div className="dashboard-online-bar-inner" style={{ minWidth: onlineBarChartMinWidth }}>
-                {onlineBarStatsLoading ? (
+                {onlineStatsLoading ? (
                   <div style={{ padding: '48px 0', textAlign: 'center' }}>
                     <Spin />
                   </div>
                 ) : onlineBarChartData.length === 0 ? (
-                  <Empty description="所选日期暂无在线记录" style={{ padding: '48px 0' }} />
+                  <Empty
+                    description="所选日期暂无在线记录"
+                    style={{ padding: '48px 0' }}
+                  />
                 ) : (
                   <ResponsiveContainer width="100%" height={340}>
                     <BarChart data={onlineBarChartData} margin={{ top: 12, right: 16, left: 8, bottom: 88 }}>
@@ -1326,7 +1295,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             rowKey="student_id"
             pagination={{ pageSize: 10, showSizeChanger: false }}
             dataSource={onlineStatsRows}
-            locale={{ emptyText: onlineStatsClassId ? '本周期暂无在线记录' : '请先选择班级' }}
+            locale={{ emptyText: onlineStatsClassId ? '所选日期暂无在线记录' : '请先选择班级' }}
             scroll={{ x: 720 }}
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
@@ -1348,7 +1317,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                     size="small"
                     style={{ padding: 0 }}
                     onClick={() => {
-                      openOnlineTimelineForStudent(Number(row.student_id), { scroll: true, resetDate: true })
+                      openOnlineTimelineForStudent(Number(row.student_id), { scroll: true })
                     }}
                   >
                     查看
@@ -1433,7 +1402,7 @@ type ClassStudentInsightPayload = {
   }
   practice_daily: Array<{ practice_date: string; attempts: number }>
   online_summary: { total_seconds_30d: number }
-  online_daily: Array<{ online_date: string; total_seconds: number; session_count: number }>
+  online_daily: Array<{ online_date: string; total_seconds: number; session_count: number; has_open_session?: boolean }>
   exams: Array<{
     exam_id: number
     title: string
@@ -2599,12 +2568,22 @@ function ClassPage() {
                   ...r,
                   key: r.online_date,
                 }))}
-                onRow={(row) => ({
+                onRow={(row: { online_date: string; has_open_session?: boolean }) => ({
                   onClick: () => setInsightOnlineDate(row.online_date),
                   style: { cursor: 'pointer' },
                 })}
                 columns={[
-                  { title: '日期', dataIndex: 'online_date', width: 140 },
+                  {
+                    title: '日期',
+                    dataIndex: 'online_date',
+                    width: 140,
+                    render: (v: string, row: { has_open_session?: boolean }) => (
+                      <Space size={4}>
+                        <span>{v}</span>
+                        {row.has_open_session ? <Tag color="processing">进行中</Tag> : null}
+                      </Space>
+                    ),
+                  },
                   {
                     title: '在线时长',
                     dataIndex: 'total_seconds',
@@ -2616,7 +2595,7 @@ function ClassPage() {
                 locale={{ emptyText: '暂无在线记录（学生登录并使用小程序后才有数据）' }}
               />
               <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                点击上表日期可切换时间轴；绿=在线、红=离线。
+                点击上表日期可切换时间轴；绿=在线、红=离线。当日若仍有进行中的会话，时长会实时并入今日行。
               </Typography.Text>
             </Card>
             <Card size="small" title="与本班关联的考试（含未参与，最多 100 场）">

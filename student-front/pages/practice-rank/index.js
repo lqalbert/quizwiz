@@ -1,5 +1,6 @@
 const { request } = require("../../utils/request.js");
 const withPageShare = require("../../utils/withPageShare.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 
 function unwrapPayload(root) {
   if (!root || typeof root !== "object") return {};
@@ -31,6 +32,10 @@ withPageShare({
     this.setData({ period, periodLabel });
     wx.setNavigationBarTitle({ title: `班级排名 · ${periodLabel}` });
     this.loadRank();
+  },
+
+  onShow() {
+    if (wx.getStorageSync("student_token")) void ensureOnlineSession();
   },
 
   async loadRank() {

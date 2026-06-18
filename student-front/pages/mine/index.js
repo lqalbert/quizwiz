@@ -4,6 +4,7 @@ const joinClassModalBehavior = require("../../behaviors/join-class-modal.js");
 const withPageShare = require("../../utils/withPageShare.js");
 const { startLeaveClassFlow } = require("../../utils/leaveClass.js");
 const { readNicknameInputValue } = require("../../utils/nicknameInput.js");
+const { ensureOnlineSession, endOnlineSessionNow } = require("../../utils/onlineSession.js");
 
 function firstChar(s) {
   const t = String(s || "").trim();
@@ -56,6 +57,7 @@ withPageShare({
       });
       return;
     }
+    void ensureOnlineSession();
     try {
       const cached = getApp().globalData.studentProfile;
       if (cached) this.applyStudentHeader(cached);
@@ -277,8 +279,9 @@ withPageShare({
       title: "退出登录",
       content: "确定要退出吗？",
       confirmColor: "#007aff",
-      success: (res) => {
+      success: async (res) => {
         if (!res.confirm) return;
+        await endOnlineSessionNow();
         wx.removeStorageSync("student_token");
         wx.removeStorageSync("need_join_class");
         getApp().globalData.token = "";

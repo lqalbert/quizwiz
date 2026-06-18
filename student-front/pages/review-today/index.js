@@ -3,6 +3,7 @@ const { enrichRecordRowsWithOptions } = require("../../utils/recordListFormat.js
 const { formatBeijingCalendarDate, formatBeijingDateTime, beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const { refreshHomeSummaryIfOpen } = require("../../utils/refreshHomeSummary.js");
 const withPageShare = require("../../utils/withPageShare.js");
+const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 
 const LIST_PAGE_SIZE = 20;
 
@@ -58,6 +59,7 @@ withPageShare({
   },
 
   onShow() {
+    if (wx.getStorageSync("student_token")) void ensureOnlineSession();
     this.loadList(true);
   },
 
