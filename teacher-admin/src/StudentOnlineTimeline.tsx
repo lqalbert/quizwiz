@@ -146,7 +146,32 @@ export function StudentOnlineTimeline({
     return <Typography.Text type="danger">{error}</Typography.Text>
   }
 
-  if (!data || !data.range_start || !data.range_end || data.segments.length === 0) {
+  const hasSegments = Boolean(data?.range_start && data?.range_end && (data.segments?.length ?? 0) > 0)
+  const onlineSeconds = Number(data?.online_seconds || 0)
+
+  if (!data || (!hasSegments && onlineSeconds <= 0)) {
+    return <Empty description="当日暂无上线记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+  }
+
+  if (!hasSegments && onlineSeconds > 0) {
+    const displayName = studentName || data.student_name || '学生'
+    return (
+      <div className={`online-timeline ${prominent ? 'online-timeline--prominent' : ''}`}>
+        <div className="online-timeline-head">
+          <Typography.Text strong style={{ fontSize: prominent ? 16 : 14 }}>
+            {displayName}
+          </Typography.Text>
+          <Typography.Text type="secondary"> · {data.date}</Typography.Text>
+        </div>
+        <Typography.Text>
+          当日在线 <Typography.Text strong>{formatDurationSeconds(onlineSeconds)}</Typography.Text>
+          <Typography.Text type="secondary">（明细加载异常，请刷新页面）</Typography.Text>
+        </Typography.Text>
+      </div>
+    )
+  }
+
+  if (!data || !data.range_start || !data.range_end) {
     return <Empty description="当日暂无上线记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
 

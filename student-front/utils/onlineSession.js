@@ -271,10 +271,6 @@ async function handleAppShow() {
     return false;
   }
   await flushPendingEnds();
-  if (activeSessionId) {
-    startHeartbeat();
-    return true;
-  }
   const sid = await startSessionWithRetry();
   if (sid) {
     activeSessionId = sid;

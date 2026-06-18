@@ -14,12 +14,12 @@ import { pool } from './db/pool.js'
 import {
   ONLINE_CROSS_MIDNIGHT_GAP_SECONDS,
   ONLINE_HEARTBEAT_STALE_SECONDS,
+  buildOnlineDaySessionExprs,
   onlineSessionCloseEndedAtSql,
-  onlineSessionEffectiveEndSql,
   onlineSessionIntersectsWindowSql,
   onlineSessionNaturalDayOverlapExpr,
   onlineSessionOverlapSecondsSql,
-  onlineSessionOverlapStartSql,
+  queryStudentOnlineSessionsForDay,
 } from './lib/onlineSessionSql.js'
 import { runBootMigrations } from './migrations/runBootMigrations.js'
 import { avatarUpload, resourceUpload, UPLOAD_ROOT } from './upload/multers.js'
@@ -5123,11 +5123,36 @@ const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
   const todayStr = String(todayR.rows[0]?.d || '')
   const p = String(period || 'today').toLowerCase()
 
+  if (dayStr) {
+    const { overlapSecondsSql, intersectSql } = buildOnlineDaySessionExprs(dayStr)
+    return pool.query(
+      `
+      SELECT
+        cm.student_id,
+        COALESCE(NULLIF(TRIM(s.real_name), ''), s.name) AS display_name,
+        s.student_no,
+        COALESCE(online.total_seconds, 0)::int AS total_seconds,
+        COALESCE(online.session_count, 0)::int AS session_count
+      FROM class_members cm
+      INNER JOIN students s ON s.id = cm.student_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM((${overlapSecondsSql})), 0)::int AS total_seconds,
+          COUNT(*)::int AS session_count
+        FROM student_online_sessions sos
+        WHERE sos.student_id = cm.student_id
+          AND ${intersectSql}
+      ) online ON true
+      WHERE cm.class_id = $1
+      ORDER BY total_seconds DESC, display_name ASC
+      `,
+      [classId],
+    )
+  }
+
   let startSql
   let endSql
-  if (dayStr) {
-    ;({ startSql, endSql } = getOnlineStatsWindowSql('today', dayStr))
-  } else if (p === 'week' || p === 'month' || p === 'all') {
+  if (p === 'week' || p === 'month' || p === 'all') {
     ;({ startSql, endSql } = getOnlineStatsWindowSql(p, null))
   } else {
     ;({ startSql, endSql } = getOnlineStatsWindowSql('today', todayStr))
@@ -5329,6 +5354,7 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    await closePriorDayOpenStudentOnlineSessions(client)
     const openTodayR = await client.query(
       `
       SELECT id
@@ -5354,7 +5380,6 @@ app.post('/api/student/online-sessions/start', studentAuthRequired, async (req, 
       await client.query('COMMIT')
       return res.json({ data: { session_id: openTodayId, resumed: true } })
     }
-    await closePriorDayOpenStudentOnlineSessions(client)
     const openR = await client.query(
       `SELECT id FROM student_online_sessions WHERE student_id = $1 AND ended_at IS NULL ORDER BY started_at ASC`,
       [studentId],
@@ -5468,31 +5493,57 @@ app.post('/api/student/online-sessions/heartbeat', studentAuthRequired, async (r
     return res.status(400).json({ message: 'session_id 不合法' })
   }
   try {
-    const upd = await pool.query(
-      `
-      UPDATE student_online_sessions
-      SET last_heartbeat_at = NOW()
-      WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
-        AND COALESCE(last_heartbeat_at, started_at) <= NOW() - INTERVAL '10 seconds'
-      RETURNING id
-      `,
-      [sessionId, studentId],
-    )
-    if (!upd.rows[0]) {
-      const stillOpen = await pool.query(
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const crossDayR = await client.query(
         `
-        SELECT id FROM student_online_sessions
+        SELECT id
+        FROM student_online_sessions
         WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+          AND (timezone('Asia/Shanghai', started_at))::date
+            < (timezone('Asia/Shanghai', now()))::date
         LIMIT 1
         `,
         [sessionId, studentId],
       )
-      if (!stillOpen.rows[0]) {
-        return res.status(404).json({ message: '会话不存在或已结束' })
+      if (crossDayR.rows[0]) {
+        await closeStudentOnlineSessionAtStartedDayEnd(client, sessionId, studentId)
+        await client.query('COMMIT')
+        return res.status(404).json({ message: '会话已跨日结束，请重新进入小程序' })
       }
-      return res.json({ data: { session_id: sessionId, ok: true, throttled: true } })
+      const upd = await client.query(
+        `
+        UPDATE student_online_sessions
+        SET last_heartbeat_at = NOW()
+        WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+          AND COALESCE(last_heartbeat_at, started_at) <= NOW() - INTERVAL '10 seconds'
+        RETURNING id
+        `,
+        [sessionId, studentId],
+      )
+      await client.query('COMMIT')
+      if (!upd.rows[0]) {
+        const stillOpen = await pool.query(
+          `
+          SELECT id FROM student_online_sessions
+          WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+          LIMIT 1
+          `,
+          [sessionId, studentId],
+        )
+        if (!stillOpen.rows[0]) {
+          return res.status(404).json({ message: '会话不存在或已结束' })
+        }
+        return res.json({ data: { session_id: sessionId, ok: true, throttled: true } })
+      }
+      return res.json({ data: { session_id: sessionId, ok: true } })
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
     }
-    return res.json({ data: { session_id: sessionId, ok: true } })
   } catch (error) {
     return res.status(500).json({ message: '心跳上报失败', detail: error instanceof Error ? error.message : String(error) })
   }
@@ -7028,6 +7079,13 @@ const onlineOverlapStartMs = (row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapE
   return Math.max(startedMs, dayStartMs)
 }
 
+const toTimelineMs = (value) => {
+  if (value == null) return NaN
+  if (value instanceof Date) return value.getTime()
+  const t = new Date(value).getTime()
+  return Number.isFinite(t) ? t : NaN
+}
+
 const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = new Date()) => {
   const dayStartMs = Date.parse(shanghaiDayStartParam(dayStr))
   const dayEndExclusiveMs = dayStartMs + 86400000
@@ -7054,16 +7112,19 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
 
   const clipped = []
   for (const row of sessionRows || []) {
-    let clipStartMs
-    let clipEndMs
-    if (row.clip_start != null && row.clip_end != null) {
-      clipStartMs = new Date(row.clip_start).getTime()
-      clipEndMs = Math.min(new Date(row.clip_end).getTime(), dayCapEndMs)
-    } else {
+    const overlapSec = Math.max(0, Number(row.overlap_seconds || 0))
+    let clipStartMs = toTimelineMs(row.clip_start)
+    let clipEndMs = toTimelineMs(row.clip_end)
+    if (!Number.isFinite(clipStartMs) || !Number.isFinite(clipEndMs)) {
       clipEndMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
       clipStartMs = onlineOverlapStartMs(row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs)
     }
     if (!Number.isFinite(clipStartMs) || !Number.isFinite(clipEndMs)) continue
+    if (clipEndMs <= clipStartMs && overlapSec > 0) {
+      clipEndMs = Math.min(clipStartMs + overlapSec * 1000, dayCapEndMs)
+    } else {
+      clipEndMs = Math.min(clipEndMs, dayCapEndMs)
+    }
     if (clipEndMs <= clipStartMs) continue
     clipped.push({
       id: Number(row.id),
@@ -7091,6 +7152,29 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
       if (sess.is_open) prev.ended_at = null
     } else {
       merged.push({ ...sess })
+    }
+  }
+
+  if (merged.length === 0) {
+    for (const row of sessionRows || []) {
+      const overlapSec = Math.max(0, Number(row.overlap_seconds || 0))
+      if (overlapSec <= 0) continue
+      let clipStartMs = toTimelineMs(row.clip_start)
+      if (!Number.isFinite(clipStartMs)) {
+        clipStartMs = onlineOverlapStartMs(row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs)
+      }
+      if (!Number.isFinite(clipStartMs)) continue
+      const clipEndMs = Math.min(clipStartMs + overlapSec * 1000, dayCapEndMs)
+      if (clipEndMs <= clipStartMs) continue
+      merged.push({
+        id: Number(row.id),
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        is_open: sessionIsActivelyOpen(row, nowMs),
+        duration_seconds: row.duration_seconds != null ? Number(row.duration_seconds) : null,
+        clip_start: new Date(clipStartMs).toISOString(),
+        clip_end: new Date(clipEndMs).toISOString(),
+      })
     }
   }
 
@@ -7134,6 +7218,19 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
       start: new Date(cursor).toISOString(),
       end: new Date(rangeEndMs).toISOString(),
     })
+  }
+
+  if (segments.length === 0 && merged.length > 0) {
+    const s = new Date(merged[0].clip_start).getTime()
+    const e = new Date(merged[merged.length - 1].clip_end).getTime()
+    if (e > s) {
+      segments.push({
+        type: 'online',
+        start: new Date(s).toISOString(),
+        end: new Date(e).toISOString(),
+        session_id: merged[0].id,
+      })
+    }
   }
 
   let onlineSeconds = 0
@@ -7249,29 +7346,12 @@ app.get('/api/dashboard/student-online-timeline', authRequired, async (req, res)
       return res.status(404).json({ message: '学生不存在' })
     }
 
-    const { startSql, endSql } = getOnlineStatsWindowSql('today', dayStr)
-    const intersectSql = onlineSessionIntersectsWindowSql(startSql, endSql)
-    const overlapStartSql = onlineSessionOverlapStartSql(startSql, endSql)
-    const effectiveEndSql = onlineSessionEffectiveEndSql('sos', endSql)
-    const sessionsR = await pool.query(
-      `
-      SELECT
-        id,
-        started_at,
-        ended_at,
-        duration_seconds,
-        last_heartbeat_at,
-        (${overlapStartSql}) AS clip_start,
-        LEAST((${effectiveEndSql}), ${endSql}) AS clip_end
-      FROM student_online_sessions sos
-      WHERE student_id = $1
-        AND ${intersectSql}
-      ORDER BY started_at ASC
-      `,
-      [studentId],
-    )
-
+    const sessionsR = await queryStudentOnlineSessionsForDay(pool, studentId, dayStr)
+    const liveStats = await queryStudentDayOnlineLive(pool, studentId, dayStr)
     const timeline = buildStudentOnlineTimelinePayload(sessionsR.rows, dayStr, isToday)
+    if (liveStats.total_seconds > 0) {
+      timeline.online_seconds = liveStats.total_seconds
+    }
     return res.json({
       data: {
         class_id: classId,

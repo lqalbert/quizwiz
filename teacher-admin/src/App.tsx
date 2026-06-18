@@ -956,6 +956,16 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     void loadOnlineStats()
   }, [authToken, onlineStatsClassId, onlineStatsDate])
 
+  useEffect(() => {
+    if (!onlineStatsRows.length) return
+    const selected = onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)
+    if (selected && selected.total_seconds > 0) return
+    const firstActive = onlineStatsRows.find((r) => r.total_seconds > 0)
+    if (firstActive) {
+      setOnlineTimelineStudentId(firstActive.student_id)
+    }
+  }, [onlineStatsRows, onlineTimelineStudentId])
+
   const onlineBarChartSubtitle = useMemo(
     () => `${onlineStatsDate || beijingCalendarDateKey()}（仅展示有在线记录的学生）`,
     [onlineStatsDate],

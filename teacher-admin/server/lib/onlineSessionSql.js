@@ -78,6 +78,48 @@ export const onlineSessionCloseEndedAtSql = (alias = 'sos') => `CASE
   ELSE NOW()
 END`
 
+/** 指定上海日历日的统计窗口 [startSql, endSql) */
+export const getShanghaiCalendarDayWindowSql = (dayStr) => ({
+  startSql: `('${dayStr}'::date::timestamp AT TIME ZONE 'Asia/Shanghai')`,
+  endSql: `(('${dayStr}'::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')`,
+})
+
+export const buildOnlineDaySessionExprs = (dayStr) => {
+  const { startSql, endSql } = getShanghaiCalendarDayWindowSql(dayStr)
+  return {
+    startSql,
+    endSql,
+    overlapStartSql: onlineSessionOverlapStartSql(startSql, endSql),
+    effectiveEndSql: onlineSessionEffectiveEndSql('sos', endSql),
+    overlapSecondsSql: onlineSessionOverlapSecondsSql(startSql, endSql),
+    intersectSql: onlineSessionIntersectsWindowSql(startSql, endSql),
+  }
+}
+
+/** 某学生在指定日的会话明细（与班级统计、时间轴同口径） */
+export const queryStudentOnlineSessionsForDay = async (executor, studentId, dayStr) => {
+  const { endSql, overlapStartSql, effectiveEndSql, overlapSecondsSql, intersectSql } =
+    buildOnlineDaySessionExprs(dayStr)
+  return executor.query(
+    `
+    SELECT
+      sos.id,
+      sos.started_at,
+      sos.ended_at,
+      sos.duration_seconds,
+      sos.last_heartbeat_at,
+      (${overlapStartSql}) AS clip_start,
+      LEAST((${effectiveEndSql}), ${endSql}) AS clip_end,
+      (${overlapSecondsSql})::int AS overlap_seconds
+    FROM student_online_sessions sos
+    WHERE sos.student_id = $1
+      AND ${intersectSql}
+    ORDER BY sos.started_at ASC
+    `,
+    [studentId],
+  )
+}
+
 /** 按上海自然日切分会话，重建 student_online_day（仅已结束会话） */
 export const rebuildAllStudentOnlineDayFromSessions = async (client) => {
   await client.query(`DELETE FROM student_online_day`)
