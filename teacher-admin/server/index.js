@@ -4992,8 +4992,6 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
   }
 
   const merged = mergePeerPracticeRows(classPeerIds, aggRows)
-  const active = merged.filter((r) => r.total_attempts > 0)
-  active.sort(comparePracticeRankRows)
   const nameR = await executor.query(
     `SELECT id, name, real_name, student_no, COALESCE(NULLIF(TRIM(real_name), ''), name) AS display_name FROM students WHERE id = ANY($1::bigint[])`,
     [classPeerIds],
@@ -5007,7 +5005,16 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
       },
     ]),
   )
-  const rows = active.map((r, i) => {
+  const active = merged.filter((r) => r.total_attempts > 0)
+  active.sort(comparePracticeRankRows)
+  const inactive = merged.filter((r) => r.total_attempts <= 0)
+  inactive.sort((a, b) => {
+    const na = nameMap.get(a.student_id)?.name || ''
+    const nb = nameMap.get(b.student_id)?.name || ''
+    return na.localeCompare(nb, 'zh-CN')
+  })
+  const ordered = [...active, ...inactive]
+  const rows = ordered.map((r, i) => {
     const total = Number(r.total_attempts || 0)
     const correct = practiceCorrectAttempts(r)
     const accuracy_pct = total > 0 ? Math.round((100 * correct) / total) : 0
@@ -5022,7 +5029,7 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
       wrong_count: r.wrong_count,
       total_attempts: total,
       accuracy_pct,
-      rank_score: Math.round(practiceRankScore(r) * 100) / 100,
+      rank_score: total > 0 ? Math.round(practiceRankScore(r) * 100) / 100 : 0,
       is_me: meStudentId != null && r.student_id === meStudentId,
     }
   })
@@ -6898,7 +6905,7 @@ app.get('/api/dashboard/practice-class-rank', authRequired, async (req, res) => 
       .map((row) => Number(row.student_id))
       .filter((id) => Number.isInteger(id) && id > 0)
     const { rows } = await buildPracticeClassRankRows(pool, peerIds, period)
-    const activeCount = rows.length
+    const activeCount = rows.filter((row) => Number(row.total_attempts || 0) > 0).length
     const totalPracticeQuestions = rows.reduce((sum, row) => sum + Number(row.practice_questions || 0), 0)
     return res.json({
       data: {

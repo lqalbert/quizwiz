@@ -965,7 +965,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   }, [onlineStatsRows, onlineTimelineStudentId])
 
   const onlineBarChartSubtitle = useMemo(
-    () => `${onlineStatsDate || beijingCalendarDateKey()}（仅展示有在线记录的学生）`,
+    () => `${onlineStatsDate || beijingCalendarDateKey()}（展示全班成员）`,
     [onlineStatsDate],
   )
 
@@ -1016,14 +1016,12 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
 
   const onlineBarChartData = useMemo(
     () =>
-      onlineStatsRows
-        .filter((r) => r.total_seconds > 0)
-        .map((r) => ({
-          student_id: r.student_id,
-          name: r.name,
-          minutes: Math.round((r.total_seconds / 60) * 10) / 10,
-          total_seconds: r.total_seconds,
-        })),
+      onlineStatsRows.map((r) => ({
+        student_id: r.student_id,
+        name: r.name,
+        minutes: Math.round((r.total_seconds / 60) * 10) / 10,
+        total_seconds: r.total_seconds,
+      })),
     [onlineStatsRows],
   )
 
@@ -1108,7 +1106,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             rowKey="student_id"
             pagination={{ pageSize: 10, showSizeChanger: false }}
             dataSource={practiceRankRows}
-            locale={{ emptyText: practiceRankClassId ? '本周期暂无同学作答记录' : '请先选择班级' }}
+            locale={{ emptyText: practiceRankClassId ? '该班级暂无成员' : '请先选择班级' }}
             scroll={{ x: 800 }}
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
@@ -1220,9 +1218,9 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                   <div style={{ padding: '48px 0', textAlign: 'center' }}>
                     <Spin />
                   </div>
-                ) : onlineBarChartData.length === 0 ? (
+                ) : onlineStatsRows.length === 0 ? (
                   <Empty
-                    description="所选日期暂无在线记录"
+                    description={onlineStatsClassId ? '该班级暂无成员' : '请先选择班级'}
                     style={{ padding: '48px 0' }}
                   />
                 ) : (
@@ -1303,7 +1301,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
             rowKey="student_id"
             pagination={{ pageSize: 10, showSizeChanger: false }}
             dataSource={onlineStatsRows}
-            locale={{ emptyText: onlineStatsClassId ? '所选日期暂无在线记录' : '请先选择班级' }}
+            locale={{ emptyText: onlineStatsClassId ? '该班级暂无成员' : '请先选择班级' }}
             scroll={{ x: 720 }}
             columns={[
               { title: '排名', dataIndex: 'rank', width: 72 },
