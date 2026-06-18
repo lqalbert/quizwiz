@@ -3,6 +3,7 @@ const { syncNeedJoinClassFromServer } = require("../../utils/joinClass.js");
 const { buildTodaySnapshot } = require("../../utils/dailyMission.js");
 const { ensureOnlineSession } = require("../../utils/onlineSession.js");
 const { sortExamsNewestFirst } = require("../../utils/examSort.js");
+const { beijingCalendarDateKey } = require("../../utils/beijingTime.js");
 const withPageShare = require("../../utils/withPageShare.js");
 
 /** 兼容接口体为 { data: {...} } 或直接为业务对象两种形态 */
