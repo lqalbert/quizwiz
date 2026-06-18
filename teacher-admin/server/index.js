@@ -5019,80 +5019,61 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
   return { period: p, rows }
 }
 
-/** 单会话绝对上限（防异常）；正常统计以心跳末次时间为准 */
+/** 单会话绝对上限（防异常） */
 const ONLINE_SESSION_MAX_SECONDS = 4 * 3600
-/** 超过该秒数未心跳，视为已离线 */
-const ONLINE_HEARTBEAT_STALE_SECONDS = 180
-/** 末次心跳后再计入的缓冲秒数（覆盖一次心跳间隔） */
-const ONLINE_HEARTBEAT_TAIL_SECONDS = 90
+/** 超过该秒数未心跳，视为已离线（进程被杀未触发 onHide 时收口） */
+const ONLINE_HEARTBEAT_STALE_SECONDS = 120
 /** 切出后该秒数内再次进入，视为同一会话（续接而非新建） */
 const ONLINE_SESSION_RESUME_SECONDS = 90
-/** 时间轴展示：相邻会话间隔小于该值则合并为一段在线 */
+/** 时间轴展示：相邻会话间隔小于该值则合并为一段 */
 const ONLINE_SESSION_TIMELINE_MERGE_GAP_SECONDS = 90
 
+/**
+ * 会话在统计窗口内的有效结束时刻：
+ * - 已结束：ended_at（用户切出）
+ * - 进行中：NOW()
+ * - 僵尸：末次心跳（不再额外 +90s 尾缓冲）
+ */
 const onlineSessionEffectiveEndSql = (alias = 'sos', windowEndSql = 'NOW()') => `CASE
-  WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(
-    ${alias}.ended_at,
-    ${windowEndSql},
-    COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-  )
-  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) < LEAST(NOW(), ${windowEndSql}) - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
-    THEN LEAST(
-      COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second'),
-      ${windowEndSql}
-    )
+  WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(${alias}.ended_at, ${windowEndSql})
+  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
+    < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
+    THEN LEAST(COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at), ${windowEndSql})
   ELSE LEAST(NOW(), ${windowEndSql})
 END`
 
-const onlineSessionEffectiveSecondsSql = (windowEndSql = 'NOW()') => `CASE
-  WHEN sos.ended_at IS NOT NULL THEN GREATEST(0, LEAST(
-    ${ONLINE_SESSION_MAX_SECONDS},
-    EXTRACT(EPOCH FROM (LEAST(sos.ended_at, ${windowEndSql}) - sos.started_at))::int
-  ))
-  ELSE GREATEST(0, LEAST(
-    ${ONLINE_SESSION_MAX_SECONDS},
-    EXTRACT(EPOCH FROM (${onlineSessionEffectiveEndSql('sos', windowEndSql)} - sos.started_at))::int
-  ))
-END`
+/** 自然日窗口内重叠起点：max(会话开始, 当日 00:00) */
+const onlineSessionOverlapStartSql = (startSql) => `GREATEST(sos.started_at, ${startSql})`
 
-/** 会话与统计窗口 [startSql, endSql) 的重叠秒数；未结束会话仅在窗口包含当前时刻时计入 */
-const onlineSessionOverlapStartSql = (startSql, endSql) => `CASE
-  WHEN sos.ended_at IS NOT NULL THEN GREATEST(sos.started_at, ${startSql})
-  WHEN sos.started_at >= ${startSql} THEN sos.started_at
-  WHEN COALESCE(sos.last_heartbeat_at, sos.started_at) >= ${startSql} THEN GREATEST(
-    ${startSql},
-    COALESCE(sos.last_heartbeat_at, sos.started_at) - (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-  )
-  ELSE ${endSql}
-END`
-
+/**
+ * 自然日重叠秒数：[max(started_at,日初), min(有效结束,日末))
+ * 跨零点会话自动拆到两日：上日止于 24:00，下日始于 00:00
+ */
 const onlineSessionOverlapSecondsSql = (startSql, endSql) => `CASE
-  WHEN sos.ended_at IS NULL AND NOW() >= ${endSql} THEN 0
-  WHEN sos.ended_at IS NULL AND NOW() < ${startSql} THEN 0
-  WHEN sos.ended_at IS NULL
-    AND sos.started_at < ${startSql}
-    AND COALESCE(sos.last_heartbeat_at, sos.started_at) < ${startSql} THEN 0
+  WHEN sos.started_at >= ${endSql} THEN 0
+  WHEN (${onlineSessionEffectiveEndSql('sos', endSql)}) <= ${startSql} THEN 0
   ELSE GREATEST(0, EXTRACT(EPOCH FROM (
     LEAST((${onlineSessionEffectiveEndSql('sos', endSql)}), ${endSql})
-    - (${onlineSessionOverlapStartSql(startSql, endSql)})
+    - ${onlineSessionOverlapStartSql(startSql)}
   ))::int)
 END`
 
 const onlineSessionIntersectsWindowSql = (startSql, endSql) => `(
   sos.started_at < ${endSql}
   AND (${onlineSessionEffectiveEndSql('sos', endSql)}) > ${startSql}
-  AND (
-    sos.ended_at IS NOT NULL
-    OR (
-      NOW() >= ${startSql}
-      AND NOW() < ${endSql}
-      AND (
-        sos.started_at >= ${startSql}
-        OR COALESCE(sos.last_heartbeat_at, sos.started_at) >= ${startSql}
-      )
-    )
-  )
 )`
+
+/** 已结束会话按上海自然日切分写入 student_online_day 的重叠秒数表达式（需 LATERAL d.online_date） */
+const onlineSessionNaturalDayOverlapExpr = `GREATEST(0, EXTRACT(EPOCH FROM (
+  LEAST(
+    sos.ended_at,
+    (d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'
+  )
+  - GREATEST(
+    sos.started_at,
+    (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
+  )
+))::int)`
 
 const SHANGHAI_CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -5134,14 +5115,11 @@ const getOnlineStatsWindowSql = (period, dayStr) => {
   }
 }
 
-/** 关闭会话时写入 ended_at：用户主动结束用 NOW()，僵尸会话用心跳收口时刻 */
+/** 关闭会话：用户切出 = NOW()；僵尸会话 = 末次心跳 */
 const onlineSessionCloseEndedAtSql = (alias = 'sos') => `CASE
   WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
     < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
-    THEN LEAST(
-      NOW(),
-      COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-    )
+    THEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
   ELSE NOW()
 END`
 
@@ -5226,7 +5204,7 @@ const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
   )
 }
 
-/** 按上海日历日切分会话，重建 student_online_day（仅已结束会话） */
+/** 按上海自然日切分会话，重建 student_online_day（仅已结束会话） */
 const rebuildAllStudentOnlineDayFromSessions = async (client) => {
   await client.query(`DELETE FROM student_online_day`)
   await client.query(
@@ -5235,47 +5213,20 @@ const rebuildAllStudentOnlineDayFromSessions = async (client) => {
     SELECT
       sos.student_id,
       d.online_date,
-      SUM(
-        GREATEST(0, EXTRACT(EPOCH FROM (
-          LEAST(
-            sos.ended_at,
-            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
-            COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-          )
-          - GREATEST(
-            sos.started_at,
-            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
-          )
-        ))::int)
-      )::int AS total_seconds,
+      SUM(${onlineSessionNaturalDayOverlapExpr})::int AS total_seconds,
       COUNT(*)::int AS session_count
     FROM student_online_sessions sos
     CROSS JOIN LATERAL (
       SELECT generate_series(
         (timezone('Asia/Shanghai', sos.started_at))::date,
-        (timezone('Asia/Shanghai', LEAST(
-          sos.ended_at,
-          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-        )))::date,
+        (timezone('Asia/Shanghai', sos.ended_at))::date,
         interval '1 day'
       )::date AS online_date
     ) d
     WHERE sos.ended_at IS NOT NULL
       AND sos.ended_at > sos.started_at
     GROUP BY sos.student_id, d.online_date
-    HAVING SUM(
-      GREATEST(0, EXTRACT(EPOCH FROM (
-        LEAST(
-          sos.ended_at,
-          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
-          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-        )
-        - GREATEST(
-          sos.started_at,
-          (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
-        )
-      ))::int)
-    ) > 0
+    HAVING SUM(${onlineSessionNaturalDayOverlapExpr}) > 0
     `,
   )
 }
@@ -5288,28 +5239,13 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
     SELECT
       sos.student_id,
       d.online_date,
-      SUM(
-        GREATEST(0, EXTRACT(EPOCH FROM (
-          LEAST(
-            sos.ended_at,
-            ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
-            COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-          )
-          - GREATEST(
-            sos.started_at,
-            (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
-          )
-        ))::int)
-      )::int AS total_seconds,
+      SUM(${onlineSessionNaturalDayOverlapExpr})::int AS total_seconds,
       COUNT(*)::int AS session_count
     FROM student_online_sessions sos
     CROSS JOIN LATERAL (
       SELECT generate_series(
         (timezone('Asia/Shanghai', sos.started_at))::date,
-        (timezone('Asia/Shanghai', LEAST(
-          sos.ended_at,
-          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-        )))::date,
+        (timezone('Asia/Shanghai', sos.ended_at))::date,
         interval '1 day'
       )::date AS online_date
     ) d
@@ -5317,19 +5253,7 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
       AND sos.ended_at IS NOT NULL
       AND sos.ended_at > sos.started_at
     GROUP BY sos.student_id, d.online_date
-    HAVING SUM(
-      GREATEST(0, EXTRACT(EPOCH FROM (
-        LEAST(
-          sos.ended_at,
-          ((d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'),
-          COALESCE(sos.last_heartbeat_at, sos.started_at) + (${ONLINE_HEARTBEAT_TAIL_SECONDS} * INTERVAL '1 second')
-        )
-        - GREATEST(
-          sos.started_at,
-          (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
-        )
-      ))::int)
-    ) > 0
+    HAVING SUM(${onlineSessionNaturalDayOverlapExpr}) > 0
     `,
     [studentId],
   )
@@ -5337,7 +5261,7 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
 
 const closeStudentOnlineSession = async (client, sessionId, studentId) => {
   const endedAtExpr = onlineSessionCloseEndedAtSql('student_online_sessions')
-  const durationExpr = `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${onlineSessionEffectiveEndSql('student_online_sessions')}) - started_at))::int))`
+  const durationExpr = `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${endedAtExpr}) - started_at))::int))`
   const upd = await client.query(
     `
     UPDATE student_online_sessions
@@ -7089,17 +7013,13 @@ const shanghaiDayStartParam = (dayStr) => `${dayStr}T00:00:00+08:00`
 
 const sessionEffectiveEndMs = (row, nowMs, dayCapEndMs) => {
   if (row.ended_at) {
-    const endedMs = new Date(row.ended_at).getTime()
-    const hbMs = row.last_heartbeat_at
-      ? new Date(row.last_heartbeat_at).getTime()
-      : new Date(row.started_at).getTime()
-    const cappedMs = Math.min(endedMs, hbMs + ONLINE_HEARTBEAT_TAIL_SECONDS * 1000)
-    return Math.min(cappedMs, dayCapEndMs)
+    return Math.min(new Date(row.ended_at).getTime(), dayCapEndMs)
   }
-  const startedMs = new Date(row.started_at).getTime()
-  const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
+  const hbMs = row.last_heartbeat_at
+    ? new Date(row.last_heartbeat_at).getTime()
+    : new Date(row.started_at).getTime()
   if (nowMs - hbMs > ONLINE_HEARTBEAT_STALE_SECONDS * 1000) {
-    return Math.min(hbMs + ONLINE_HEARTBEAT_TAIL_SECONDS * 1000, dayCapEndMs)
+    return Math.min(hbMs, dayCapEndMs)
   }
   return Math.min(nowMs, dayCapEndMs)
 }
@@ -7140,16 +7060,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
   for (const row of sessionRows || []) {
     const startedMs = new Date(row.started_at).getTime()
     const endedMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
-    let clipStartMs
-    if (row.ended_at) {
-      clipStartMs = Math.max(startedMs, dayStartMs)
-    } else if (startedMs >= dayStartMs) {
-      clipStartMs = startedMs
-    } else {
-      const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
-      if (hbMs < dayStartMs) continue
-      clipStartMs = Math.max(dayStartMs, hbMs - ONLINE_HEARTBEAT_TAIL_SECONDS * 1000)
-    }
+    const clipStartMs = Math.max(startedMs, dayStartMs)
     const clipEndMs = Math.min(endedMs, dayCapEndMs)
     if (clipEndMs <= clipStartMs) continue
     clipped.push({
@@ -7243,7 +7154,7 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
         at: new Date(onlineAtMs).toISOString(),
         label:
           startedMs < dayStartMs
-            ? '上线（续）'
+            ? '跨日续'
             : sess.is_open && isToday
               ? '上线（进行中）'
               : '上线',

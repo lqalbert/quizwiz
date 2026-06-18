@@ -43,7 +43,7 @@ withPageShare({
       wx.setStorageSync("student_token", token);
       getApp().globalData.token = token;
       setNeedJoinClass(Boolean(r.data && r.data.need_join_class));
-      void ensureOnlineSession();
+      await ensureOnlineSession();
       wx.hideLoading();
       const pages = getCurrentPages();
       if (pages.length > 1) {
