@@ -11,6 +11,14 @@ import { fileURLToPath } from 'node:url'
 
 import { API_REVISION, DEFAULT_KNOWLEDGE_UNIT_NAME } from './config/constants.js'
 import { pool } from './db/pool.js'
+import {
+  ONLINE_CROSS_MIDNIGHT_GAP_SECONDS,
+  ONLINE_HEARTBEAT_STALE_SECONDS,
+  onlineSessionCloseEndedAtSql,
+  onlineSessionIntersectsWindowSql,
+  onlineSessionNaturalDayOverlapExpr,
+  onlineSessionOverlapSecondsSql,
+} from './lib/onlineSessionSql.js'
 import { runBootMigrations } from './migrations/runBootMigrations.js'
 import { avatarUpload, resourceUpload, UPLOAD_ROOT } from './upload/multers.js'
 
@@ -5021,59 +5029,10 @@ const buildPracticeClassRankRows = async (executor, peerIds, period, { meStudent
 
 /** 单会话绝对上限（防异常） */
 const ONLINE_SESSION_MAX_SECONDS = 4 * 3600
-/** 超过该秒数未心跳，视为已离线（进程被杀未触发 onHide 时收口） */
-const ONLINE_HEARTBEAT_STALE_SECONDS = 120
 /** 切出后该秒数内再次进入，视为同一会话（续接而非新建） */
 const ONLINE_SESSION_RESUME_SECONDS = 90
 /** 时间轴展示：相邻会话间隔小于该值则合并为一段 */
 const ONLINE_SESSION_TIMELINE_MERGE_GAP_SECONDS = 90
-
-/**
- * 会话在统计窗口内的有效结束时刻：
- * - 已结束：ended_at（用户切出）
- * - 进行中：NOW()
- * - 僵尸：末次心跳（不再额外 +90s 尾缓冲）
- */
-const onlineSessionEffectiveEndSql = (alias = 'sos', windowEndSql = 'NOW()') => `CASE
-  WHEN ${alias}.ended_at IS NOT NULL THEN LEAST(${alias}.ended_at, ${windowEndSql})
-  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
-    < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
-    THEN LEAST(COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at), ${windowEndSql})
-  ELSE LEAST(NOW(), ${windowEndSql})
-END`
-
-/** 自然日窗口内重叠起点：max(会话开始, 当日 00:00) */
-const onlineSessionOverlapStartSql = (startSql) => `GREATEST(sos.started_at, ${startSql})`
-
-/**
- * 自然日重叠秒数：[max(started_at,日初), min(有效结束,日末))
- * 跨零点会话自动拆到两日：上日止于 24:00，下日始于 00:00
- */
-const onlineSessionOverlapSecondsSql = (startSql, endSql) => `CASE
-  WHEN sos.started_at >= ${endSql} THEN 0
-  WHEN (${onlineSessionEffectiveEndSql('sos', endSql)}) <= ${startSql} THEN 0
-  ELSE GREATEST(0, EXTRACT(EPOCH FROM (
-    LEAST((${onlineSessionEffectiveEndSql('sos', endSql)}), ${endSql})
-    - ${onlineSessionOverlapStartSql(startSql)}
-  ))::int)
-END`
-
-const onlineSessionIntersectsWindowSql = (startSql, endSql) => `(
-  sos.started_at < ${endSql}
-  AND (${onlineSessionEffectiveEndSql('sos', endSql)}) > ${startSql}
-)`
-
-/** 已结束会话按上海自然日切分写入 student_online_day 的重叠秒数表达式（需 LATERAL d.online_date） */
-const onlineSessionNaturalDayOverlapExpr = `GREATEST(0, EXTRACT(EPOCH FROM (
-  LEAST(
-    sos.ended_at,
-    (d.online_date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'
-  )
-  - GREATEST(
-    sos.started_at,
-    (d.online_date::timestamp AT TIME ZONE 'Asia/Shanghai')
-  )
-))::int)`
 
 const SHANGHAI_CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -5114,14 +5073,6 @@ const getOnlineStatsWindowSql = (period, dayStr) => {
     endSql: `((date_trunc('day', timezone('Asia/Shanghai', now())) + interval '1 day') AT TIME ZONE 'Asia/Shanghai')`,
   }
 }
-
-/** 关闭会话：用户切出 = NOW()；僵尸会话 = 末次心跳 */
-const onlineSessionCloseEndedAtSql = (alias = 'sos') => `CASE
-  WHEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
-    < NOW() - (${ONLINE_HEARTBEAT_STALE_SECONDS} * INTERVAL '1 second')
-    THEN COALESCE(${alias}.last_heartbeat_at, ${alias}.started_at)
-  ELSE NOW()
-END`
 
 /** 某学生在指定上海日历日的在线秒数（实时 overlap，含进行中会话） */
 const queryStudentDayOnlineLive = async (executor, studentId, dayStr) => {
@@ -5204,33 +5155,6 @@ const queryClassOnlineStatsRows = async (pool, classId, { period, dayStr }) => {
   )
 }
 
-/** 按上海自然日切分会话，重建 student_online_day（仅已结束会话） */
-const rebuildAllStudentOnlineDayFromSessions = async (client) => {
-  await client.query(`DELETE FROM student_online_day`)
-  await client.query(
-    `
-    INSERT INTO student_online_day (student_id, online_date, total_seconds, session_count)
-    SELECT
-      sos.student_id,
-      d.online_date,
-      SUM(${onlineSessionNaturalDayOverlapExpr})::int AS total_seconds,
-      COUNT(*)::int AS session_count
-    FROM student_online_sessions sos
-    CROSS JOIN LATERAL (
-      SELECT generate_series(
-        (timezone('Asia/Shanghai', sos.started_at))::date,
-        (timezone('Asia/Shanghai', sos.ended_at))::date,
-        interval '1 day'
-      )::date AS online_date
-    ) d
-    WHERE sos.ended_at IS NOT NULL
-      AND sos.ended_at > sos.started_at
-    GROUP BY sos.student_id, d.online_date
-    HAVING SUM(${onlineSessionNaturalDayOverlapExpr}) > 0
-    `,
-  )
-}
-
 const refreshStudentOnlineDayForStudent = async (client, studentId) => {
   await client.query(`DELETE FROM student_online_day WHERE student_id = $1`, [studentId])
   await client.query(
@@ -5239,8 +5163,18 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
     SELECT
       sos.student_id,
       d.online_date,
-      SUM(${onlineSessionNaturalDayOverlapExpr})::int AS total_seconds,
-      COUNT(*)::int AS session_count
+      SUM(
+        ${onlineSessionNaturalDayOverlapExpr(
+          '(d.online_date::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+          '((d.online_date + 1)::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+        )}
+      )::int AS total_seconds,
+      COUNT(*) FILTER (
+        WHERE ${onlineSessionNaturalDayOverlapExpr(
+          '(d.online_date::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+          '((d.online_date + 1)::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+        )} > 0
+      )::int AS session_count
     FROM student_online_sessions sos
     CROSS JOIN LATERAL (
       SELECT generate_series(
@@ -5253,10 +5187,40 @@ const refreshStudentOnlineDayForStudent = async (client, studentId) => {
       AND sos.ended_at IS NOT NULL
       AND sos.ended_at > sos.started_at
     GROUP BY sos.student_id, d.online_date
-    HAVING SUM(${onlineSessionNaturalDayOverlapExpr}) > 0
+    HAVING SUM(
+      ${onlineSessionNaturalDayOverlapExpr(
+        '(d.online_date::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+        '((d.online_date + 1)::timestamp AT TIME ZONE \'Asia/Shanghai\')',
+      )}
+    ) > 0
     `,
     [studentId],
   )
+}
+
+/** 上海日历日 23:59:59.999 */
+const shanghaiCalendarDayEndSql = (momentSql) => `(
+  ((${momentSql})::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'
+) - interval '1 millisecond'`
+
+/** 跨自然日仍未结束：在「开始日」23:59:59 收口，避免今日从 0 点误计 */
+const closeStudentOnlineSessionAtStartedDayEnd = async (client, sessionId, studentId) => {
+  const dayEndExpr = shanghaiCalendarDayEndSql(`timezone('Asia/Shanghai', student_online_sessions.started_at)`)
+  const durationExpr = `GREATEST(0, LEAST($3::int, EXTRACT(EPOCH FROM ((${dayEndExpr}) - started_at))::int))`
+  const upd = await client.query(
+    `
+    UPDATE student_online_sessions
+    SET ended_at = ${dayEndExpr},
+        duration_seconds = ${durationExpr}
+    WHERE id = $1 AND student_id = $2 AND ended_at IS NULL
+    RETURNING duration_seconds, online_date
+    `,
+    [sessionId, studentId, ONLINE_SESSION_MAX_SECONDS],
+  )
+  const row = upd.rows[0]
+  if (!row) return null
+  await refreshStudentOnlineDayForStudent(client, studentId)
+  return row
 }
 
 const closeStudentOnlineSession = async (client, sessionId, studentId) => {
@@ -5296,7 +5260,7 @@ const closeStaleStudentOnlineSessions = async (client) => {
   return openR.rows.length
 }
 
-/** 跨自然日仍未结束的会话：按末次心跳收口，避免从今天 0 点误计到当前时刻 */
+/** 跨自然日仍未结束的会话：在「开始日」23:59:59 收口，避免今日从 0 点误计 */
 const closePriorDayOpenStudentOnlineSessions = async (client) => {
   const openR = await client.query(
     `
@@ -5309,7 +5273,7 @@ const closePriorDayOpenStudentOnlineSessions = async (client) => {
     `,
   )
   for (const row of openR.rows) {
-    await closeStudentOnlineSession(client, Number(row.id), Number(row.student_id))
+    await closeStudentOnlineSessionAtStartedDayEnd(client, Number(row.id), Number(row.student_id))
   }
   return openR.rows.length
 }
@@ -7032,6 +6996,36 @@ const sessionIsActivelyOpen = (row, nowMs) => {
   return nowMs - hbMs <= ONLINE_HEARTBEAT_STALE_SECONDS * 1000
 }
 
+const shanghaiDateKeyFromMs = (ms) => {
+  const SHANGHAI_OFFSET_MS = 8 * 3600 * 1000
+  const t = new Date(ms + SHANGHAI_OFFSET_MS)
+  const y = t.getUTCFullYear()
+  const m = String(t.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(t.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** 与 onlineSessionOverlapStartSql 同口径的 JS 裁剪起点 */
+const onlineOverlapStartMs = (row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs) => {
+  const startedMs = new Date(row.started_at).getTime()
+  const hbMs = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : startedMs
+  const effEndMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
+  if (startedMs >= dayEndExclusiveMs) return dayEndExclusiveMs
+  if (shanghaiDateKeyFromMs(startedMs) === shanghaiDateKeyFromMs(dayStartMs)) {
+    return Math.max(startedMs, dayStartMs)
+  }
+  if (hbMs < dayStartMs) return dayEndExclusiveMs
+  const lastBeforeDayMs = Math.max(
+    startedMs,
+    hbMs < dayStartMs ? hbMs : startedMs,
+  )
+  const gapMs = dayStartMs - lastBeforeDayMs
+  if (gapMs > ONLINE_CROSS_MIDNIGHT_GAP_SECONDS * 1000) {
+    return Math.max(dayStartMs, Math.min(hbMs, effEndMs))
+  }
+  return Math.max(startedMs, dayStartMs)
+}
+
 const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = new Date()) => {
   const dayStartMs = Date.parse(shanghaiDayStartParam(dayStr))
   const dayEndExclusiveMs = dayStartMs + 86400000
@@ -7058,9 +7052,8 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
 
   const clipped = []
   for (const row of sessionRows || []) {
-    const startedMs = new Date(row.started_at).getTime()
     const endedMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
-    const clipStartMs = Math.max(startedMs, dayStartMs)
+    const clipStartMs = onlineOverlapStartMs(row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs)
     const clipEndMs = Math.min(endedMs, dayCapEndMs)
     if (clipEndMs <= clipStartMs) continue
     clipped.push({

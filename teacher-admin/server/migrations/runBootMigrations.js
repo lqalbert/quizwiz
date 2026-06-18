@@ -715,6 +715,47 @@ const ensureStudentOnlineSchema = async () => {
       `,
     )
   }
+  /** v5：跨日非连续在线不再从 0 点计；昨日未收口会话在 started 日 23:59:59 结束并重建日表 */
+  const v5R = await pool.query(
+    `SELECT 1 FROM system_configs WHERE config_key = 'student_online_overlap_gap_v5' LIMIT 1`,
+  )
+  if (!v5R.rows.length) {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `
+        UPDATE student_online_sessions sos
+        SET
+          ended_at = ((timezone('Asia/Shanghai', sos.started_at))::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai' - interval '1 millisecond',
+          duration_seconds = GREATEST(0, LEAST(
+            14400,
+            EXTRACT(EPOCH FROM (
+              (((timezone('Asia/Shanghai', sos.started_at))::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai' - interval '1 millisecond') - sos.started_at
+            ))::int
+          ))
+        WHERE sos.ended_at IS NULL
+          AND (timezone('Asia/Shanghai', sos.started_at))::date
+            < (timezone('Asia/Shanghai', now()))::date
+        `,
+      )
+      const { rebuildAllStudentOnlineDayFromSessions } = await import('../lib/onlineSessionSql.js')
+      await rebuildAllStudentOnlineDayFromSessions(client)
+      await client.query(
+        `
+        INSERT INTO system_configs (config_key, config_value, updated_at)
+        VALUES ('student_online_overlap_gap_v5', 'true'::jsonb, NOW())
+        ON CONFLICT (config_key) DO NOTHING
+        `,
+      )
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
 }
 
 /** 串行执行，避免启动时 Promise.all 并发占满连接池导致部分连接被服务端掐断 */
