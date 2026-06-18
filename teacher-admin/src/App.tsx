@@ -957,9 +957,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   }, [authToken, onlineStatsClassId, onlineStatsDate])
 
   useEffect(() => {
-    if (!onlineStatsRows.length) return
-    const selected = onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)
-    if (selected && selected.total_seconds > 0) return
+    if (!onlineStatsRows.length || onlineTimelineStudentId != null) return
     const firstActive = onlineStatsRows.find((r) => r.total_seconds > 0)
     if (firstActive) {
       setOnlineTimelineStudentId(firstActive.student_id)
