@@ -15,9 +15,11 @@ import {
   ONLINE_CROSS_MIDNIGHT_GAP_SECONDS,
   ONLINE_HEARTBEAT_STALE_SECONDS,
   onlineSessionCloseEndedAtSql,
+  onlineSessionEffectiveEndSql,
   onlineSessionIntersectsWindowSql,
   onlineSessionNaturalDayOverlapExpr,
   onlineSessionOverlapSecondsSql,
+  onlineSessionOverlapStartSql,
 } from './lib/onlineSessionSql.js'
 import { runBootMigrations } from './migrations/runBootMigrations.js'
 import { avatarUpload, resourceUpload, UPLOAD_ROOT } from './upload/multers.js'
@@ -7052,9 +7054,16 @@ const buildStudentOnlineTimelinePayload = (sessionRows, dayStr, isToday, now = n
 
   const clipped = []
   for (const row of sessionRows || []) {
-    const endedMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
-    const clipStartMs = onlineOverlapStartMs(row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs)
-    const clipEndMs = Math.min(endedMs, dayCapEndMs)
+    let clipStartMs
+    let clipEndMs
+    if (row.clip_start != null && row.clip_end != null) {
+      clipStartMs = new Date(row.clip_start).getTime()
+      clipEndMs = Math.min(new Date(row.clip_end).getTime(), dayCapEndMs)
+    } else {
+      clipEndMs = sessionEffectiveEndMs(row, nowMs, dayCapEndMs)
+      clipStartMs = onlineOverlapStartMs(row, dayStartMs, dayEndExclusiveMs, nowMs, dayCapEndMs)
+    }
+    if (!Number.isFinite(clipStartMs) || !Number.isFinite(clipEndMs)) continue
     if (clipEndMs <= clipStartMs) continue
     clipped.push({
       id: Number(row.id),
@@ -7240,18 +7249,26 @@ app.get('/api/dashboard/student-online-timeline', authRequired, async (req, res)
       return res.status(404).json({ message: '学生不存在' })
     }
 
-    const dayStart = shanghaiDayStartParam(dayStr)
-    const dayEndExclusive = `${dayStr}T24:00:00+08:00`
+    const { startSql, endSql } = getOnlineStatsWindowSql('today', dayStr)
+    const intersectSql = onlineSessionIntersectsWindowSql(startSql, endSql)
+    const overlapStartSql = onlineSessionOverlapStartSql(startSql, endSql)
+    const effectiveEndSql = onlineSessionEffectiveEndSql('sos', endSql)
     const sessionsR = await pool.query(
       `
-      SELECT id, started_at, ended_at, duration_seconds, last_heartbeat_at
-      FROM student_online_sessions
+      SELECT
+        id,
+        started_at,
+        ended_at,
+        duration_seconds,
+        last_heartbeat_at,
+        (${overlapStartSql}) AS clip_start,
+        LEAST((${effectiveEndSql}), ${endSql}) AS clip_end
+      FROM student_online_sessions sos
       WHERE student_id = $1
-        AND started_at < $3::timestamptz
-        AND (ended_at IS NULL OR ended_at > $2::timestamptz)
+        AND ${intersectSql}
       ORDER BY started_at ASC
       `,
-      [studentId, dayStart, dayEndExclusive],
+      [studentId],
     )
 
     const timeline = buildStudentOnlineTimelinePayload(sessionsR.rows, dayStr, isToday)
