@@ -9,6 +9,7 @@ import {
   HolderOutlined,
   LogoutOutlined,
   MenuOutlined,
+  ReadOutlined,
   ReloadOutlined,
   TeamOutlined,
   UserOutlined,
