@@ -9,7 +9,7 @@ import {
   HolderOutlined,
   LogoutOutlined,
   MenuOutlined,
-  ReadOutlined,
+  ReloadOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -45,7 +45,7 @@ import {
   Upload,
 } from 'antd'
 import type { MenuProps, TabsProps, UploadFile, UploadProps } from 'antd'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Bar, BarChart, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts'
 import ExcelJS from 'exceljs'
@@ -739,6 +739,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
   >([])
   const [onlineDailyTotals, setOnlineDailyTotals] = useState<Array<{ day: string; total_seconds: number }>>([])
   const [onlineTimelineStudentId, setOnlineTimelineStudentId] = useState<number | undefined>(undefined)
+  const [onlineTimelineRefreshKey, setOnlineTimelineRefreshKey] = useState(0)
   const onlineTimelineSectionRef = useRef<HTMLDivElement>(null)
 
   const cards =
@@ -860,101 +861,104 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
     }
   }, [classStats, practiceRankClassId, onlineStatsClassId])
 
-  useEffect(() => {
-    const loadPracticeRank = async () => {
-      if (!CAN_USE_API || practiceRankClassId == null) {
-        setPracticeRankRows([])
-        setPracticeRankSummary({
-          class_name: '',
-          student_count: 0,
-          active_count: 0,
-          total_practice_questions: 0,
-        })
-        return
-      }
-      try {
-        setPracticeRankLoading(true)
-        const params = new URLSearchParams()
-        params.set('classId', String(practiceRankClassId))
-        params.set('period', practiceRankPeriod)
-        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/practice-class-rank?${params.toString()}`, {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        })
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(payload?.message || `加载刷题排行失败(${response.status})`)
-        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
-        setPracticeRankRows(Array.isArray(data.rows) ? data.rows : [])
-        setPracticeRankSummary({
-          class_name: String(data.class_name || ''),
-          student_count: Number(data.student_count || 0),
-          active_count: Number(data.active_count || 0),
-          total_practice_questions: Number(data.total_practice_questions || 0),
-        })
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '加载班级刷题排行失败')
-        setPracticeRankRows([])
-        setPracticeRankSummary({
-          class_name: '',
-          student_count: 0,
-          active_count: 0,
-          total_practice_questions: 0,
-        })
-      } finally {
-        setPracticeRankLoading(false)
-      }
+  const loadPracticeRank = useCallback(async () => {
+    if (!CAN_USE_API || practiceRankClassId == null) {
+      setPracticeRankRows([])
+      setPracticeRankSummary({
+        class_name: '',
+        student_count: 0,
+        active_count: 0,
+        total_practice_questions: 0,
+      })
+      return
     }
-    void loadPracticeRank()
+    try {
+      setPracticeRankLoading(true)
+      const params = new URLSearchParams()
+      params.set('classId', String(practiceRankClassId))
+      params.set('period', practiceRankPeriod)
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/practice-class-rank?${params.toString()}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载刷题排行失败(${response.status})`)
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+      setPracticeRankRows(Array.isArray(data.rows) ? data.rows : [])
+      setPracticeRankSummary({
+        class_name: String(data.class_name || ''),
+        student_count: Number(data.student_count || 0),
+        active_count: Number(data.active_count || 0),
+        total_practice_questions: Number(data.total_practice_questions || 0),
+      })
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载班级刷题排行失败')
+      setPracticeRankRows([])
+      setPracticeRankSummary({
+        class_name: '',
+        student_count: 0,
+        active_count: 0,
+        total_practice_questions: 0,
+      })
+    } finally {
+      setPracticeRankLoading(false)
+    }
   }, [authToken, practiceRankClassId, practiceRankPeriod])
 
   useEffect(() => {
-    const loadOnlineStats = async () => {
-      if (!CAN_USE_API || onlineStatsClassId == null) {
-        setOnlineStatsRows([])
-        setOnlineDailyTotals([])
-        setOnlineStatsSummary({
-          class_name: '',
-          student_count: 0,
-          active_count: 0,
-          class_total_seconds: 0,
-        })
-        return
-      }
-      try {
-        setOnlineStatsLoading(true)
-        const params = new URLSearchParams()
-        params.set('classId', String(onlineStatsClassId))
-        params.set('period', 'today')
-        params.set('date', onlineStatsDate || beijingCalendarDateKey())
-        const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
-          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        })
-        const payload = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(payload?.message || `加载在线时长失败(${response.status})`)
-        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
-        setOnlineStatsRows(Array.isArray(data.rows) ? data.rows : [])
-        setOnlineDailyTotals(Array.isArray(data.daily_totals) ? data.daily_totals : [])
-        setOnlineStatsSummary({
-          class_name: String(data.class_name || ''),
-          student_count: Number(data.student_count || 0),
-          active_count: Number(data.active_count || 0),
-          class_total_seconds: Number(data.class_total_seconds || 0),
-        })
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '加载在线时长失败')
-        setOnlineStatsRows([])
-        setOnlineDailyTotals([])
-        setOnlineStatsSummary({
-          class_name: '',
-          student_count: 0,
-          active_count: 0,
-          class_total_seconds: 0,
-        })
-      } finally {
-        setOnlineStatsLoading(false)
-      }
+    void loadPracticeRank()
+  }, [loadPracticeRank])
+
+  const loadOnlineStats = useCallback(async () => {
+    if (!CAN_USE_API || onlineStatsClassId == null) {
+      setOnlineStatsRows([])
+      setOnlineDailyTotals([])
+      setOnlineStatsSummary({
+        class_name: '',
+        student_count: 0,
+        active_count: 0,
+        class_total_seconds: 0,
+      })
+      return
     }
-    void loadOnlineStats()
+    try {
+      setOnlineStatsLoading(true)
+      const params = new URLSearchParams()
+      params.set('classId', String(onlineStatsClassId))
+      params.set('period', 'today')
+      params.set('date', onlineStatsDate || beijingCalendarDateKey())
+      const response = await teacherAdminFetch(`${API_BASE_URL}/api/dashboard/student-online-stats?${params.toString()}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message || `加载在线时长失败(${response.status})`)
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+      setOnlineStatsRows(Array.isArray(data.rows) ? data.rows : [])
+      setOnlineDailyTotals(Array.isArray(data.daily_totals) ? data.daily_totals : [])
+      setOnlineStatsSummary({
+        class_name: String(data.class_name || ''),
+        student_count: Number(data.student_count || 0),
+        active_count: Number(data.active_count || 0),
+        class_total_seconds: Number(data.class_total_seconds || 0),
+      })
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载在线时长失败')
+      setOnlineStatsRows([])
+      setOnlineDailyTotals([])
+      setOnlineStatsSummary({
+        class_name: '',
+        student_count: 0,
+        active_count: 0,
+        class_total_seconds: 0,
+      })
+    } finally {
+      setOnlineStatsLoading(false)
+      setOnlineTimelineRefreshKey((k) => k + 1)
+    }
   }, [authToken, onlineStatsClassId, onlineStatsDate])
+
+  useEffect(() => {
+    void loadOnlineStats()
+  }, [loadOnlineStats])
 
   useEffect(() => {
     if (!onlineStatsRows.length || onlineTimelineStudentId != null) return
@@ -1060,9 +1064,18 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       <Card
         title="班级刷题排行榜"
         extra={
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            排名分 = 答对次数 × 正确率（与小程序一致）
-          </Typography.Text>
+          <Space size="middle" wrap>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              排名分 = 答对次数 × 正确率（与小程序一致）
+            </Typography.Text>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={practiceRankLoading}
+              onClick={() => void loadPracticeRank()}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -1133,9 +1146,18 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
       <Card
         title="班级在线时长"
         extra={
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            活跃=有在线记录或刷题作答；时长仅统计在线会话
-          </Typography.Text>
+          <Space size="middle" wrap>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              活跃=有在线记录或刷题作答；时长仅统计在线会话
+            </Typography.Text>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={onlineStatsLoading}
+              onClick={() => void loadOnlineStats()}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -1204,6 +1226,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                 date={onlineStatsDate}
                 authToken={authToken}
                 studentName={onlineStatsRows.find((r) => r.student_id === onlineTimelineStudentId)?.name}
+                refreshKey={onlineTimelineRefreshKey}
               />
             </Space>
           </Card>

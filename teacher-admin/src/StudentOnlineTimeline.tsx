@@ -60,6 +60,8 @@ type StudentOnlineTimelineProps = {
   authToken: string
   studentName?: string
   prominent?: boolean
+  /** 父级手动刷新时递增，触发时间轴重新拉取 */
+  refreshKey?: number
 }
 
 export function StudentOnlineTimeline({
@@ -69,6 +71,7 @@ export function StudentOnlineTimeline({
   authToken,
   studentName,
   prominent = false,
+  refreshKey = 0,
 }: StudentOnlineTimelineProps) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<OnlineTimelinePayload | null>(null)
@@ -104,7 +107,7 @@ export function StudentOnlineTimeline({
       }
     }
     void load()
-  }, [authToken, classId, studentId, date])
+  }, [authToken, classId, studentId, date, refreshKey])
 
   const rangeMs = useMemo(() => {
     if (!data?.range_start || !data?.range_end) return { start: 0, end: 1 }
