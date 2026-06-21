@@ -626,6 +626,14 @@ body {
   cursor: pointer;
 }
 
+.dashboard-online-bar-bg {
+  cursor: pointer;
+}
+
+.dashboard-online-bar-bg:hover {
+  fill: rgba(0, 0, 0, 0.07);
+}
+
 .dashboard-online-bar .recharts-bar-rectangle:hover {
   filter: brightness(1.08);
 }

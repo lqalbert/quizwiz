@@ -638,17 +638,28 @@ function DashboardOnlineBarTick({
   y = 0,
   payload,
   index = 0,
+  studentId,
+  onSelect,
 }: {
   x?: number
   y?: number
   payload?: { value?: string }
   index?: number
+  studentId?: number
+  onSelect?: (studentId: number) => void
 }) {
   const [line1, line2] = splitStudentNameTwoLines(String(payload?.value || ''))
   const stagger = index % 2 === 1 ? 18 : 0
+  const handleClick = () => {
+    if (studentId != null && onSelect) onSelect(studentId)
+  }
   return (
-    <g transform={`translate(${x},${y + stagger})`}>
-      <text textAnchor="middle" fill="#595959" fontSize={12}>
+    <g
+      transform={`translate(${x},${y + stagger})`}
+      style={{ cursor: studentId != null && onSelect ? 'pointer' : undefined }}
+      onClick={handleClick}
+    >
+      <text textAnchor="middle" fill="#595959" fontSize={12} pointerEvents="none">
         <tspan x={0} dy={12}>
           {line1}
         </tspan>
@@ -1234,7 +1245,7 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
           </div>
           <div className="dashboard-online-bar-section">
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              学生在线时长对比（{onlineBarChartSubtitle}；点击柱形可切换上方时间轴学生）
+              学生在线时长对比（{onlineBarChartSubtitle}；点击柱形、列背景或姓名可切换上方时间轴学生）
             </Typography.Text>
             <div className="dashboard-online-bar-scroll">
               <div className="dashboard-online-bar-inner" style={{ minWidth: onlineBarChartMinWidth }}>
@@ -1253,14 +1264,19 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                       <XAxis
                         dataKey="name"
                         interval={0}
-                        tick={(props) => (
-                          <DashboardOnlineBarTick
-                            x={typeof props.x === 'number' ? props.x : Number(props.x)}
-                            y={typeof props.y === 'number' ? props.y : Number(props.y)}
-                            payload={props.payload}
-                            index={props.index}
-                          />
-                        )}
+                        tick={(props) => {
+                          const idx = typeof props.index === 'number' ? props.index : 0
+                          return (
+                            <DashboardOnlineBarTick
+                              x={typeof props.x === 'number' ? props.x : Number(props.x)}
+                              y={typeof props.y === 'number' ? props.y : Number(props.y)}
+                              payload={props.payload}
+                              index={idx}
+                              studentId={onlineBarChartData[idx]?.student_id}
+                              onSelect={handleOnlineBarStudentSelect}
+                            />
+                          )
+                        }}
                         height={88}
                       />
                       <YAxis unit="分" allowDecimals />
@@ -1275,8 +1291,30 @@ function DashboardPage({ role, themePrimary }: { role: RoleType; themePrimary: s
                         dataKey="minutes"
                         radius={[6, 6, 0, 0]}
                         maxBarSize={48}
+                        minPointSize={4}
                         className="dashboard-online-bar"
                         cursor="pointer"
+                        background={(bg) => {
+                          const idx = typeof bg.index === 'number' ? bg.index : -1
+                          const entry = idx >= 0 ? onlineBarChartData[idx] : undefined
+                          if (!entry || bg.x == null || bg.y == null || bg.width == null || bg.height == null) {
+                            return null
+                          }
+                          const selected = entry.student_id === onlineTimelineStudentId
+                          return (
+                            <rect
+                              x={bg.x}
+                              y={bg.y}
+                              width={bg.width}
+                              height={bg.height}
+                              fill={selected ? `${themePrimary}18` : 'rgba(0, 0, 0, 0.04)'}
+                              rx={6}
+                              ry={6}
+                              className="dashboard-online-bar-bg"
+                              onClick={() => handleOnlineBarStudentSelect(entry.student_id)}
+                            />
+                          )
+                        }}
                         onClick={(bar) => {
                           const row = bar?.payload as { student_id?: number } | undefined
                           handleOnlineBarStudentSelect(Number(row?.student_id))
