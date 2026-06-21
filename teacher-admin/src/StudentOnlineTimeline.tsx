@@ -1,5 +1,5 @@
 import { Empty, Spin, Typography } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatBeijingDateTime } from './beijingTime'
 
 const API_BASE_URL = (() => {
@@ -76,6 +76,7 @@ export function StudentOnlineTimeline({
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<OnlineTimelinePayload | null>(null)
   const [error, setError] = useState('')
+  const eventListRef = useRef<HTMLUListElement>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -108,6 +109,21 @@ export function StudentOnlineTimeline({
     }
     void load()
   }, [authToken, classId, studentId, date, refreshKey])
+
+  const eventScrollKey = useMemo(() => {
+    if (!data?.events?.length) return ''
+    const last = data.events[data.events.length - 1]
+    return `${data.events.length}:${last?.at ?? ''}:${last?.kind ?? ''}`
+  }, [data?.events])
+
+  useEffect(() => {
+    if (loading || !eventScrollKey) return
+    const el = eventListRef.current
+    if (!el) return
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+  }, [eventScrollKey, loading])
 
   const rangeMs = useMemo(() => {
     if (!data?.range_start || !data?.range_end) return { start: 0, end: 1 }
@@ -251,7 +267,7 @@ export function StudentOnlineTimeline({
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
             上下线记录
           </Typography.Text>
-          <ul className="online-timeline-event-list">
+          <ul ref={eventListRef} className="online-timeline-event-list">
             {data.events.map((ev, index) => (
               <li
                 key={`${ev.at}-${ev.kind}-${index}`}
